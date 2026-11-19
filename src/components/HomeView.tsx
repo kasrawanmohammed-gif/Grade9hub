@@ -30,7 +30,7 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
-import prismHeroImg from '../assets/images/physics_optics_prism_hero_1794573933754.jpg';
+import { AllScienceVisual } from './AllScienceVisual';
 
 interface HomeViewProps {
   user: User;
@@ -181,14 +181,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        <div className="lg:col-span-5 min-h-[220px] relative bg-[#F4EFE8]">
-          <img
-            src={prismHeroImg}
-            alt="Science prism refracting light beam"
-            referrerPolicy="no-referrer"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#1C1917]/50 via-transparent to-transparent pointer-events-none" />
+        <div className="lg:col-span-5 min-h-[220px] sm:min-h-[250px] lg:min-h-full relative overflow-hidden bg-[#F4EFE8] border-t lg:border-t-0 lg:border-s border-[#E6DFD5]">
+          <AllScienceVisual />
         </div>
       </section>
 
