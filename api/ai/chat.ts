@@ -7,10 +7,10 @@ const ALLOWED_MODELS = new Set<TutorModelId>([
   'gemini-3.1-flash-lite',
 ]);
 
-const MAX_HISTORY_TURNS = 12;
-const MAX_HISTORY_TURN_CHARS = 1400;
+const MAX_HISTORY_TURNS = 8;
+const MAX_HISTORY_TURN_CHARS = 1000;
 const CONCISE_SI_RULE =
-  'Grade 9 Science Tutor rules: Be accurate, clear, and concise. Always use standard international Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic replies.';
+  'Grade 9 Science Tutor: be accurate, clear, and concise. Use Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic.';
 
 interface RawTurn {
   role?: string;
@@ -51,10 +51,31 @@ function buildCleanHistory(rawHistory: unknown) {
 
 function formatError(err: unknown): { status: number; message: string } {
   const raw = err instanceof Error ? err.message : String(err || 'Gemini API request failed.');
+  let extracted = raw;
+  try {
+    const jsonStart = raw.indexOf('{');
+    if (jsonStart !== -1) {
+      const parsed = JSON.parse(raw.slice(jsonStart)) as {
+        error?: { message?: string };
+      };
+      if (parsed?.error?.message) {
+        extracted = parsed.error.message;
+      }
+    }
+  } catch {
+    // keep raw message
+  }
+
   if (raw.includes('GEMINI_API_KEY')) {
     return {
       status: 503,
       message: 'GEMINI_API_KEY is not configured in server secrets.',
+    };
+  }
+  if (raw.includes('404') || raw.includes('NOT_FOUND')) {
+    return {
+      status: 404,
+      message: `The selected AI model is temporarily unavailable (${extracted}). Please try again.`,
     };
   }
   if (raw.includes('403') || raw.includes('PERMISSION_DENIED') || raw.includes('API_KEY_INVALID')) {
@@ -69,7 +90,11 @@ function formatError(err: unknown): { status: number; message: string } {
       message: 'Gemini API rate limit reached. Please wait a moment and try again.',
     };
   }
-  return { status: 500, message: raw };
+  return { status: 500, message: extracted };
+}
+
+export async function OPTIONS(): Promise<Response> {
+  return new Response(null, { status: 204 });
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -114,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const trimmedInstruction = String(body?.systemInstruction || '').trim().slice(0, 600);
+  const trimmedInstruction = String(body?.systemInstruction || '').trim().slice(0, 450);
   const combinedSystemInstruction = trimmedInstruction
     ? `${trimmedInstruction}\n${CONCISE_SI_RULE}`
     : CONCISE_SI_RULE;
@@ -193,6 +218,7 @@ export async function POST(request: Request): Promise<Response> {
         headers: {
           'Content-Type': 'text/event-stream; charset=utf-8',
           'Cache-Control': 'no-cache, no-transform',
+          'X-Accel-Buffering': 'no',
         },
       });
     } catch (err) {

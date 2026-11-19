@@ -4260,12 +4260,14 @@ async function startServer() {
   });
 
   // ---------------- GEMINI AI TUTOR & IMAGE GENERATOR ----------------
-  const requireAiAuth = async (
+  // Optional user resolver: attaches req.user for activity/points tracking when signed in,
+  // but never blocks AI Studio chat or diagram generation when unauthenticated or in cloud/guest mode.
+  const optionalAiAuth = async (
     req: AuthenticatedRequest,
-    res: Response,
+    _res: Response,
     next: NextFunction
   ): Promise<void> => {
-    const { user, needsPassportRestore } = getAuthenticatedUserWithMeta(req);
+    const { user } = getAuthenticatedUserWithMeta(req);
     if (user) {
       req.user = user;
       next();
@@ -4291,22 +4293,15 @@ async function startServer() {
             name: row.name,
           } as AuthenticatedRequest['user'];
         }
-        next();
-        return;
       } catch {
-        // invalid Firebase ID token -> fall through to 401
+        // Proceed without req.user so AI chat remains unblocked
       }
     }
 
-    res.status(401).json({
-      error: 'Authentication required. Please log in.',
-      ...(needsPassportRestore
-        ? { needsPassportRestore: true, dbEmpty: getRealUserCount() === 0 }
-        : {}),
-    });
+    next();
   };
 
-  app.post('/api/ai/chat', requireAiAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/ai/chat', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
     const model = String(req.body?.model || 'gemini-4-hydrogen');
     const systemInstruction = String(
       req.body?.systemInstruction ||
@@ -4395,7 +4390,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/ai/generate-image', requireAiAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/ai/generate-image', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const prompt = String(req.body?.prompt || '').trim();
       const imageSize = String(req.body?.imageSize || '1K');

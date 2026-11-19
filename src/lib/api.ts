@@ -1,4 +1,3 @@
-import { auth } from './firebase';
 import { getActivePassport, saveUserPassport } from './recoveryVault';
 import {
   handleStaticApiFallback,
@@ -353,115 +352,116 @@ export interface StreamAiChatParams {
   onChunk: (deltaText: string) => void;
 }
 
-async function streamFallbackText(
-  text: string,
-  onChunk: (deltaText: string) => void
-): Promise<void> {
-  const parts = text.match(/\S+\s*/g);
-  if (!parts || parts.length <= 1) {
-    if (text) onChunk(text);
-    return;
-  }
-  const batchSize = 3;
-  for (let i = 0; i < parts.length; i += batchSize) {
-    onChunk(parts.slice(i, i + batchSize).join(''));
-    await new Promise((resolve) => setTimeout(resolve, 14));
-  }
-}
-
 export async function streamAiTutorChat(
   params: StreamAiChatParams
 ): Promise<{ reply: string; model: string }> {
   const payload = JSON.stringify({
     model: params.model,
-    systemInstruction: params.systemInstruction.trim().slice(0, 600),
-    history: params.history.slice(-12).map((t) => ({
+    systemInstruction: params.systemInstruction.trim().slice(0, 450),
+    history: params.history.slice(-8).map((t) => ({
       role: t.role,
-      text: t.text.slice(0, 1400),
+      text: t.text.slice(0, 1000),
     })),
     message: params.message,
     lang: params.lang,
     stream: true,
   });
 
-  let firebaseIdToken = '';
-  try {
-    if (auth.currentUser) {
-      firebaseIdToken = await Promise.race([
-        auth.currentUser.getIdToken(),
-        new Promise<string>((resolve) => setTimeout(() => resolve(''), 1000)),
-      ]);
-    }
-  } catch {
-    // ignore if offline or Firebase token unavailable
-  }
+  const token = getStoredSessionToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream, application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
 
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let timedOut = false;
   const fetchTimer =
     controller && typeof setTimeout !== 'undefined'
-      ? setTimeout(() => controller.abort(), 25000)
+      ? setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+        }, 30000)
       : null;
 
-  const requestInit: RequestInit = {
-    method: 'POST',
-    headers: {
-      Accept: 'text/event-stream, application/json',
-      ...(firebaseIdToken ? { 'X-Firebase-Id-Token': firebaseIdToken } : {}),
-    },
-    body: payload,
-    ...(controller ? { signal: controller.signal } : {}),
-  };
+  const sendDirectChatRequest = (endpoint: string) =>
+    fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: payload,
+      ...(controller ? { signal: controller.signal } : {}),
+    });
 
-  const runCurriculumFallback = async () => {
-    const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
-      '/api/ai/chat',
-      { method: 'POST', body: payload }
-    );
-    const replyText = (fallback.reply || '').trim();
-    if (replyText) {
-      await streamFallbackText(replyText, params.onChunk);
-    }
-    return { reply: replyText, model: fallback.model || params.model };
-  };
-
+  const primaryEndpoint = resolveApiUrl('/api/ai/chat');
   let response: Response;
   try {
-    response = await performFetch('/api/ai/chat', requestInit);
-  } catch {
-    if (fetchTimer) clearTimeout(fetchTimer);
-    return await runCurriculumFallback();
-  }
-  if (fetchTimer) clearTimeout(fetchTimer);
-
-  if (response.status === 401) {
-    const firstErrData = (await response.clone().json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    if (firstErrData.needsPassportRestore) {
-      const restored = await tryRestoreActiveSessionPassport();
-      if (restored?.user) {
-        response = await performFetch('/api/ai/chat', requestInit);
+    response = await sendDirectChatRequest(primaryEndpoint);
+    if (
+      API_BASE &&
+      primaryEndpoint !== '/api/ai/chat' &&
+      (response.status === 404 ||
+        response.status === 405 ||
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504)
+    ) {
+      response = await sendDirectChatRequest('/api/ai/chat');
+    }
+  } catch (networkErr) {
+    if (API_BASE && primaryEndpoint !== '/api/ai/chat' && !timedOut) {
+      try {
+        response = await sendDirectChatRequest('/api/ai/chat');
+      } catch (retryErr) {
+        if (fetchTimer) clearTimeout(fetchTimer);
+        if (timedOut || (retryErr instanceof DOMException && retryErr.name === 'AbortError')) {
+          throw new ApiError(
+            'The AI response timed out. Please try a shorter question or try again.',
+            408
+          );
+        }
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          throw new ApiError(
+            'You appear to be offline. Reconnect to the internet to chat with the AI Tutor.',
+            0
+          );
+        }
+        throw new ApiError(
+          'Unable to reach the AI chat service. Please check your connection and try again.',
+          0
+        );
       }
-    }
-    if (response.status === 401 && (isStaticHostMode() || Boolean(getStoredCachedUser()))) {
-      return await runCurriculumFallback();
+    } else {
+      if (fetchTimer) clearTimeout(fetchTimer);
+      if (timedOut || (networkErr instanceof DOMException && networkErr.name === 'AbortError')) {
+        throw new ApiError(
+          'The AI response timed out. Please try a shorter question or try again.',
+          408
+        );
+      }
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new ApiError(
+          'You appear to be offline. Reconnect to the internet to chat with the AI Tutor.',
+          0
+        );
+      }
+      throw new ApiError(
+        'Unable to reach the AI chat service. Please check your connection and try again.',
+        0
+      );
     }
   }
+
+  if (fetchTimer) clearTimeout(fetchTimer);
 
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
   const isSse = contentType.includes('text/event-stream');
   const isJson = contentType.includes('application/json');
 
-  // Fall back to client-side curriculum study assistant when live backend route is absent or unreachable
-  if (
-    response.status === 404 ||
-    response.status === 405 ||
-    response.status === 502 ||
-    response.status === 504 ||
-    (!isSse && !isJson)
-  ) {
-    return await runCurriculumFallback();
+  if (response.status === 404 || response.status === 405 || (!isSse && !isJson)) {
+    throw new ApiError(
+      'AI chat endpoint (/api/ai/chat) is unavailable on this host. Ensure your deployment includes the /api/ai/chat route with GEMINI_API_KEY configured.',
+      response.status || 404
+    );
   }
 
   if (!response.ok) {
@@ -469,11 +469,11 @@ export async function streamAiTutorChat(
     const errMsg =
       typeof errData.error === 'string' && errData.error
         ? errData.error
-        : `Request failed (${response.status})`;
+        : `AI Tutor request failed (${response.status}).`;
     throw new ApiError(errMsg, response.status, errData);
   }
 
-  if (contentType.includes('text/event-stream') && response.body) {
+  if (isSse && response.body) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';

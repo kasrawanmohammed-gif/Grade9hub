@@ -77,10 +77,10 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-const MAX_HISTORY_TURNS = 12;
-const MAX_HISTORY_TURN_CHARS = 1400;
+const MAX_HISTORY_TURNS = 8;
+const MAX_HISTORY_TURN_CHARS = 1000;
 const CONCISE_SI_RULE =
-  'Grade 9 Science Tutor rules: Be accurate, clear, and concise. Always use standard international Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic replies.';
+  'Grade 9 Science Tutor: be accurate, clear, and concise. Use Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic.';
 
 function prepareChatContext(params: {
   model: string;
@@ -122,7 +122,7 @@ function prepareChatContext(params: {
     parts: [{ text: turn.text }],
   }));
 
-  const trimmedInstruction = String(params.systemInstruction || '').trim().slice(0, 600);
+  const trimmedInstruction = String(params.systemInstruction || '').trim().slice(0, 450);
   const combinedSystemInstruction = trimmedInstruction
     ? `${trimmedInstruction}\n${CONCISE_SI_RULE}`
     : CONCISE_SI_RULE;

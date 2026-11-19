@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   Bot,
   Download,
   Image as ImageIcon,
   Send,
   Sparkles,
   Trash2,
+  X,
 } from 'lucide-react';
 import { apiFetch, streamAiTutorChat } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -93,7 +95,7 @@ export const AIStudioView: React.FC = () => {
     if (!message || chatLoading) return;
 
     const currentHistory = [...history];
-    const trimmedHistory = currentHistory.slice(-12);
+    const trimmedHistory = currentHistory.slice(-8);
     setHistory((prev) => [...prev, { role: 'user', text: message }]);
     setPromptInput('');
     setChatError(null);
@@ -326,8 +328,22 @@ export const AIStudioView: React.FC = () => {
             </div>
 
             {chatError && (
-              <div className="px-5 py-2.5 bg-[#FEF2F2] border-t border-[#DC2626]/30 text-xs text-[#991B1B]">
-                {chatError}
+              <div
+                role="alert"
+                className="px-5 py-2.5 bg-[#FEF2F2] border-t border-[#DC2626]/30 text-xs text-[#991B1B] flex items-center justify-between gap-3"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-[#DC2626]" />
+                  <span>{chatError}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setChatError(null)}
+                  aria-label="Dismiss error"
+                  className="p-1 rounded-md text-[#991B1B]/70 hover:text-[#991B1B] cursor-pointer shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               </div>
             )}
 
