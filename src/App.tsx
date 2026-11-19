@@ -80,6 +80,7 @@ import { AboutView } from './components/AboutView';
 import { UserAvatar } from './components/UserAvatar';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
+import { useStudentGreeting } from './utils/greeting';
 import {
   MAIN_ADMIN_EMAIL,
   pullAllSchoolAccountsAsAdmin,
@@ -92,6 +93,7 @@ import {
 
 export default function App() {
   const { language, t, dir } = useLanguage();
+  const studentGreeting = useStudentGreeting(t);
   const [showSplash, setShowSplash] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -1375,7 +1377,15 @@ export default function App() {
         </header>
 
         {/* Scrollable Workspace Content */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-6 sm:py-8 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-5 sm:py-7 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
+          <div
+            role="status"
+            className="mb-5 rounded-xl border border-[#E6DFD5] bg-[#FBF4DF]/65 px-4 py-2.5 flex items-center gap-2.5 text-xs sm:text-sm font-medium text-[#1C1917]"
+          >
+            <Sparkles className="w-4 h-4 text-[#6B1118] shrink-0" aria-hidden="true" />
+            <span>{studentGreeting}</span>
+          </div>
+
           {showNotifBanner && !showNotifPrompt && (
             <div
               role="region"

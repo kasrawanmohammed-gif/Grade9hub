@@ -36,6 +36,10 @@ export interface Translations {
     installIOSStep2: string;
     installIOSStep3: string;
     gotIt: string;
+    greetingMorning: string;
+    greetingAfternoon: string;
+    greetingEvening: string;
+    studentGreetingTemplate: string;
   };
   nav: {
     home: string;
@@ -831,6 +835,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '2. Scroll down and select Add to Home Screen.',
       installIOSStep3: '3. Tap Add in the top-right corner to launch Grade 9 Hub as an app.',
       gotIt: 'Got It',
+      greetingMorning: 'Good morning',
+      greetingAfternoon: 'Good afternoon',
+      greetingEvening: 'Good evening',
+      studentGreetingTemplate:
+        'Welcome, dear student! {timeGreeting}—we’re glad you’re here and wish you a focused, rewarding learning session ahead.',
     },
     nav: {
       home: 'Home',
@@ -1636,6 +1645,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '٢. بڕۆ خوارەوە و Add to Home Screen هەڵبژێرە.',
       installIOSStep3: '٣. کرتە لە Add بکە بۆ کردنەوەی وەک ئەپڵیکەیشن.',
       gotIt: 'تێگەیشتم',
+      greetingMorning: 'بەیانیت باش',
+      greetingAfternoon: 'پاشنیوەڕۆت باش',
+      greetingEvening: 'ئێوارەت باش',
+      studentGreetingTemplate:
+        'بەخێربێیت قوتابی خۆشەویست! {timeGreeting} — خۆشحاڵین بە ئامادەبوونت و هیوای خوێندنێکی سەرکەوتووت بۆ دەخوازین.',
     },
     nav: {
       home: 'سەرەکی',
@@ -2441,6 +2455,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '٢. مرّر للأسفل واختر إضافة إلى الشاشة الرئيسية (Add to Home Screen).',
       installIOSStep3: '٣. اضغط على إضافة (Add) لفتح التطبيق مباشرة.',
       gotIt: 'فهمت',
+      greetingMorning: 'صباح الخير',
+      greetingAfternoon: 'طاب مساؤك',
+      greetingEvening: 'مساء الخير',
+      studentGreetingTemplate:
+        'مرحباً بك يا طالبي العزيز! {timeGreeting} — يسعدنا وجودك ونتمنى لك وقتاً مثمراً وموفقاً في التعلم.',
     },
     nav: {
       home: 'الرئيسية',

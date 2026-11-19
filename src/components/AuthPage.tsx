@@ -43,6 +43,7 @@ import {
   syncCurrentUserToFirestore,
 } from '../lib/cloudAccounts';
 import { formatMsg } from '../i18n/translations';
+import { useStudentGreeting } from '../utils/greeting';
 import { User } from '../types';
 import { LanguageSwitcher, useLanguage } from '../contexts/LanguageContext';
 import { ThemeToggleButton } from '../contexts/SettingsContext';
@@ -58,6 +59,7 @@ type ForgotStep = 'email' | 'verify' | 'reset' | 'done';
 
 export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
   const { t, dir } = useLanguage();
+  const studentGreeting = useStudentGreeting(t);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -481,13 +483,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
             </div>
           </div>
 
-          {/* Dominant Centered Main Title & Motivational Quote (Mobile / Tablet Red Header Banner) */}
+          {/* Dominant Centered Main Title & Student Greeting (Mobile / Tablet Red Header Banner) */}
           <div className="lg:hidden relative z-20 my-auto pt-1.5 pb-0.5 sm:pt-3 sm:pb-1 text-center px-1">
-            <h1 className="text-[18px] sm:text-2xl font-extrabold tracking-tight text-white leading-[1.15] [text-wrap:balance] max-w-md mx-auto">
+            <p className="text-[11px] sm:text-xs font-semibold text-[#FBF4DF] leading-snug max-w-md mx-auto mb-1">
+              {studentGreeting}
+            </p>
+            <h1 className="text-[17px] sm:text-xl font-extrabold tracking-tight text-white leading-[1.15] [text-wrap:balance] max-w-md mx-auto">
               {t.auth.heroTitle}
             </h1>
             <p
-              className={`mt-1 sm:mt-2 inline-flex items-center justify-center gap-1 text-[11px] sm:text-xs font-medium text-[#FBF4DF]/90 leading-snug tracking-wide max-w-sm mx-auto ${
+              className={`mt-1 sm:mt-1.5 inline-flex items-center justify-center gap-1 text-[10px] sm:text-xs font-medium text-[#FBF4DF]/85 leading-snug tracking-wide max-w-sm mx-auto ${
                 dir === 'rtl' ? 'not-italic' : 'italic'
               }`}
             >
@@ -496,8 +501,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
             </p>
           </div>
 
-          {/* Dominant Centered Main Title & Motivational Quote (Desktop / Laptop Showcase) */}
+          {/* Dominant Centered Main Title & Student Greeting (Desktop / Laptop Showcase) */}
           <div className="hidden lg:flex flex-col items-center justify-center relative z-10 my-auto max-w-xl mx-auto text-center px-2">
+            <p className="mb-3 text-sm font-semibold text-[#FBF4DF] bg-white/10 border border-white/15 rounded-xl px-4 py-2 leading-relaxed">
+              {studentGreeting}
+            </p>
             <h1 className="text-4xl xl:text-5xl font-extrabold leading-[1.12] tracking-tight text-white [text-wrap:balance]">
               {t.auth.heroTitle}
             </h1>
