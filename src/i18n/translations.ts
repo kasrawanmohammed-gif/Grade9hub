@@ -25,6 +25,7 @@ export interface Translations {
     scienceStudio: string;
     schoolTag: string;
     motivationalQuote: string;
+    motivationalQuotes: string[];
     poweredBy: string;
     splashSubtitle: string;
     offlineMode: string;
@@ -824,6 +825,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       scienceStudio: 'Science AI Studio',
       schoolTag: 'Grade 9 Hub · Grade 9 Science',
       motivationalQuote: 'Your effort today is the glory of your tomorrow.',
+      motivationalQuotes: [
+        'Your effort today is the glory of your tomorrow.',
+        'Curiosity is the spark that turns questions into discovery.',
+        'Every science problem solved today builds a sharper mind.',
+        'Small steps in study every day create extraordinary results.',
+        'Science rewards patience, practice, and a questioning mind.',
+        'Mistakes in practice are stepping stones to mastery.',
+      ],
       poweredBy: 'Powered by Mr. Kasrawan',
       splashSubtitle: 'Grade 9 Science Interactive Learning Platform',
       offlineMode: 'Offline Mode — Viewing cached content',
@@ -1634,6 +1643,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       scienceStudio: 'ستۆدیۆی زیرەکی زانست',
       schoolTag: 'ناوەندی پۆلی ٩ · زانستی پۆلی ٩',
       motivationalQuote: 'هەوڵی ئەمڕۆت، شکۆی سبەینێتە.',
+      motivationalQuotes: [
+        'هەوڵی ئەمڕۆت، شکۆی سبەینێتە.',
+        'پرسیارکردن و کنەکردن سەرەتای هەموو دۆزینەوەیەکی زانستین.',
+        'هەر پرسیارێک ئەمڕۆ شیکاری بکەیت، مێشکت بەهێزتر دەکات.',
+        'هەنگاوی بچووکی ڕۆژانە لە خوێندندا ئەنجامی گەورە دەهێنێتە دی.',
+        'زانست پاداشتی ئارامگری، ڕاهێنان و بیری ورد دەداتەوە.',
+        'هەڵەکردن لە ڕاهێناندا پێشەکییە بۆ شارەزابوونی تەواو.',
+      ],
       poweredBy: 'ئامادەکراوە لەلایەن م. کەسرەوان',
       splashSubtitle: 'پلاتفۆرمی فێربوونی کارلێکەری زانست بۆ پۆلی ٩',
       offlineMode: 'دۆخی بێ ئینتەرنێت — بینینی ناوەڕۆکی پاشەکەوتکراو',
@@ -2444,6 +2461,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       scienceStudio: 'استوديو الذكاء العلمي',
       schoolTag: 'منصة الصف التاسع · علوم الصف التاسع',
       motivationalQuote: 'جهدك اليوم هو مجدك غداً.',
+      motivationalQuotes: [
+        'جهدك اليوم هو مجدك غداً.',
+        'الفضول العلمي هو الشرارة التي تحوّل الأسئلة إلى اكتشاف.',
+        'كل مسألة علمية تحلها اليوم تصنع عقلاً أكثر تميزاً.',
+        'الخطوات الدراسية الصغيرة كل يوم تصنع نتائج عظيمة.',
+        'العلم يكافئ الصبر والمثابرة والعقل المتسائل.',
+        'أخطاء التدريب هي درجات تقودك إلى الإتقان.',
+      ],
       poweredBy: 'إدارة وتطوير الأستاذ كسروان',
       splashSubtitle: 'منصة تفاعلية لتعلّم العلوم للصف التاسع',
       offlineMode: 'وضع عدم الاتصال — عرض المحتوى المحفوظ',

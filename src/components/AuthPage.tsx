@@ -11,7 +11,6 @@ import {
   Lock,
   Mail,
   ShieldCheck,
-  Sparkles,
   Upload,
 } from 'lucide-react';
 import {
@@ -48,6 +47,7 @@ import { User } from '../types';
 import { LanguageSwitcher, useLanguage } from '../contexts/LanguageContext';
 import { ThemeToggleButton } from '../contexts/SettingsContext';
 import { PWAInstallButton } from './PWAInstallButton';
+import { RotatingQuote } from './RotatingQuote';
 import prismHeroImg from '../assets/images/physics_optics_prism_hero_1794573933754.jpg';
 
 interface AuthPageProps {
@@ -491,14 +491,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
             <h1 className="text-[17px] sm:text-xl font-extrabold tracking-tight text-white leading-[1.15] [text-wrap:balance] max-w-md mx-auto">
               {t.auth.heroTitle}
             </h1>
-            <p
-              className={`mt-1 sm:mt-1.5 inline-flex items-center justify-center gap-1 text-[10px] sm:text-xs font-medium text-[#FBF4DF]/85 leading-snug tracking-wide max-w-sm mx-auto ${
-                dir === 'rtl' ? 'not-italic' : 'italic'
-              }`}
-            >
-              <Sparkles className="w-3 h-3 text-[#E5B742] shrink-0" aria-hidden="true" />
-              <span>“{t.brand.motivationalQuote}”</span>
-            </p>
+            <RotatingQuote
+              quotes={t.brand.motivationalQuotes}
+              dir={dir}
+              className="mt-1 sm:mt-1.5 text-[10px] sm:text-xs font-medium text-[#FBF4DF]/85 leading-snug tracking-wide max-w-sm mx-auto"
+              iconClassName="w-3 h-3 text-[#E5B742] shrink-0"
+            />
           </div>
 
           {/* Dominant Centered Main Title & Student Greeting (Desktop / Laptop Showcase) */}
@@ -509,14 +507,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
             <h1 className="text-4xl xl:text-5xl font-extrabold leading-[1.12] tracking-tight text-white [text-wrap:balance]">
               {t.auth.heroTitle}
             </h1>
-            <p
-              className={`mt-4 inline-flex items-center justify-center gap-2 text-base font-medium text-[#FBF4DF]/90 leading-snug tracking-wide ${
-                dir === 'rtl' ? 'not-italic' : 'italic'
-              }`}
-            >
-              <Sparkles className="w-4 h-4 text-[#E5B742] shrink-0" aria-hidden="true" />
-              <span>“{t.brand.motivationalQuote}”</span>
-            </p>
+            <RotatingQuote
+              quotes={t.brand.motivationalQuotes}
+              dir={dir}
+              className="mt-4 text-base font-medium text-[#FBF4DF]/90 leading-snug tracking-wide gap-2"
+              iconClassName="w-4 h-4 text-[#E5B742] shrink-0"
+            />
             <div className="mt-8 w-full grid grid-cols-3 gap-4 border-t border-white/15 pt-5 text-sm">
               <div>
                 <p className="text-xl font-bold text-[#E5B742] tabular-nums">11</p>
