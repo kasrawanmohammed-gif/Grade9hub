@@ -54,7 +54,7 @@ import {
 import { buildWrongOptionExplanation, SupportedLang } from './server/wrongOptionExplainer.ts';
 import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
 import { getPublicVapidKey, sendPushToAllStudents, sendPushToUser } from './server/push.ts';
-import { runTutorChat, generateStudyImage } from './server/gemini.ts';
+import { runTutorChat, runTutorChatStream, generateStudyImage } from './server/gemini.ts';
 import { registerCommunityRoutes, logStudentActivity } from './server/communityRoutes.ts';
 import { normalizeScientificUnits } from './server/unitSanitizer.ts';
 import { seedTextbooksIfNeeded } from './server/seedTextbooks.ts';
@@ -1189,6 +1189,26 @@ async function startServer() {
 
   app.use(express.json({ limit: '25mb' }));
   app.use(cookieParser());
+
+  // Allow cross-origin frontend deployments (e.g., grade9hub.vercel.app -> Cloud Run API)
+  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-Remember-Me, Accept'
+      );
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
 
   // Request-level guard: if SQLite users table is ever empty (e.g. rebuild/URL swap/restart),
   // immediately hydrate from src/data/persistent_backup.json before handling ANY API request.
@@ -4241,35 +4261,86 @@ async function startServer() {
 
   // ---------------- GEMINI AI TUTOR & IMAGE GENERATOR ----------------
   app.post('/api/ai/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-    try {
-      const model = String(req.body?.model || 'gemini-4-hydrogen');
-      const systemInstruction = String(
-        req.body?.systemInstruction ||
-          'You are an encouraging Grade 9 Science Tutor for Grade 9 Hub. Explain concepts clearly with step-by-step reasoning and SI units.'
-      );
-      const history = Array.isArray(req.body?.history) ? req.body.history : [];
-      const message = String(req.body?.message || '').trim();
+    const model = String(req.body?.model || 'gemini-4-hydrogen');
+    const systemInstruction = String(
+      req.body?.systemInstruction ||
+        'Grade 9 Science Tutor: explain concepts clearly step-by-step with SI units.'
+    );
+    const history = Array.isArray(req.body?.history) ? req.body.history : [];
+    const message = String(req.body?.message || '').trim();
+    const wantsStream =
+      Boolean(req.body?.stream) ||
+      String(req.headers.accept || '').toLowerCase().includes('text/event-stream');
 
-      if (!message) {
-        res.status(400).json({ error: 'Please enter a message for the AI tutor.' });
-        return;
+    if (!message) {
+      res.status(400).json({ error: 'Please enter a message for the AI tutor.' });
+      return;
+    }
+
+    const recordAiTurn = () => {
+      try {
+        const chatUser = req.user!;
+        db.prepare(
+          "UPDATE users SET ai_tutor_turns = ai_tutor_turns + 1, last_active_at = datetime('now') WHERE id = ?"
+        ).run(chatUser.id);
+        logStudentActivity(chatUser.id, 'ai_tutor_used', message.slice(0, 100), 'ai_chat', null);
+        awardCompetitionPoints({
+          userId: chatUser.id,
+          eventKey: `ai-chat-${chatUser.id}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+          eventType: 'curriculum_activity',
+          points: COMPETITION_RULES.curriculumActivity,
+          chapterNumber: null,
+          details: 'Practiced science with AI Tutor',
+        });
+        broadcastAdminDashboard();
+      } catch {
+        // ignore telemetry/stat write failure
       }
+    };
 
+    if (wantsStream) {
+      let headersSent = false;
+      try {
+        const stream = runTutorChatStream({ model, systemInstruction, history, message });
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache, no-transform');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+        res.flushHeaders?.();
+        headersSent = true;
+
+        let finalModel = model;
+        let receivedAny = false;
+        for await (const part of stream) {
+          finalModel = part.model;
+          if (part.chunk) {
+            receivedAny = true;
+            res.write(`data: ${JSON.stringify({ chunk: part.chunk, model: part.model })}\n\n`);
+          }
+        }
+        if (!receivedAny) {
+          res.write(
+            `data: ${JSON.stringify({ chunk: 'I could not generate a response for that question.', model: finalModel })}\n\n`
+          );
+        }
+        res.write(`data: ${JSON.stringify({ done: true, model: finalModel })}\n\n`);
+        res.end();
+        recordAiTurn();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
+        if (!headersSent) {
+          res.status(500).json({ error: msg });
+        } else {
+          res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+          res.end();
+        }
+      }
+      return;
+    }
+
+    try {
       const result = await runTutorChat({ model, systemInstruction, history, message });
-      const chatUser = req.user!;
-      db.prepare("UPDATE users SET ai_tutor_turns = ai_tutor_turns + 1, last_active_at = datetime('now') WHERE id = ?").run(
-        chatUser.id
-      );
-      logStudentActivity(chatUser.id, 'ai_tutor_used', message.slice(0, 100), 'ai_chat', null);
-      awardCompetitionPoints({
-        userId: chatUser.id,
-        eventKey: `ai-chat-${chatUser.id}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-        eventType: 'curriculum_activity',
-        points: COMPETITION_RULES.curriculumActivity,
-        chapterNumber: null,
-        details: 'Practiced science with AI Tutor',
-      });
-      broadcastAdminDashboard();
+      recordAiTurn();
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';

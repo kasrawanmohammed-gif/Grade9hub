@@ -7,7 +7,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, streamAiTutorChat } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
 
@@ -17,7 +17,7 @@ interface ChatTurn {
 }
 
 export const AIStudioView: React.FC = () => {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [activeTool, setActiveTool] = useState<'chat' | 'image'>('chat');
 
   const tutorRoles = useMemo(
@@ -59,6 +59,7 @@ export const AIStudioView: React.FC = () => {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [promptInput, setPromptInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [streamingReply, setStreamingReply] = useState('');
   const [chatError, setChatError] = useState<string | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -92,28 +93,45 @@ export const AIStudioView: React.FC = () => {
     if (!message || chatLoading) return;
 
     const currentHistory = [...history];
+    const trimmedHistory = currentHistory.slice(-12);
     setHistory((prev) => [...prev, { role: 'user', text: message }]);
     setPromptInput('');
     setChatError(null);
+    setStreamingReply('');
     setChatLoading(true);
 
+    requestAnimationFrame(() => {
+      threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    });
+
+    let accumulated = '';
     try {
-      const data = await apiFetch<{ reply: string }>('/api/ai/chat', {
-        method: 'POST',
-        body: JSON.stringify({
-          model: selectedModel,
-          systemInstruction: customInstruction,
-          history: currentHistory,
-          message,
-        }),
+      const result = await streamAiTutorChat({
+        model: selectedModel,
+        systemInstruction: customInstruction,
+        history: trimmedHistory,
+        message,
+        lang: language,
+        onChunk: (delta) => {
+          accumulated += delta;
+          setStreamingReply(accumulated);
+          threadEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        },
       });
-      setHistory((prev) => [...prev, { role: 'model', text: data.reply }]);
+      const finalReply = result.reply || accumulated;
+      setHistory((prev) => [...prev, { role: 'model', text: finalReply }]);
+      setStreamingReply('');
       setTimeout(() => {
-        threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
+        threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 40);
     } catch (err) {
-      setHistory(currentHistory);
-      setPromptInput(message);
+      if (accumulated.trim()) {
+        setHistory((prev) => [...prev, { role: 'model', text: accumulated.trim() }]);
+      } else {
+        setHistory(currentHistory);
+        setPromptInput(message);
+      }
+      setStreamingReply('');
       setChatError(err instanceof Error ? err.message : 'Unable to reach Gemini tutor.');
     } finally {
       setChatLoading(false);
@@ -284,9 +302,24 @@ export const AIStudioView: React.FC = () => {
               )}
               {chatLoading && (
                 <div className="flex justify-start">
-                  <div className="rounded-2xl bg-white border border-[#E6DFD5] px-4 py-3 text-sm text-[#57534E]">
-                    {t.aiStudio.thinking}
-                  </div>
+                  {streamingReply ? (
+                    <div className="max-w-[85%] rounded-2xl bg-white border border-[#E6DFD5] px-4 py-3 text-sm leading-relaxed text-[#1C1917] whitespace-pre-wrap">
+                      {streamingReply}
+                      <span
+                        aria-hidden="true"
+                        className="inline-block w-1.5 h-4 ms-1 align-middle rounded-xs bg-[#6B1118]/70 animate-pulse"
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl bg-white border border-[#E6DFD5] px-4 py-3 text-sm text-[#57534E] inline-flex items-center gap-2.5">
+                      <span className="inline-flex items-center gap-1" aria-hidden="true">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#6B1118] animate-bounce [animation-delay:-0.25s]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#D9A62E] animate-bounce [animation-delay:-0.12s]" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#6B1118] animate-bounce" />
+                      </span>
+                      <span>{t.aiStudio.thinking}</span>
+                    </div>
+                  )}
                 </div>
               )}
               <div ref={threadEndRef} />

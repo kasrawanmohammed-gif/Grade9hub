@@ -285,7 +285,8 @@ export async function apiFetch<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  if (isStaticHostMode() && !API_BASE && url.startsWith('/api/')) {
+  const isAiEndpoint = url.startsWith('/api/ai/');
+  if (isStaticHostMode() && !API_BASE && url.startsWith('/api/') && !isAiEndpoint) {
     return invokeStaticFallback<T>(url, options);
   }
 
@@ -293,7 +294,7 @@ export async function apiFetch<T>(
   try {
     response = await performFetch(url, options);
   } catch (networkErr) {
-    if (!API_BASE && url.startsWith('/api/') && isStaticHostMode()) {
+    if (!API_BASE && url.startsWith('/api/') && (isStaticHostMode() || isAiEndpoint)) {
       return invokeStaticFallback<T>(url, options);
     }
     throw networkErr;
@@ -307,7 +308,7 @@ export async function apiFetch<T>(
     !API_BASE &&
     url.startsWith('/api/') &&
     (response.status === 404 || response.status === 405) &&
-    (!isJsonResponse || typeof data.error !== 'string' || isAlwaysBackendApiPath(url));
+    (!isJsonResponse || typeof data.error !== 'string' || isAlwaysBackendApiPath(url) || isAiEndpoint);
 
   if (shouldFallbackToStatic) {
     return invokeStaticFallback<T>(url, options);
@@ -340,4 +341,169 @@ export async function apiFetch<T>(
 
   capturePassportFromResponse(currentData);
   return currentData as T;
+}
+
+export interface StreamAiChatParams {
+  model: string;
+  systemInstruction: string;
+  history: Array<{ role: 'user' | 'model'; text: string }>;
+  message: string;
+  lang?: string;
+  onChunk: (deltaText: string) => void;
+}
+
+export async function streamAiTutorChat(
+  params: StreamAiChatParams
+): Promise<{ reply: string; model: string }> {
+  const payload = JSON.stringify({
+    model: params.model,
+    systemInstruction: params.systemInstruction.trim().slice(0, 600),
+    history: params.history.slice(-12).map((t) => ({
+      role: t.role,
+      text: t.text.slice(0, 1400),
+    })),
+    message: params.message,
+    lang: params.lang,
+    stream: true,
+  });
+
+  const requestInit: RequestInit = {
+    method: 'POST',
+    headers: {
+      Accept: 'text/event-stream, application/json',
+    },
+    body: payload,
+  };
+
+  let response: Response;
+  try {
+    response = await performFetch('/api/ai/chat', requestInit);
+  } catch (networkErr) {
+    if (!API_BASE) {
+      const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
+        '/api/ai/chat',
+        { method: 'POST', body: payload }
+      );
+      if (fallback.reply) params.onChunk(fallback.reply);
+      return { reply: fallback.reply, model: fallback.model || params.model };
+    }
+    throw networkErr;
+  }
+
+  if (response.status === 401) {
+    const firstErrData = (await response.clone().json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    if (firstErrData.needsPassportRestore) {
+      const restored = await tryRestoreActiveSessionPassport();
+      if (restored?.user) {
+        response = await performFetch('/api/ai/chat', requestInit);
+      }
+    }
+  }
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+
+  // Fall back cleanly to offline curriculum study assistant ONLY when /api/ai/chat route is absent (404/405)
+  if (!API_BASE && (response.status === 404 || response.status === 405)) {
+    const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
+      '/api/ai/chat',
+      { method: 'POST', body: payload }
+    );
+    if (fallback.reply) params.onChunk(fallback.reply);
+    return { reply: fallback.reply, model: fallback.model || params.model };
+  }
+
+  if (!response.ok) {
+    const errData = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const errMsg =
+      typeof errData.error === 'string' && errData.error
+        ? errData.error
+        : `Request failed (${response.status})`;
+    throw new ApiError(errMsg, response.status, errData);
+  }
+
+  if (contentType.includes('text/event-stream') && response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullReply = '';
+    let resolvedModel = params.model;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? '';
+
+      for (const evt of events) {
+        const lines = evt.split(/\r?\n/);
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const jsonText = line.slice(5).trim();
+          if (!jsonText) continue;
+          try {
+            const parsed = JSON.parse(jsonText) as {
+              chunk?: string;
+              done?: boolean;
+              error?: string;
+              model?: string;
+            };
+            if (parsed.error) {
+              throw new ApiError(parsed.error, 500);
+            }
+            if (parsed.model) {
+              resolvedModel = parsed.model;
+            }
+            if (parsed.chunk) {
+              fullReply += parsed.chunk;
+              params.onChunk(parsed.chunk);
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof ApiError) throw parseErr;
+          }
+        }
+      }
+    }
+
+    if (buffer.trim()) {
+      for (const line of buffer.split(/\r?\n/)) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const parsed = JSON.parse(line.slice(5).trim()) as {
+            chunk?: string;
+            error?: string;
+            model?: string;
+          };
+          if (parsed.error) throw new ApiError(parsed.error, 500);
+          if (parsed.model) resolvedModel = parsed.model;
+          if (parsed.chunk) {
+            fullReply += parsed.chunk;
+            params.onChunk(parsed.chunk);
+          }
+        } catch (parseErr) {
+          if (parseErr instanceof ApiError) throw parseErr;
+        }
+      }
+    }
+
+    return {
+      reply: fullReply.trim() || 'I could not generate a response for that question.',
+      model: resolvedModel,
+    };
+  }
+
+  const data = (await response.json().catch(() => ({}))) as {
+    reply?: string;
+    model?: string;
+  };
+  const reply = (data.reply || '').trim() || 'I could not generate a response for that question.';
+  params.onChunk(reply);
+  return {
+    reply,
+    model: data.model || params.model,
+  };
 }

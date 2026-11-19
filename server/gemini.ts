@@ -77,45 +77,73 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+const MAX_HISTORY_TURNS = 12;
+const MAX_HISTORY_TURN_CHARS = 1400;
+const CONCISE_SI_RULE =
+  'Grade 9 Science Tutor rules: Be accurate, clear, and concise. Always use standard international Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic replies.';
+
+function prepareChatContext(params: {
+  model: string;
+  systemInstruction: string;
+  history: ChatHistoryTurn[];
+}) {
+  const selectedModel: TutorModelId = ALLOWED_TUTOR_MODELS.has(params.model as TutorModelId)
+    ? (params.model as TutorModelId)
+    : 'gemini-4-hydrogen';
+
+  const recentSlice = Array.isArray(params.history)
+    ? params.history.slice(-MAX_HISTORY_TURNS)
+    : [];
+
+  // Ensure history alternates user -> model cleanly and never ends with a dangling user turn
+  const cleanTurns: ChatHistoryTurn[] = [];
+  for (const turn of recentSlice) {
+    const rawText = String(turn?.text || '').trim();
+    const text =
+      rawText.length > MAX_HISTORY_TURN_CHARS
+        ? `${rawText.slice(0, MAX_HISTORY_TURN_CHARS)}…`
+        : rawText;
+    const role = turn?.role === 'model' ? 'model' : 'user';
+    if (!text) continue;
+    if (cleanTurns.length === 0 && role !== 'user') continue;
+    const prev = cleanTurns[cleanTurns.length - 1];
+    if (prev && prev.role === role) {
+      prev.text = `${prev.text}\n${text}`;
+    } else {
+      cleanTurns.push({ role, text });
+    }
+  }
+  if (cleanTurns.length > 0 && cleanTurns[cleanTurns.length - 1].role === 'user') {
+    cleanTurns.pop();
+  }
+
+  const formattedHistory = cleanTurns.map((turn) => ({
+    role: turn.role,
+    parts: [{ text: turn.text }],
+  }));
+
+  const trimmedInstruction = String(params.systemInstruction || '').trim().slice(0, 600);
+  const combinedSystemInstruction = trimmedInstruction
+    ? `${trimmedInstruction}\n${CONCISE_SI_RULE}`
+    : CONCISE_SI_RULE;
+
+  return {
+    selectedModel,
+    formattedHistory,
+    combinedSystemInstruction,
+  };
+}
+
 export async function runTutorChat(params: {
   model: string;
   systemInstruction: string;
   history: ChatHistoryTurn[];
   message: string;
 }): Promise<{ reply: string; model: TutorModelId }> {
-  const selectedModel: TutorModelId = ALLOWED_TUTOR_MODELS.has(params.model as TutorModelId)
-    ? (params.model as TutorModelId)
-    : 'gemini-4-hydrogen';
+  const { selectedModel, formattedHistory, combinedSystemInstruction } = prepareChatContext(params);
 
   try {
     const ai = getClient();
-
-    // Ensure history alternates user -> model cleanly and never ends with a dangling user turn
-    const cleanTurns: ChatHistoryTurn[] = [];
-    for (const turn of params.history) {
-      const text = String(turn?.text || '').trim();
-      const role = turn?.role === 'model' ? 'model' : 'user';
-      if (!text) continue;
-      if (cleanTurns.length === 0 && role !== 'user') continue;
-      const prev = cleanTurns[cleanTurns.length - 1];
-      if (prev && prev.role === role) {
-        prev.text = `${prev.text}\n${text}`;
-      } else {
-        cleanTurns.push({ role, text });
-      }
-    }
-    if (cleanTurns.length > 0 && cleanTurns[cleanTurns.length - 1].role === 'user') {
-      cleanTurns.pop();
-    }
-
-    const formattedHistory = cleanTurns.map((turn) => ({
-      role: turn.role,
-      parts: [{ text: turn.text }],
-    }));
-
-    const strictUnitRule =
-      'CRITICAL FORMATTING RULE: Always keep standard international Latin SI/scientific unit symbols (e.g., N, kg, g, mg, m, cm, mm, km, s, m/s, m/s², J, kJ, W, kW, Hz, Pa, °C, °F, K, N·m, J/(kg·°C), A, V, Ω) and Western ASCII digits (0-9) for quantities and formulas across all languages (English, Kurdish, Arabic). NEVER translate or transliterate unit symbols into Kurdish or Arabic letters.';
-    const combinedSystemInstruction = `${params.systemInstruction}\n\n${strictUnitRule}`;
 
     const response: GenerateContentResponse = await withRetry(async () => {
       const chat = ai.chats.create({
@@ -138,6 +166,45 @@ export async function runTutorChat(params: {
       reply: response.text?.trim() || 'I could not generate a response for that question.',
       model: selectedModel,
     };
+  } catch (err) {
+    throw formatGeminiError(err);
+  }
+}
+
+export async function* runTutorChatStream(params: {
+  model: string;
+  systemInstruction: string;
+  history: ChatHistoryTurn[];
+  message: string;
+}): AsyncGenerator<{ chunk?: string; model: TutorModelId }> {
+  const { selectedModel, formattedHistory, combinedSystemInstruction } = prepareChatContext(params);
+
+  try {
+    const ai = getClient();
+
+    const streamResponse = await withRetry(async () => {
+      const chat = ai.chats.create({
+        model: selectedModel,
+        config: {
+          systemInstruction: combinedSystemInstruction,
+          ...(selectedModel === 'gemini-4-hydrogen'
+            ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+            : {}),
+        },
+        history: formattedHistory,
+      });
+
+      return await chat.sendMessageStream({
+        message: params.message,
+      });
+    });
+
+    for await (const chunk of streamResponse) {
+      const c = chunk as GenerateContentResponse;
+      if (c.text) {
+        yield { chunk: c.text, model: selectedModel };
+      }
+    }
   } catch (err) {
     throw formatGeminiError(err);
   }

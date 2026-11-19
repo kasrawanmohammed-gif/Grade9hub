@@ -1248,6 +1248,176 @@ export async function handleStaticApiFallback(
     };
   }
 
+  // 15b. Offline/Static Curriculum Study Assistant Fallback for /api/ai/chat
+  if (pathname === '/api/ai/chat' && method === 'POST') {
+    const docLang = typeof document !== 'undefined' ? document.documentElement.lang : 'en';
+    const lang = normalizeLang(typeof body.lang === 'string' ? body.lang : docLang);
+    const messageText = String(body.message || '').trim();
+    const historyTurns = Array.isArray(body.history)
+      ? (body.history as Array<{ role?: string; text?: string }>)
+      : [];
+
+    if (!messageText) {
+      throw new StaticFallbackHttpError('Please enter a message for the AI tutor.', 400);
+    }
+
+    const recentContextText = historyTurns
+      .slice(-4)
+      .filter((turn) => turn?.role === 'user')
+      .map((turn) => String(turn?.text || ''))
+      .join(' ');
+    const querySource = `${messageText} ${recentContextText}`.toLowerCase();
+    const tokens = Array.from(
+      new Set(
+        querySource
+          .replace(/[^\p{L}\p{N}\s²³/+.-]/gu, ' ')
+          .split(/\s+/)
+          .filter((w) => w.length >= 2)
+      )
+    );
+
+    const chapterMatch = messageText.match(/(?:chapter|ch|بەشی|فصل|الفصل)\s*(\d{1,2})/i);
+    const requestedChapter = chapterMatch ? Number(chapterMatch[1]) : null;
+    const chapterMap = getChapterTitleMap(lang);
+
+    const scoreText = (haystack: string, chNum: number | null) => {
+      const lower = haystack.toLowerCase();
+      let score = requestedChapter && chNum === requestedChapter ? 12 : 0;
+      for (const tok of tokens) {
+        if (lower.includes(tok)) {
+          score += tok.length >= 5 ? 3 : 2;
+        }
+      }
+      return score;
+    };
+
+    const qaMatches = snapshot.studyQa
+      .map((item) => {
+        const q =
+          lang === 'ku'
+            ? item.question_text_ku || item.question_text
+            : lang === 'ar'
+            ? item.question_text_ar || item.question_text
+            : item.question_text;
+        const a =
+          lang === 'ku'
+            ? item.answer_text_ku || item.answer_text
+            : lang === 'ar'
+            ? item.answer_text_ar || item.answer_text
+            : item.answer_text;
+        const exp =
+          lang === 'ku'
+            ? item.explanation_text_ku || item.explanation_text
+            : lang === 'ar'
+            ? item.explanation_text_ar || item.explanation_text
+            : item.explanation_text;
+        const combined = `${q} ${a} ${exp} ${item.question_text} ${item.answer_text}`;
+        return {
+          score: scoreText(combined, item.chapter_number),
+          chapter: item.chapter_number,
+          q,
+          a,
+          exp,
+        };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    const resourceMatches = snapshot.resources
+      .map((res) => {
+        const title =
+          lang === 'ku'
+            ? res.title_ku || res.title
+            : lang === 'ar'
+            ? res.title_ar || res.title
+            : res.title;
+        const summary =
+          lang === 'ku'
+            ? res.summary_ku || res.summary
+            : lang === 'ar'
+            ? res.summary_ar || res.summary
+            : res.summary;
+        const combined = `${title} ${summary} ${res.key_formulas} ${res.title} ${res.summary}`;
+        return {
+          score: scoreText(combined, res.chapter_number),
+          chapter: res.chapter_number,
+          title,
+          summary,
+          formulas: res.key_formulas,
+        };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    const questionMatches = snapshot.questions
+      .map((q) => {
+        const loc = localizeQuestionFields(q, lang, chapterMap);
+        const answerText = getOptionText(loc, q.correct_option);
+        const combined = `${loc.questionText} ${loc.explanation} ${answerText} ${q.question_text}`;
+        return {
+          score: scoreText(combined, q.chapter_number),
+          chapter: q.chapter_number,
+          question: loc.questionText,
+          answer: answerText,
+          explanation: loc.explanation,
+        };
+      })
+      .filter((r) => r.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 2);
+
+    const parts: string[] = [];
+
+    if (resourceMatches.length > 0) {
+      for (const res of resourceMatches) {
+        const chTitle = res.chapter ? chapterMap.get(res.chapter) || `Chapter ${res.chapter}` : '';
+        parts.push(
+          `${chTitle ? `**${chTitle}** — ` : ''}${res.title}\n${res.summary}${
+            res.formulas ? `\n\nKey formulas / SI units:\n${res.formulas}` : ''
+          }`
+        );
+      }
+    }
+
+    if (qaMatches.length > 0) {
+      for (const qa of qaMatches) {
+        parts.push(
+          `Q: ${qa.q}\nAnswer: ${qa.a}${qa.exp ? `\nExplanation: ${qa.exp}` : ''}`
+        );
+      }
+    } else if (questionMatches.length > 0 && resourceMatches.length === 0) {
+      for (const qm of questionMatches) {
+        parts.push(
+          `${qm.question}\nAnswer: ${qm.answer}${qm.explanation ? `\nExplanation: ${qm.explanation}` : ''}`
+        );
+      }
+    }
+
+    if (parts.length === 0) {
+      const chapterList = snapshot.chapters
+        .slice(0, 6)
+        .map((ch) => `• Ch ${ch.chapter_number}: ${localizeChapter(ch, lang, 0).title}`)
+        .join('\n');
+      const greeting =
+        lang === 'ku'
+          ? 'ئامادەم یارمەتیت بدەم لە وانەکانی زانستی پۆلی ٩! پرسیار بکە دەربارەی هەر بەشێک یان هاوکێشەیەک (بۆ نموونە: بەشی ١، هێز، جووڵە، چڕی، وزە، کارەبا، یان کیمیا):'
+          : lang === 'ar'
+          ? 'أنا مستعد لمساعدتك في علوم الصف التاسع! اسأل عن أي فصل أو قانون علمي (مثل: القوة، الحركة، الكثافة، الطاقة، الكهرباء، أو التفاعلات):'
+          : 'I am ready to help with your Grade 9 Science studies! Ask about any chapter, concept, or SI formula (for example: Chapter 1, speed, force, density, energy, circuits, or waves):';
+      return {
+        reply: `${greeting}\n\n${chapterList}`,
+        model: String(body.model || 'gemini-4-hydrogen'),
+      };
+    }
+
+    return {
+      reply: parts.join('\n\n---\n\n'),
+      model: String(body.model || 'gemini-4-hydrogen'),
+    };
+  }
+
   // 16. Interactive write actions requiring full backend server
   throw new StaticFallbackHttpError(
     'This action requires the live backend server. Sign in, quizzes, textbooks, and profile sync work in cloud mode.',
