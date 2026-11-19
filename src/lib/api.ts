@@ -1,3 +1,4 @@
+import { auth } from './firebase';
 import { getActivePassport, saveUserPassport } from './recoveryVault';
 import {
   handleStaticApiFallback,
@@ -352,6 +353,22 @@ export interface StreamAiChatParams {
   onChunk: (deltaText: string) => void;
 }
 
+async function streamFallbackText(
+  text: string,
+  onChunk: (deltaText: string) => void
+): Promise<void> {
+  const parts = text.match(/\S+\s*/g);
+  if (!parts || parts.length <= 1) {
+    if (text) onChunk(text);
+    return;
+  }
+  const batchSize = 3;
+  for (let i = 0; i < parts.length; i += batchSize) {
+    onChunk(parts.slice(i, i + batchSize).join(''));
+    await new Promise((resolve) => setTimeout(resolve, 14));
+  }
+}
+
 export async function streamAiTutorChat(
   params: StreamAiChatParams
 ): Promise<{ reply: string; model: string }> {
@@ -367,27 +384,41 @@ export async function streamAiTutorChat(
     stream: true,
   });
 
+  let firebaseIdToken = '';
+  try {
+    if (auth.currentUser) {
+      firebaseIdToken = await auth.currentUser.getIdToken();
+    }
+  } catch {
+    // ignore if offline or Firebase token unavailable
+  }
+
   const requestInit: RequestInit = {
     method: 'POST',
     headers: {
       Accept: 'text/event-stream, application/json',
+      ...(firebaseIdToken ? { 'X-Firebase-Id-Token': firebaseIdToken } : {}),
     },
     body: payload,
+  };
+
+  const runCurriculumFallback = async () => {
+    const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
+      '/api/ai/chat',
+      { method: 'POST', body: payload }
+    );
+    const replyText = (fallback.reply || '').trim();
+    if (replyText) {
+      await streamFallbackText(replyText, params.onChunk);
+    }
+    return { reply: replyText, model: fallback.model || params.model };
   };
 
   let response: Response;
   try {
     response = await performFetch('/api/ai/chat', requestInit);
-  } catch (networkErr) {
-    if (!API_BASE) {
-      const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
-        '/api/ai/chat',
-        { method: 'POST', body: payload }
-      );
-      if (fallback.reply) params.onChunk(fallback.reply);
-      return { reply: fallback.reply, model: fallback.model || params.model };
-    }
-    throw networkErr;
+  } catch {
+    return await runCurriculumFallback();
   }
 
   if (response.status === 401) {
@@ -401,18 +432,24 @@ export async function streamAiTutorChat(
         response = await performFetch('/api/ai/chat', requestInit);
       }
     }
+    if (response.status === 401 && isStaticHostMode()) {
+      return await runCurriculumFallback();
+    }
   }
 
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const isSse = contentType.includes('text/event-stream');
+  const isJson = contentType.includes('application/json');
 
-  // Fall back cleanly to offline curriculum study assistant ONLY when /api/ai/chat route is absent (404/405)
-  if (!API_BASE && (response.status === 404 || response.status === 405)) {
-    const fallback = await invokeStaticFallback<{ reply: string; model?: string }>(
-      '/api/ai/chat',
-      { method: 'POST', body: payload }
-    );
-    if (fallback.reply) params.onChunk(fallback.reply);
-    return { reply: fallback.reply, model: fallback.model || params.model };
+  // Fall back to client-side curriculum study assistant when live backend route is absent or unreachable
+  if (
+    response.status === 404 ||
+    response.status === 405 ||
+    response.status === 502 ||
+    response.status === 504 ||
+    (!isSse && !isJson)
+  ) {
+    return await runCurriculumFallback();
   }
 
   if (!response.ok) {

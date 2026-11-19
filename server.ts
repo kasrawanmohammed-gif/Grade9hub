@@ -1199,7 +1199,7 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-Remember-Me, Accept'
+        'Content-Type, Authorization, X-Remember-Me, X-Firebase-Id-Token, Accept'
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
@@ -4260,7 +4260,53 @@ async function startServer() {
   });
 
   // ---------------- GEMINI AI TUTOR & IMAGE GENERATOR ----------------
-  app.post('/api/ai/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const requireAiAuth = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    const { user, needsPassportRestore } = getAuthenticatedUserWithMeta(req);
+    if (user) {
+      req.user = user;
+      next();
+      return;
+    }
+
+    const fbTokenRaw = req.headers['x-firebase-id-token'];
+    const fbToken = typeof fbTokenRaw === 'string' ? fbTokenRaw.trim() : '';
+    if (fbToken) {
+      try {
+        const verified = await verifyFirebaseIdToken(fbToken);
+        const row = db
+          .prepare('SELECT id, email, role, is_admin, name FROM users WHERE lower(email) = ?')
+          .get(verified.email.toLowerCase()) as
+          | { id: number; email: string; role: string; is_admin: number; name: string }
+          | undefined;
+        if (row) {
+          req.user = {
+            id: row.id,
+            email: row.email,
+            role: row.role as 'student' | 'teacher',
+            isAdmin: Boolean(row.is_admin),
+            name: row.name,
+          } as AuthenticatedRequest['user'];
+        }
+        next();
+        return;
+      } catch {
+        // invalid Firebase ID token -> fall through to 401
+      }
+    }
+
+    res.status(401).json({
+      error: 'Authentication required. Please log in.',
+      ...(needsPassportRestore
+        ? { needsPassportRestore: true, dbEmpty: getRealUserCount() === 0 }
+        : {}),
+    });
+  };
+
+  app.post('/api/ai/chat', requireAiAuth, async (req: AuthenticatedRequest, res: Response) => {
     const model = String(req.body?.model || 'gemini-4-hydrogen');
     const systemInstruction = String(
       req.body?.systemInstruction ||
@@ -4279,7 +4325,8 @@ async function startServer() {
 
     const recordAiTurn = () => {
       try {
-        const chatUser = req.user!;
+        const chatUser = req.user;
+        if (!chatUser) return;
         db.prepare(
           "UPDATE users SET ai_tutor_turns = ai_tutor_turns + 1, last_active_at = datetime('now') WHERE id = ?"
         ).run(chatUser.id);
@@ -4348,7 +4395,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/ai/generate-image', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/ai/generate-image', requireAiAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const prompt = String(req.body?.prompt || '').trim();
       const imageSize = String(req.body?.imageSize || '1K');
