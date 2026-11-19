@@ -55,18 +55,14 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<VerifiedFi
       ? firebaseClaim.sign_in_provider.trim()
       : '';
 
-  const isFacebookProvider = provider === 'facebook.com';
-  if (!uid || (!isFacebookProvider && (!rawEmail || !emailVerified))) {
+  if (!uid || !rawEmail || !emailVerified) {
     throw new Error('Verified email identity is required.');
   }
 
-  const email =
-    rawEmail || `fb_${uid.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}@facebook.grade9hub.local`;
-
   return {
     uid,
-    email,
-    emailVerified: Boolean(rawEmail && emailVerified),
+    email: rawEmail,
+    emailVerified: true,
     name,
     picture,
     provider,

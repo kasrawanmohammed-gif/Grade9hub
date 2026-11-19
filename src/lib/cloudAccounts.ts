@@ -1,10 +1,6 @@
 import {
-  AuthCredential,
-  FacebookAuthProvider,
   getRedirectResult,
-  linkWithCredential,
   signInWithPopup,
-  signInWithRedirect,
   signOut as firebaseSignOut,
   User as FirebaseUser,
 } from 'firebase/auth';
@@ -20,10 +16,9 @@ import {
 } from 'firebase/firestore';
 import { User } from '../types';
 import {
+  applyFirebaseAuthPersistence,
   auth,
-  authPersistenceReady,
   db,
-  facebookProvider,
   googleProvider,
   handleFirestoreError,
   OperationType,
@@ -116,9 +111,7 @@ export interface SocialAuthIdentity {
 }
 
 function isTrustedCloudAuthUser(fbUser: FirebaseUser | null): fbUser is FirebaseUser {
-  if (!fbUser) return false;
-  if (fbUser.emailVerified) return true;
-  return fbUser.providerData.some((p) => p.providerId === 'facebook.com');
+  return Boolean(fbUser && fbUser.emailVerified);
 }
 
 async function formatFirebaseSocialIdentity(fbUser: FirebaseUser): Promise<SocialAuthIdentity> {
@@ -132,35 +125,10 @@ async function formatFirebaseSocialIdentity(fbUser: FirebaseUser): Promise<Socia
   };
 }
 
-export async function signInWithGoogleCloud(
-  pendingCredToLink?: AuthCredential | null
-): Promise<SocialAuthIdentity> {
-  await authPersistenceReady;
+export async function signInWithGoogleCloud(rememberMe = true): Promise<SocialAuthIdentity> {
+  await applyFirebaseAuthPersistence(rememberMe);
   const cred = await signInWithPopup(auth, googleProvider);
-  if (pendingCredToLink) {
-    await linkWithCredential(cred.user, pendingCredToLink).catch(() => {});
-  }
   return formatFirebaseSocialIdentity(cred.user);
-}
-
-export async function signInWithFacebookCloud(): Promise<SocialAuthIdentity | null> {
-  try {
-    await authPersistenceReady;
-    const cred = await signInWithPopup(auth, facebookProvider);
-    return formatFirebaseSocialIdentity(cred.user);
-  } catch (err) {
-    const code =
-      typeof (err as { code?: unknown })?.code === 'string'
-        ? (err as { code: string }).code
-        : '';
-    const isStandaloneWindow =
-      typeof window !== 'undefined' && window.self === window.top;
-    if (code === 'auth/popup-blocked' && isStandaloneWindow) {
-      await signInWithRedirect(auth, facebookProvider);
-      return null;
-    }
-    throw err;
-  }
 }
 
 export async function consumePendingRedirectSignIn(): Promise<SocialAuthIdentity | null> {
@@ -172,15 +140,6 @@ export async function consumePendingRedirectSignIn(): Promise<SocialAuthIdentity
     return null;
   }
 }
-
-export function extractPendingFacebookCredential(err: unknown): AuthCredential | null {
-  try {
-    return FacebookAuthProvider.credentialFromError(err as never);
-  } catch {
-    return null;
-  }
-}
-
 
 export async function signOutFirebaseCloud(): Promise<void> {
   try {

@@ -7,6 +7,7 @@ import {
 
 const SESSION_TOKEN_KEY = 'grade9hub_session_token';
 const CACHED_USER_KEY = 'grade9hub_cached_user';
+const REMEMBER_ME_KEY = 'grade9hub_remember_me';
 const API_BASE =
   typeof import.meta !== 'undefined' &&
   import.meta.env &&
@@ -20,19 +21,50 @@ function resolveApiUrl(url: string): string {
   return `${API_BASE}${url.startsWith('/') ? url : `/${url}`}`;
 }
 
+export function getRememberMePreference(): boolean {
+  try {
+    if (typeof window === 'undefined') return true;
+    const raw = window.localStorage.getItem(REMEMBER_ME_KEY);
+    if (raw === 'false') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+export function setRememberMePreference(remember: boolean): void {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(REMEMBER_ME_KEY, remember ? 'true' : 'false');
+  } catch {
+    // ignore storage restriction
+  }
+}
+
 export function getStoredSessionToken(): string | null {
   try {
-    return typeof window !== 'undefined' ? window.localStorage.getItem(SESSION_TOKEN_KEY) : null;
+    if (typeof window === 'undefined') return null;
+    return (
+      window.localStorage.getItem(SESSION_TOKEN_KEY) ||
+      window.sessionStorage.getItem(SESSION_TOKEN_KEY)
+    );
   } catch {
     return null;
   }
 }
 
-export function setStoredSessionToken(token?: string | null): void {
+export function setStoredSessionToken(
+  token?: string | null,
+  rememberMe: boolean = getRememberMePreference()
+): void {
   try {
-    if (typeof window === 'undefined') return;
-    if (token) {
+    if (typeof window === 'undefined' || !token) return;
+    if (rememberMe) {
       window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    } else {
+      window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
     }
   } catch {
     // ignore storage restriction
@@ -43,6 +75,7 @@ export function clearStoredSessionToken(): void {
   try {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
     }
   } catch {
     // ignore
@@ -52,7 +85,9 @@ export function clearStoredSessionToken(): void {
 export function getStoredCachedUser<T>(): T | null {
   try {
     if (typeof window === 'undefined') return null;
-    const raw = window.localStorage.getItem(CACHED_USER_KEY);
+    const raw =
+      window.localStorage.getItem(CACHED_USER_KEY) ||
+      window.sessionStorage.getItem(CACHED_USER_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -60,13 +95,24 @@ export function getStoredCachedUser<T>(): T | null {
   }
 }
 
-export function setStoredCachedUser(user: unknown | null): void {
+export function setStoredCachedUser(
+  user: unknown | null,
+  rememberMe: boolean = getRememberMePreference()
+): void {
   try {
     if (typeof window === 'undefined') return;
     if (user) {
-      window.localStorage.setItem(CACHED_USER_KEY, JSON.stringify(user));
+      const serialized = JSON.stringify(user);
+      if (rememberMe) {
+        window.localStorage.setItem(CACHED_USER_KEY, serialized);
+        window.sessionStorage.removeItem(CACHED_USER_KEY);
+      } else {
+        window.sessionStorage.setItem(CACHED_USER_KEY, serialized);
+        window.localStorage.removeItem(CACHED_USER_KEY);
+      }
     } else {
       window.localStorage.removeItem(CACHED_USER_KEY);
+      window.sessionStorage.removeItem(CACHED_USER_KEY);
     }
   } catch {
     // ignore storage restriction
@@ -77,6 +123,7 @@ export function clearStoredCachedUser(): void {
   try {
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(CACHED_USER_KEY);
+      window.sessionStorage.removeItem(CACHED_USER_KEY);
     }
   } catch {
     // ignore
@@ -117,6 +164,7 @@ export async function tryRestoreActiveSessionPassport(): Promise<{
       return null;
     }
 
+    const rememberMe = getRememberMePreference();
     try {
       const response = await fetch(resolveApiUrl('/api/auth/restore-passport'), {
         method: 'POST',
@@ -124,8 +172,9 @@ export async function tryRestoreActiveSessionPassport(): Promise<{
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
+          'X-Remember-Me': rememberMe ? '1' : '0',
         },
-        body: JSON.stringify({ sessionToken: token, passport }),
+        body: JSON.stringify({ sessionToken: token, passport, rememberMe }),
       });
 
       if (!response.ok) {
@@ -139,8 +188,8 @@ export async function tryRestoreActiveSessionPassport(): Promise<{
       };
       if (!data?.user) return null;
 
-      if (data.sessionToken) setStoredSessionToken(data.sessionToken);
-      setStoredCachedUser(data.user);
+      if (data.sessionToken) setStoredSessionToken(data.sessionToken, rememberMe);
+      setStoredCachedUser(data.user, rememberMe);
       if (data.accountPassport && data.user.email) {
         await saveUserPassport(data.user.email, data.accountPassport, true);
       }
@@ -171,7 +220,10 @@ function capturePassportFromResponse(data: Record<string, unknown>): void {
 async function performFetch(url: string, options: RequestInit): Promise<Response> {
   const isFormData = options.body instanceof FormData;
   const token = getStoredSessionToken();
-  const baseHeaders: Record<string, string> = {};
+  const rememberMe = getRememberMePreference();
+  const baseHeaders: Record<string, string> = {
+    'X-Remember-Me': rememberMe ? '1' : '0',
+  };
 
   if (!isFormData) {
     baseHeaders['Content-Type'] = 'application/json';
@@ -212,7 +264,6 @@ const ALWAYS_BACKEND_PREFIXES = [
   '/api/auth/firebase-login',
   '/api/auth/me',
   '/api/auth/recovery-status',
-  '/api/auth/facebook/url',
   '/api/auth/logout',
   '/api/chapters',
   '/api/questions',

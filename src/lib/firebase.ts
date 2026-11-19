@@ -4,7 +4,6 @@ import {
   browserLocalPersistence,
   browserPopupRedirectResolver,
   browserSessionPersistence,
-  FacebookAuthProvider,
   getAuth,
   GoogleAuthProvider,
   indexedDBLocalPersistence,
@@ -13,6 +12,17 @@ import {
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+
+const REMEMBER_ME_KEY = 'grade9hub_remember_me';
+
+function readRememberMeDefault(): boolean {
+  try {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(REMEMBER_ME_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
 
 const requiredConfigKeys = [
   'apiKey',
@@ -52,16 +62,25 @@ if (typeof window !== 'undefined') {
 
 export const auth = authInstance;
 
+export async function applyFirebaseAuthPersistence(rememberMe: boolean): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    await setPersistence(
+      auth,
+      rememberMe ? browserLocalPersistence : browserSessionPersistence
+    );
+  } catch {
+    // ignore storage restriction fallback
+  }
+}
+
 export const authPersistenceReady: Promise<void> =
   typeof window !== 'undefined'
-    ? setPersistence(auth, browserLocalPersistence).catch(() => {})
+    ? applyFirebaseAuthPersistence(readRememberMeDefault())
     : Promise.resolve();
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
-export const facebookProvider = new FacebookAuthProvider();
-facebookProvider.addScope('public_profile');
-facebookProvider.setCustomParameters({ display: 'popup' });
 
 export enum OperationType {
   CREATE = 'create',

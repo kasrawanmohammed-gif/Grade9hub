@@ -14,7 +14,15 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import { ApiError, apiFetch, setStoredSessionToken } from '../lib/api';
+import {
+  ApiError,
+  apiFetch,
+  getRememberMePreference,
+  setRememberMePreference,
+  setStoredCachedUser,
+  setStoredSessionToken,
+} from '../lib/api';
+import { applyFirebaseAuthPersistence } from '../lib/firebase';
 import {
   decryptAdminVaultWithPassword,
   getAnyAdminVaultSummary,
@@ -54,6 +62,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(() => getRememberMePreference());
 
   // Forgot password state
   const [forgotStep, setForgotStep] = useState<ForgotStep>('email');
@@ -136,7 +145,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     }
   };
 
-  const completeFirebaseSocialSignIn = async (fbIdentity: SocialAuthIdentity) => {
+  const handleRememberMeToggle = (checked: boolean) => {
+    setRememberMe(checked);
+    setRememberMePreference(checked);
+  };
+
+  const completeFirebaseSocialSignIn = async (
+    fbIdentity: SocialAuthIdentity,
+    rememberSession: boolean = rememberMe
+  ) => {
     const { profile, attempts } = await pullCloudUserProfile(fbIdentity.uid).catch(() => ({
       profile: null,
       attempts: [],
@@ -153,10 +170,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
         idToken: fbIdentity.idToken,
         cloudProfile: profile,
         cloudAttempts: attempts,
+        rememberMe: rememberSession,
       }),
     });
 
-    setStoredSessionToken(data.sessionToken);
+    setStoredSessionToken(data.sessionToken, rememberSession);
+    setStoredCachedUser(data.user, rememberSession);
     if (data.accountPassport && data.user?.email) {
       await saveUserPassport(data.user.email, data.accountPassport, true);
     }
@@ -198,9 +217,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     setError(null);
     setInfo(null);
     setGoogleLoading(true);
+    setRememberMePreference(rememberMe);
     try {
-      const fbIdentity = await signInWithGoogleCloud();
-      await completeFirebaseSocialSignIn(fbIdentity);
+      const fbIdentity = await signInWithGoogleCloud(rememberMe);
+      await completeFirebaseSocialSignIn(fbIdentity, rememberMe);
     } catch (err) {
       const code = extractFirebaseAuthCode(err);
       const msg = err instanceof Error ? err.message : '';
@@ -234,7 +254,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     setError(null);
     setInfo(null);
     setLoading(true);
+    setRememberMePreference(rememberMe);
     try {
+      await applyFirebaseAuthPersistence(rememberMe);
       const savedPassport = await getUserPassport(email);
       const data = await apiFetch<{
         user: User;
@@ -245,10 +267,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
         body: JSON.stringify({
           email,
           password,
+          rememberMe,
           ...(savedPassport ? { passport: savedPassport } : {}),
         }),
       });
-      setStoredSessionToken(data.sessionToken);
+      setStoredSessionToken(data.sessionToken, rememberMe);
+      setStoredCachedUser(data.user, rememberMe);
       if (data.accountPassport && data.user?.email) {
         await saveUserPassport(data.user.email, data.accountPassport, true);
       }
@@ -280,9 +304,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
                 email,
                 password,
                 backup: decryptedBackup,
+                rememberMe,
               }),
             });
-            setStoredSessionToken(recovered.sessionToken);
+            setStoredSessionToken(recovered.sessionToken, rememberMe);
+            setStoredCachedUser(recovered.user, rememberMe);
             if (recovered.accountPassport && recovered.user?.email) {
               await saveUserPassport(recovered.user.email, recovered.accountPassport, true);
             }
@@ -335,9 +361,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
         accountPassport?: string;
       }>('/api/auth/recover-from-vault', {
         method: 'POST',
-        body: JSON.stringify({ email, password, backup }),
+        body: JSON.stringify({ email, password, backup, rememberMe }),
       });
-      setStoredSessionToken(recovered.sessionToken);
+      setStoredSessionToken(recovered.sessionToken, rememberMe);
+      setStoredCachedUser(recovered.user, rememberMe);
       if (recovered.accountPassport && recovered.user?.email) {
         await saveUserPassport(recovered.user.email, recovered.accountPassport, true);
       }
@@ -598,6 +625,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
                     </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <label className="inline-flex items-center gap-2 text-[11px] sm:text-xs font-medium text-[#57534E] cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => handleRememberMeToggle(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-[#D6CEC2] text-[#6B1118] accent-[#6B1118] focus:ring-2 focus:ring-[#6B1118]/20 cursor-pointer"
+                      />
+                      <span>{t.auth.rememberMe}</span>
+                    </label>
                   </div>
 
                   <button

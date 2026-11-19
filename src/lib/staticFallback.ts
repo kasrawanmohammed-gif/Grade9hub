@@ -30,6 +30,7 @@ import { decryptAdminVaultWithPassword } from './recoveryVault';
 
 const SESSION_TOKEN_KEY = 'grade9hub_session_token';
 const CACHED_USER_KEY = 'grade9hub_cached_user';
+const REMEMBER_ME_KEY = 'grade9hub_remember_me';
 const STATIC_MODE_KEY = 'grade9hub_static_backend_mode';
 const STATIC_PROFILES_KEY = 'grade9hub_static_profiles_v1';
 const STATIC_STATS_KEY = 'grade9hub_static_stats_v1';
@@ -224,11 +225,34 @@ function writeLocalJson(key: string, value: unknown): void {
   }
 }
 
-function saveSessionAndCachedUser(user: User, token: string): void {
+function readRememberMeStatic(): boolean {
+  try {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem(REMEMBER_ME_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+function saveSessionAndCachedUser(
+  user: User,
+  token: string,
+  rememberMe: boolean = readRememberMeStatic()
+): void {
   try {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(SESSION_TOKEN_KEY, token);
-      window.localStorage.setItem(CACHED_USER_KEY, JSON.stringify(user));
+      const serialized = JSON.stringify(user);
+      if (rememberMe) {
+        window.localStorage.setItem(SESSION_TOKEN_KEY, token);
+        window.localStorage.setItem(CACHED_USER_KEY, serialized);
+        window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        window.sessionStorage.removeItem(CACHED_USER_KEY);
+      } else {
+        window.sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+        window.sessionStorage.setItem(CACHED_USER_KEY, serialized);
+        window.localStorage.removeItem(SESSION_TOKEN_KEY);
+        window.localStorage.removeItem(CACHED_USER_KEY);
+      }
     }
   } catch {
     // ignore storage errors
@@ -239,14 +263,25 @@ function saveSessionAndCachedUser(user: User, token: string): void {
 }
 
 function getCachedUserLocal(): User | null {
-  return readLocalJson<User | null>(CACHED_USER_KEY, null);
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw =
+      window.localStorage.getItem(CACHED_USER_KEY) ||
+      window.sessionStorage.getItem(CACHED_USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
 }
 
 function getSessionTokenLocal(): string | null {
   try {
-    return typeof window !== 'undefined'
-      ? window.localStorage.getItem(SESSION_TOKEN_KEY)
-      : null;
+    if (typeof window === 'undefined') return null;
+    return (
+      window.localStorage.getItem(SESSION_TOKEN_KEY) ||
+      window.sessionStorage.getItem(SESSION_TOKEN_KEY)
+    );
   } catch {
     return null;
   }
@@ -377,14 +412,14 @@ function buildFirebaseAppUser(
 ): User {
   const email =
     (fbEmail || cloudProfile?.email || '').trim().toLowerCase() ||
-    `fb_${uid}@facebook.grade9hub.local`;
+    `google_${uid}@grade9hub.local`;
   const isMainAdmin = emailVerified && email === MAIN_ADMIN_EMAIL;
   const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
   const prevProfile = profiles[email];
   const nowIso = new Date().toISOString();
 
   const name =
-    (cloudProfile?.name || prevProfile?.name || fbName || (isMainAdmin ? 'Mr. Kasrawan' : email.startsWith('fb_') ? 'Facebook Student' : formatDisplayNameFromEmail(email)))
+    (cloudProfile?.name || prevProfile?.name || fbName || (isMainAdmin ? 'Mr. Kasrawan' : formatDisplayNameFromEmail(email)))
       .trim()
       .slice(0, 120) || 'Grade 9 Student';
 
@@ -571,12 +606,7 @@ export async function handleStaticApiFallback(
     }
     await auth.authStateReady().catch(() => {});
     const fbUser = auth.currentUser;
-    const isTrustedFb = Boolean(
-      fbUser &&
-        (fbUser.emailVerified ||
-          fbUser.providerData.some((p) => p.providerId === 'facebook.com'))
-    );
-    if (fbUser && isTrustedFb) {
+    if (fbUser && fbUser.emailVerified) {
       const { profile } = await pullCloudUserProfile(fbUser.uid).catch(() => ({
         profile: null,
         attempts: [],
@@ -596,16 +626,17 @@ export async function handleStaticApiFallback(
     return { user: null, dbEmpty: false };
   }
 
-  // 3. Firebase Google / Facebook Sign-In (/api/auth/firebase-login)
+  // 3. Firebase Google Sign-In (/api/auth/firebase-login)
   if (pathname === '/api/auth/firebase-login' && method === 'POST') {
     await auth.authStateReady().catch(() => {});
     const fbUser = auth.currentUser;
     if (!fbUser) {
       throw new StaticFallbackHttpError(
-        'Firebase sign-in session could not be verified. Please try again.',
+        'Google sign-in session could not be verified. Please try again.',
         401
       );
     }
+    const rememberMe = body.rememberMe !== false;
     const cloudProfile = (body.cloudProfile as Partial<CloudUserProfile> | null) || null;
     const appUser = buildFirebaseAppUser(
       fbUser.uid,
@@ -616,7 +647,7 @@ export async function handleStaticApiFallback(
       cloudProfile
     );
     const nextToken = `fb_${fbUser.uid}`;
-    saveSessionAndCachedUser(appUser, nextToken);
+    saveSessionAndCachedUser(appUser, nextToken, rememberMe);
 
     const stats = getUserStats(appUser.id);
     if (cloudProfile?.totalPoints && cloudProfile.totalPoints > stats.totalPoints) {
@@ -644,15 +675,11 @@ export async function handleStaticApiFallback(
     };
   }
 
-  // 3b. Direct Facebook OAuth URL fallback (/api/auth/facebook/url)
-  if (pathname === '/api/auth/facebook/url') {
-    return { configured: false, firebaseProjectId: 'gen-lang-client-0277416465' };
-  }
-
   // 4. Email & Password Login (/api/auth/login)
   if (pathname === '/api/auth/login' && method === 'POST') {
     const email = String(body.email || '').trim().toLowerCase();
     const password = String(body.password || '');
+    const rememberMe = body.rememberMe !== false;
     if (!email || !password) {
       throw new StaticFallbackHttpError('Email and password are required.', 400);
     }
@@ -664,7 +691,7 @@ export async function handleStaticApiFallback(
       const decrypted = await decryptAdminVaultWithPassword(email, password).catch(() => null);
       if (!decrypted) {
         throw new StaticFallbackHttpError(
-          'Please click "Continue with Google" above to sign in to the administrator account.',
+          'Please click "Continue with Google" below to sign in to the administrator account.',
           401
         );
       }
@@ -691,7 +718,7 @@ export async function handleStaticApiFallback(
         created_at: prevAdmin?.created_at || nowIso,
       };
       const token = `local_admin_${stableNumericId(email)}`;
-      saveSessionAndCachedUser(adminUser, token);
+      saveSessionAndCachedUser(adminUser, token, rememberMe);
       return { user: adminUser, sessionToken: token };
     }
 
@@ -716,7 +743,7 @@ export async function handleStaticApiFallback(
       created_at: prev?.created_at || nowIso,
     };
     const token = `local_${stableNumericId(email)}`;
-    saveSessionAndCachedUser(studentUser, token);
+    saveSessionAndCachedUser(studentUser, token, rememberMe);
     return { user: studentUser, sessionToken: token };
   }
 
@@ -728,7 +755,7 @@ export async function handleStaticApiFallback(
   // 6. Forgot password on static host
   if (pathname.startsWith('/api/auth/forgot-password/')) {
     throw new StaticFallbackHttpError(
-      'Email password reset requires the backend server. Students can sign in directly with any password or use Google / Facebook Sign-In.',
+      'Email password reset requires the backend server. Students can sign in directly or use Google Sign-In.',
       400
     );
   }

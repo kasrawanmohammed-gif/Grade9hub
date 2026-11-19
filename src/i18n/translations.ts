@@ -107,6 +107,7 @@ export interface Translations {
     returnLoginBtn: string;
     passwordsMismatch: string;
     verifiedMsg: string;
+    rememberMe: string;
     savedSessionNote: string;
     dbEmptyTitle: string;
     dbEmptyDesc: string;
@@ -115,15 +116,10 @@ export interface Translations {
     restoringFromVault: string;
     enterAdminCredentialsForRestore: string;
     continueWithGoogle: string;
-    continueWithFacebook: string;
     cloudSyncBadge: string;
     orEmailSeparator: string;
     googleSignInLoading: string;
     googleSignInFailed: string;
-    facebookSignInLoading: string;
-    facebookSignInFailed: string;
-    facebookNotEnabledHelp: string;
-    socialAccountExistsDiffCredential: string;
     adminClaimPrompt: string;
   };
   home: {
@@ -907,6 +903,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'Return to Log In',
       passwordsMismatch: 'Passwords do not match.',
       verifiedMsg: 'Verification code confirmed. Create your new password below.',
+      rememberMe: 'Remember me',
       savedSessionNote: 'Your login session stays saved securely until you manually log out.',
       dbEmptyTitle: 'Server Container Reset Detected (0 Accounts)',
       dbEmptyDesc:
@@ -918,17 +915,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'Enter your administrator email and password in the form above first, then choose your backup .json file.',
       continueWithGoogle: 'Continue with Google',
-      continueWithFacebook: 'Continue with Facebook',
       cloudSyncBadge: 'Saved permanently in Cloud — survives all app updates & URL changes',
       orEmailSeparator: 'OR',
       googleSignInLoading: 'Connecting with Google...',
       googleSignInFailed: 'Google sign-in could not be completed. Please allow popups and try again.',
-      facebookSignInLoading: 'Connecting with Facebook...',
-      facebookSignInFailed: 'Facebook sign-in could not be completed. Please allow popups and try again.',
-      facebookNotEnabledHelp:
-        'Facebook is not enabled yet in Firebase project "gen-lang-client-0277416465" (Authentication → Sign-in method → Facebook). If you enabled Facebook in a different Firebase project, share its Project ID so we can connect it.',
-      socialAccountExistsDiffCredential:
-        'This email is already linked with Google. Click "Continue with Google" below to sign in and automatically link your Facebook account.',
       adminClaimPrompt:
         'This server database was reset after an update. Sign in with Google below or switch to Create Account to set your administrator password.',
     },
@@ -1718,6 +1708,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'گەڕانەوە بۆ چوونەژوورەوە',
       passwordsMismatch: 'وشە نهێنییەکان یەک ناگرنەوە.',
       verifiedMsg: 'کۆدەکە پشتڕاست کرایەوە. وشەی نهێنی نوێ بنووسە.',
+      rememberMe: 'لەبیرم مەکە',
       savedSessionNote: 'چوونەژوورەوەکەت بە پارێزراوی پاشەکەوت دەکرێت تا خۆت لێی دەرنەچیت.',
       dbEmptyTitle: 'سێرڤەرەکە سڕاوەتەوە یان نوێکراوەتەوە (٠ هەژمار)',
       dbEmptyDesc:
@@ -1729,17 +1720,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'سەرەتا ئیمەیڵ و وشەی نهێنی بەڕێوەبەر لە سەرەوە بنووسە، پاشان فایلی پاشەکەوتی .json هەڵبژێرە.',
       continueWithGoogle: 'بەردەوامبوون بە گووگڵ',
-      continueWithFacebook: 'بەردەوامبوون بە فەیسبووک',
       cloudSyncBadge: 'لە هەور پاشەکەوت دەکرێت — لە نوێکردنەوە و گۆڕینی بەستەردا ناسڕێتەوە',
       orEmailSeparator: 'یان',
       googleSignInLoading: 'پەیوەندیکردن بە هەژماری گووگڵ...',
       googleSignInFailed: 'چوونەژوورەوە بە گووگڵ سەرکەوتوو نەبوو. تکایە ڕێگە بە پۆپئەپ بدە و دووبارە هەوڵبدە.',
-      facebookSignInLoading: 'پەیوەندیکردن بە هەژماری فەیسبووک...',
-      facebookSignInFailed: 'چوونەژوورەوە بە فەیسبووک سەرکەوتوو نەبوو. تکایە ڕێگە بە پۆپئەپ بدە و دووبارە هەوڵبدە.',
-      facebookNotEnabledHelp:
-        'لە پرۆژەی Firebase "gen-lang-client-0277416465" چوونەژوورەوەی فەیسبووک هێشتا چالاک نەکراوە (Authentication → Sign-in method → Facebook). ئەگەر لە پرۆژەیەکی تر چالاکت کردووە، Project ID بنێرە.',
-      socialAccountExistsDiffCredential:
-        'ئەم ئیمەیڵە پێشتر بە گووگڵ تۆمارکراوە. کلیک لە "بەردەوامبوون بە گووگڵ" بکە بۆ چوونەژوورەوە و بەستنەوەی خۆکار بە فەیسبووک.',
       adminClaimPrompt:
         'داتابەیسی سێرڤەر دوای نوێکردنەوە سڕاوەتەوە. لە خوارەوە بە گووگڵ بچۆ ژوورەوە یان بچۆ بۆ دروستکردنی هەژمار بۆ دانانی وشەی نهێنی.',
     },
@@ -2529,6 +2513,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'العودة إلى تسجيل الدخول',
       passwordsMismatch: 'كلمتا المرور غير متطابقتين.',
       verifiedMsg: 'تم تأكيد رمز التحقق. أدخل كلمة المرور الجديدة أدناه.',
+      rememberMe: 'تذكرني',
       savedSessionNote: 'تبقى جلستك محفوظة بأمان حتى تقوم بتسجيل الخروج يدوياً.',
       dbEmptyTitle: 'تم اكتشاف إعادة تشغيل الخادم بدون حسابات (0 حسابات)',
       dbEmptyDesc:
@@ -2540,17 +2525,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'أدخل بريد المسؤول وكلمة المرور في النموذج أعلاه أولاً، ثم اختر ملف النسخ الاحتياطي .json.',
       continueWithGoogle: 'المتابعة باستخدام Google',
-      continueWithFacebook: 'المتابعة باستخدام Facebook',
       cloudSyncBadge: 'محفوظ في السحابة — يبقى آمناً مع كل تحديث أو تغيير للرابط',
       orEmailSeparator: 'أو',
       googleSignInLoading: 'جاري الاتصال بحساب Google...',
       googleSignInFailed: 'تعذر إكمال تسجيل الدخول عبر Google. يرجى السماح بالنوافذ المنبثقة والمحاولة مجدداً.',
-      facebookSignInLoading: 'جاري الاتصال بحساب Facebook...',
-      facebookSignInFailed: 'تعذر إكمال تسجيل الدخول عبر Facebook. يرجى السماح بالنوافذ المنبثقة والمحاولة مجدداً.',
-      facebookNotEnabledHelp:
-        'مزوّد Facebook غير مفعّل بعد في مشروع Firebase "gen-lang-client-0277416465" (Authentication → Sign-in method → Facebook). إذا فعّلته في مشروع آخر، أرسل معرّف المشروع لربطه.',
-      socialAccountExistsDiffCredential:
-        'هذا البريد مسجّل مسبقاً عبر Google. انقر على "المتابعة باستخدام Google" أدناه لتسجيل الدخول وربط حساب Facebook تلقائياً.',
       adminClaimPrompt:
         'تمت إعادة تعيين قاعدة البيانات بعد التحديث. سجّل الدخول عبر Google أدناه أو انتقل إلى إنشاء حساب لتعيين كلمة المرور.',
     },

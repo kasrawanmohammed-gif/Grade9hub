@@ -78,7 +78,7 @@ import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { UserAvatar } from './components/UserAvatar';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import {
   MAIN_ADMIN_EMAIL,
@@ -120,6 +120,13 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const wsEventSeqRef = useRef(0);
   const promptedFirstLoginUserIdsRef = useRef<Set<number>>(new Set());
+  const userRef = useRef<User | null>(null);
+  const explicitSignOutRef = useRef(false);
+  const firebaseResumeInFlightRef = useRef<Promise<User | null> | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const push = usePushNotifications(
     Boolean(user),
@@ -254,11 +261,66 @@ export default function App() {
 
   const vaultDirtyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initial auth check + silent restart retry + automatic session recovery across container updates
+  const resumeFirebaseSignedInUser = useCallback(async (fbUser: FirebaseUser): Promise<User | null> => {
+    if (!fbUser || !fbUser.emailVerified || explicitSignOutRef.current) {
+      return null;
+    }
+    if (firebaseResumeInFlightRef.current) {
+      return firebaseResumeInFlightRef.current;
+    }
+
+    const promise = (async (): Promise<User | null> => {
+      try {
+        const idToken = await fbUser.getIdToken();
+        const { profile, attempts } = await pullCloudUserProfile(fbUser.uid).catch(() => ({
+          profile: null,
+          attempts: [],
+        }));
+        const fbLogin = await apiFetch<{
+          user: User;
+          sessionToken?: string;
+        }>('/api/auth/firebase-login', {
+          method: 'POST',
+          body: JSON.stringify({
+            idToken,
+            cloudProfile: profile,
+            cloudAttempts: attempts,
+          }),
+        });
+        if (fbLogin.user && !explicitSignOutRef.current) {
+          if (fbLogin.sessionToken) setStoredSessionToken(fbLogin.sessionToken);
+          setStoredCachedUser(fbLogin.user);
+          return fbLogin.user;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        firebaseResumeInFlightRef.current = null;
+      }
+    })();
+
+    firebaseResumeInFlightRef.current = promise;
+    return promise;
+  }, []);
+
+  // Initial auth check + silent restart retry + automatic session recovery + Firebase onAuthStateChanged persistence
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const splashTimer = setTimeout(() => setShowSplash(false), 750);
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
+      if (cancelled || explicitSignOutRef.current) return;
+      if (fbUser && fbUser.emailVerified && !userRef.current) {
+        void resumeFirebaseSignedInUser(fbUser).then((restoredUser) => {
+          if (!cancelled && restoredUser && !explicitSignOutRef.current) {
+            setUser(restoredUser);
+            setAuthChecked(true);
+          }
+        });
+      }
+    });
 
     const checkAuth = async (attempt = 0) => {
       try {
@@ -347,40 +409,15 @@ export default function App() {
           return;
         }
 
-        // 3. If Firebase social session (Google or Facebook) is active on this browser, silently resume/restore
+        // 3. If Firebase Google session is active on this browser, silently resume/restore
         await auth.authStateReady().catch(() => {});
         const currentFbUser = auth.currentUser;
-        const isTrustedFbSession = Boolean(
-          currentFbUser &&
-            (currentFbUser.emailVerified ||
-              currentFbUser.providerData.some((p) => p.providerId === 'facebook.com'))
-        );
-        if (currentFbUser && isTrustedFbSession && !cancelled) {
-          try {
-            const idToken = await currentFbUser.getIdToken();
-            const { profile, attempts } = await pullCloudUserProfile(currentFbUser.uid).catch(
-              () => ({ profile: null, attempts: [] })
-            );
-            const fbLogin = await apiFetch<{
-              user: User;
-              sessionToken?: string;
-            }>('/api/auth/firebase-login', {
-              method: 'POST',
-              body: JSON.stringify({
-                idToken,
-                cloudProfile: profile,
-                cloudAttempts: attempts,
-              }),
-            });
-            if (!cancelled && fbLogin.user) {
-              if (fbLogin.sessionToken) setStoredSessionToken(fbLogin.sessionToken);
-              setStoredCachedUser(fbLogin.user);
-              setUser(fbLogin.user);
-              setAuthChecked(true);
-              return;
-            }
-          } catch {
-            // fall through to login screen
+        if (currentFbUser && currentFbUser.emailVerified && !cancelled) {
+          const restoredFbUser = await resumeFirebaseSignedInUser(currentFbUser);
+          if (!cancelled && restoredFbUser) {
+            setUser(restoredFbUser);
+            setAuthChecked(true);
+            return;
           }
         }
 
@@ -417,10 +454,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unsubscribeAuth();
       if (retryTimer) clearTimeout(retryTimer);
       clearTimeout(splashTimer);
     };
-  }, [syncAdminVaultsNow]);
+  }, [syncAdminVaultsNow, resumeFirebaseSignedInUser]);
 
   useEffect(() => {
     if (!user) return;
@@ -866,25 +904,30 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+    explicitSignOutRef.current = true;
+    try {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      await signOutFirebaseCloud();
+      clearStoredSessionToken();
+      clearStoredCachedUser();
+      await clearActiveVaultKey();
+      setShowNotifPrompt(false);
+      setShowNotifBanner(false);
+      setAdminSnapshot(null);
+      setNotifications([]);
+      setUnreadCount(0);
+      setAnnouncements([]);
+      setInitialChapterSelection(null);
+      setInitialStudentChatId(null);
+      setUser(null);
+      setActiveTab('home');
+    } finally {
+      explicitSignOutRef.current = false;
     }
-    await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    await signOutFirebaseCloud();
-    clearStoredSessionToken();
-    clearStoredCachedUser();
-    await clearActiveVaultKey();
-    setShowNotifPrompt(false);
-    setShowNotifBanner(false);
-    setAdminSnapshot(null);
-    setNotifications([]);
-    setUnreadCount(0);
-    setAnnouncements([]);
-    setInitialChapterSelection(null);
-    setInitialStudentChatId(null);
-    setUser(null);
-    setActiveTab('home');
   };
 
   const navigateTo = (tab: TabId) => {

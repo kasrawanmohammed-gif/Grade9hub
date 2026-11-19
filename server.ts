@@ -440,13 +440,19 @@ function createSessionForUser(userId: number): { token: string; expiresAt: Date 
   return { token, expiresAt };
 }
 
-function setSessionCookie(req: Request, res: Response, token: string, expiresAt: Date): void {
+function setSessionCookie(
+  req: Request,
+  res: Response,
+  token: string,
+  expiresAt: Date,
+  rememberMe = true
+): void {
   const isHttps = isHttpsRequest(req);
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: isHttps ? 'none' : 'lax',
     secure: isHttps,
-    expires: expiresAt,
+    ...(rememberMe ? { expires: expiresAt } : {}),
     path: '/',
   });
 }
@@ -1273,13 +1279,14 @@ async function startServer() {
     }
 
     if (activeToken) {
+      const rememberMe = req.headers['x-remember-me'] !== '0';
       const nextExpiry = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
       db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(
         activeToken,
         user.id,
         nextExpiry.toISOString()
       );
-      setSessionCookie(req, res, activeToken, nextExpiry);
+      setSessionCookie(req, res, activeToken, nextExpiry, rememberMe);
     }
 
     res.json({
@@ -1329,8 +1336,9 @@ async function startServer() {
         restoredId,
         nextExpiry.toISOString()
       );
+      const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
       db.prepare("UPDATE users SET last_active_at = datetime('now') WHERE id = ?").run(restoredId);
-      setSessionCookie(req, res, sessionToken, nextExpiry);
+      setSessionCookie(req, res, sessionToken, nextExpiry, rememberMe);
 
       const restoredRow = db
         .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
@@ -1631,8 +1639,9 @@ async function startServer() {
       row.is_admin = 1;
     }
 
+    const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     const { token, expiresAt } = createSessionForUser(row.id);
-    setSessionCookie(req, res, token, expiresAt);
+    setSessionCookie(req, res, token, expiresAt, rememberMe);
     db.prepare("UPDATE users SET last_login_at = datetime('now'), last_active_at = datetime('now') WHERE id = ?").run(
       row.id
     );
@@ -1687,10 +1696,6 @@ async function startServer() {
       return;
     }
 
-    const isFacebook = identity.provider === 'facebook.com';
-    const providerLabel = isFacebook ? 'Facebook' : 'Google';
-    const markerPrefix = isFacebook ? '!FIREBASE_FACEBOOK_LINKED!' : '!FIREBASE_GOOGLE_LINKED!';
-
     const email = identity.email.trim().toLowerCase();
     const isMainAdmin = identity.emailVerified && email === TEACHER_EMAIL.toLowerCase();
     const safeRole: 'student' | 'teacher' = isMainAdmin ? 'teacher' : 'student';
@@ -1721,11 +1726,7 @@ async function startServer() {
       String(
         cloudProfile?.name ||
           identity.name ||
-          (isMainAdmin
-            ? 'Mr. Kasrawan'
-            : email.startsWith('fb_')
-            ? 'Facebook Student'
-            : email.split('@')[0])
+          (isMainAdmin ? 'Mr. Kasrawan' : email.split('@')[0])
       )
         .trim()
         .slice(0, 120) || 'Grade 9 User';
@@ -1736,7 +1737,7 @@ async function startServer() {
 
     let userId: number;
     if (!row) {
-      const markerHash = `${markerPrefix}${crypto.randomUUID()}`;
+      const markerHash = `!FIREBASE_GOOGLE_LINKED!${crypto.randomUUID()}`;
       const inserted = db
         .prepare(
           `INSERT INTO users (
@@ -1764,8 +1765,8 @@ async function startServer() {
         userId,
         'register',
         isMainAdmin
-          ? `Signed in as administrator with ${providerLabel}`
-          : `Created student account with ${providerLabel}`,
+          ? 'Signed in as administrator with Google'
+          : 'Created student account with Google',
         'user',
         userId
       );
@@ -1776,11 +1777,11 @@ async function startServer() {
         ).run(
           userId,
           'Welcome to Grade 9 Hub',
-          `Your ${providerLabel} account is ready. Your progress and account are safely backed up across updates.`
+          'Your Google account is ready. Your progress and account are safely backed up across updates.'
         );
       }
     } else if (row.password_hash === BOOTSTRAP_PENDING_HASH) {
-      const markerHash = `${markerPrefix}${crypto.randomUUID()}`;
+      const markerHash = `!FIREBASE_GOOGLE_LINKED!${crypto.randomUUID()}`;
       db.prepare(
         `UPDATE users
          SET name = ?, password_hash = ?, role = ?, is_admin = ?,
@@ -1827,7 +1828,7 @@ async function startServer() {
         String(cloudProfile?.birthday || '').slice(0, 20),
         userId
       );
-      logStudentActivity(userId, 'login', `Signed in via ${providerLabel}`, 'user', userId);
+      logStudentActivity(userId, 'login', 'Signed in via Google', 'user', userId);
     }
 
     // Merge cloud competition points if SQLite has fewer points (e.g., after container rebuild)
@@ -1870,9 +1871,10 @@ async function startServer() {
       }
     }
 
+    const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     ensureMainAdminPermissions();
     const { token, expiresAt } = createSessionForUser(userId);
-    setSessionCookie(req, res, token, expiresAt);
+    setSessionCookie(req, res, token, expiresAt, rememberMe);
     const freshRow = db
       .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
       .get(userId) as DbUserRow;
@@ -1897,213 +1899,6 @@ async function startServer() {
         correctAnswers: Number(quizStatsRow?.correct || 0),
       },
     });
-  });
-
-  app.get('/api/auth/facebook/url', (req: Request, res: Response) => {
-    const fbAppId = String(process.env.FACEBOOK_APP_ID || '').trim();
-    const fbAppSecret = String(process.env.FACEBOOK_APP_SECRET || '').trim();
-    let firebaseProjectId = 'gen-lang-client-0277416465';
-    try {
-      const cfgPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-      if (fs.existsSync(cfgPath)) {
-        const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { projectId?: string };
-        if (parsed.projectId) firebaseProjectId = parsed.projectId;
-      }
-    } catch {
-      // ignore config read error
-    }
-
-    if (!fbAppId || !fbAppSecret) {
-      res.json({ configured: false, firebaseProjectId });
-      return;
-    }
-
-    const baseUrl = String(process.env.APP_URL || `${req.protocol}://${req.get('host')}`)
-      .trim()
-      .replace(/\/+$/, '');
-    const redirectUri = `${baseUrl}/auth/facebook/callback`;
-    const stateToken = encryptSignedJson('fb-oauth-state', {
-      nonce: crypto.randomUUID(),
-      exp: Date.now() + 10 * 60 * 1000,
-    });
-
-    const params = new URLSearchParams({
-      client_id: fbAppId,
-      redirect_uri: redirectUri,
-      state: stateToken,
-      scope: 'public_profile',
-      response_type: 'code',
-      display: 'popup',
-    });
-
-    res.json({
-      configured: true,
-      firebaseProjectId,
-      url: `https://www.facebook.com/v20.0/dialog/oauth?${params.toString()}`,
-    });
-  });
-
-  app.get(['/auth/facebook/callback', '/auth/facebook/callback/'], async (req: Request, res: Response) => {
-    const sendPopupResult = (payload: Record<string, unknown>) => {
-      const safeJson = JSON.stringify(payload).replace(/</g, '\\u003c');
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(`<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>Facebook Sign-In</title></head>
-  <body style="font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#FAF8F5;color:#1C1917;">
-    <p>Completing Facebook sign-in...</p>
-    <script>
-      (function () {
-        var data = ${safeJson};
-        if (window.opener) {
-          window.opener.postMessage(data, '*');
-          window.close();
-        } else {
-          window.location.href = '/';
-        }
-      })();
-    </script>
-  </body>
-</html>`);
-    };
-
-    try {
-      const fbAppId = String(process.env.FACEBOOK_APP_ID || '').trim();
-      const fbAppSecret = String(process.env.FACEBOOK_APP_SECRET || '').trim();
-      if (!fbAppId || !fbAppSecret) {
-        sendPopupResult({ type: 'FACEBOOK_OAUTH_ERROR', error: 'Facebook OAuth is not configured on the server.' });
-        return;
-      }
-
-      const errorDesc = String(req.query?.error_description || req.query?.error || '').trim();
-      if (errorDesc) {
-        sendPopupResult({ type: 'FACEBOOK_OAUTH_ERROR', error: errorDesc });
-        return;
-      }
-
-      const code = String(req.query?.code || '').trim();
-      const state = String(req.query?.state || '').trim();
-      const statePayload = decryptSignedJson<{ nonce?: string; exp?: number }>('fb-oauth-state', state);
-      if (!code || !statePayload || !statePayload.exp || statePayload.exp < Date.now()) {
-        sendPopupResult({ type: 'FACEBOOK_OAUTH_ERROR', error: 'Invalid or expired Facebook sign-in state.' });
-        return;
-      }
-
-      const baseUrl = String(process.env.APP_URL || `${req.protocol}://${req.get('host')}`)
-        .trim()
-        .replace(/\/+$/, '');
-      const redirectUri = `${baseUrl}/auth/facebook/callback`;
-
-      const tokenParams = new URLSearchParams({
-        client_id: fbAppId,
-        redirect_uri: redirectUri,
-        client_secret: fbAppSecret,
-        code,
-      });
-      const tokenRes = await fetch(`https://graph.facebook.com/v20.0/oauth/access_token?${tokenParams.toString()}`);
-      const tokenJson = (await tokenRes.json()) as { access_token?: string; error?: { message?: string } };
-      if (!tokenRes.ok || !tokenJson.access_token) {
-        sendPopupResult({
-          type: 'FACEBOOK_OAUTH_ERROR',
-          error: tokenJson.error?.message || 'Unable to exchange Facebook authorization code.',
-        });
-        return;
-      }
-
-      const profileRes = await fetch(
-        `https://graph.facebook.com/me?fields=id,name,email&access_token=${encodeURIComponent(tokenJson.access_token)}`
-      );
-      const profileJson = (await profileRes.json()) as {
-        id?: string;
-        name?: string;
-        email?: string;
-        error?: { message?: string };
-      };
-      if (!profileRes.ok || !profileJson.id) {
-        sendPopupResult({
-          type: 'FACEBOOK_OAUTH_ERROR',
-          error: profileJson.error?.message || 'Unable to read Facebook profile.',
-        });
-        return;
-      }
-
-      const fbUid = String(profileJson.id).replace(/[^a-zA-Z0-9_-]/g, '');
-      const rawEmail = String(profileJson.email || '').trim().toLowerCase();
-      const email = rawEmail || `fb_${fbUid}@facebook.grade9hub.local`;
-      const displayName = String(profileJson.name || 'Facebook Student').trim().slice(0, 120) || 'Facebook Student';
-
-      if (email === TEACHER_EMAIL.toLowerCase()) {
-        sendPopupResult({
-          type: 'FACEBOOK_OAUTH_ERROR',
-          error: 'Please use Google Sign-In or password for administrator access.',
-        });
-        return;
-      }
-
-      let row = db
-        .prepare(`SELECT ${USER_SELECT_COLS}, password_hash FROM users WHERE LOWER(email) = LOWER(?)`)
-        .get(email) as (DbUserRow & { password_hash: string }) | undefined;
-
-      if (!row || row.password_hash === BOOTSTRAP_PENDING_HASH) {
-        restoreMissingUserFromPersistentBackupSync(email);
-        row = db
-          .prepare(`SELECT ${USER_SELECT_COLS}, password_hash FROM users WHERE LOWER(email) = LOWER(?)`)
-          .get(email) as (DbUserRow & { password_hash: string }) | undefined;
-      }
-
-      if (row && (row.is_admin || row.role === 'teacher')) {
-        sendPopupResult({
-          type: 'FACEBOOK_OAUTH_ERROR',
-          error: 'Please use Google Sign-In or password for teacher access.',
-        });
-        return;
-      }
-
-      let userId: number;
-      if (!row) {
-        const markerHash = `!FIREBASE_FACEBOOK_LINKED!${crypto.randomUUID()}`;
-        const inserted = db
-          .prepare(
-            `INSERT INTO users (name, email, password_hash, role, is_admin, grade, bio, birthday, last_login_at, last_active_at)
-             VALUES (?, ?, ?, 'student', 0, '', '', '', datetime('now'), datetime('now'))`
-          )
-          .run(displayName, email, markerHash);
-        userId = Number(inserted.lastInsertRowid);
-        logStudentActivity(userId, 'register', 'Created student account with Facebook', 'user', userId);
-        db.prepare(
-          `INSERT INTO notifications (user_id, title, body, category, link_tab)
-           VALUES (?, ?, ?, 'announcement', 'home')`
-        ).run(
-          userId,
-          'Welcome to Grade 9 Hub',
-          'Your Facebook account is ready. Explore the 11 chapters, General Questions, and Student Community.'
-        );
-      } else {
-        userId = row.id;
-        db.prepare("UPDATE users SET last_login_at = datetime('now'), last_active_at = datetime('now') WHERE id = ?").run(
-          userId
-        );
-        logStudentActivity(userId, 'login', 'Signed in via Facebook', 'user', userId);
-      }
-
-      const { token, expiresAt } = createSessionForUser(userId);
-      setSessionCookie(req, res, token, expiresAt);
-      const freshRow = db.prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`).get(userId) as DbUserRow;
-      checkpointDatabase();
-      writeRecoverySnapshotSync('facebook-oauth-login');
-
-      sendPopupResult({
-        type: 'FACEBOOK_OAUTH_SUCCESS',
-        user: serializeAuthUser(freshRow),
-        sessionToken: token,
-        accountPassport: buildAccountPassportForUser(userId),
-      });
-    } catch (err) {
-      sendPopupResult({
-        type: 'FACEBOOK_OAUTH_ERROR',
-        error: err instanceof Error ? err.message : 'Facebook sign-in failed.',
-      });
-    }
   });
 
   app.post('/api/admin/cloud-sync', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
