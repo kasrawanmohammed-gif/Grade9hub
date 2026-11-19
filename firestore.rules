@@ -1,0 +1,344 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core Identity & Validation Primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isEmailVerified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'facebook.com'
+      );
+    }
+
+    function isMainAdminEmail() {
+      return isEmailVerified() && request.auth.token.email == 'mohamdm791@gmail.com';
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && (
+        isMainAdminEmail() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidUserAccount(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'isAdmin', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'role',
+          'isAdmin',
+          'grade',
+          'bio',
+          'birthday',
+          'avatarUrl',
+          'notificationsEnabled',
+          'notifPromptStatus',
+          'totalPoints',
+          'quizzesCompleted',
+          'correctAnswers',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+        data.role in ['student', 'teacher'] &&
+        data.isAdmin is bool &&
+        (!data.keys().hasAny(['grade']) || (data.grade is string && data.grade.size() <= 40)) &&
+        (!data.keys().hasAny(['bio']) || (data.bio is string && data.bio.size() <= 500)) &&
+        (!data.keys().hasAny(['birthday']) || (data.birthday is string && data.birthday.size() <= 20)) &&
+        (!data.keys().hasAny(['avatarUrl']) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000)) &&
+        (!data.keys().hasAny(['notificationsEnabled']) || data.notificationsEnabled is bool) &&
+        (!data.keys().hasAny(['notifPromptStatus']) || (data.notifPromptStatus is string && data.notifPromptStatus in ['', 'allowed', 'denied'])) &&
+        (!data.keys().hasAny(['totalPoints']) || (data.totalPoints is number && data.totalPoints >= 0 && data.totalPoints <= 1000000)) &&
+        (!data.keys().hasAny(['quizzesCompleted']) || (data.quizzesCompleted is number && data.quizzesCompleted >= 0 && data.quizzesCompleted <= 100000)) &&
+        (!data.keys().hasAny(['correctAnswers']) || (data.correctAnswers is number && data.correctAnswers >= 0 && data.correctAnswers <= 1000000)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidQuizAttempt(data, userId) {
+      return data.keys().hasAll([
+          'userId',
+          'mode',
+          'chapterNumber',
+          'totalQuestions',
+          'correctCount',
+          'scorePercent',
+          'pointsAwarded',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'mode',
+          'chapterNumber',
+          'totalQuestions',
+          'correctCount',
+          'scorePercent',
+          'pointsAwarded',
+          'createdAt'
+        ]) &&
+        data.userId is string && data.userId == userId && isValidId(data.userId) &&
+        data.mode in ['all_chapters', 'chapter', 'general'] &&
+        data.chapterNumber is number && data.chapterNumber >= 0 && data.chapterNumber <= 11 &&
+        data.totalQuestions is number && data.totalQuestions >= 0 && data.totalQuestions <= 500 &&
+        data.correctCount is number && data.correctCount >= 0 && data.correctCount <= 500 &&
+        data.scorePercent is number && data.scorePercent >= 0 && data.scorePercent <= 100 &&
+        data.pointsAwarded is number && data.pointsAwarded >= 0 && data.pointsAwarded <= 1000 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidLeaderboardEntry(data, userId) {
+      return data.keys().hasAll([
+          'uid',
+          'name',
+          'role',
+          'totalPoints',
+          'quizzesCompleted',
+          'correctAnswers',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'name',
+          'grade',
+          'avatarUrl',
+          'role',
+          'totalPoints',
+          'quizzesCompleted',
+          'correctAnswers',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        (!data.keys().hasAny(['grade']) || (data.grade is string && data.grade.size() <= 40)) &&
+        (!data.keys().hasAny(['avatarUrl']) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000)) &&
+        data.role == 'student' &&
+        data.totalPoints is number && data.totalPoints >= 0 && data.totalPoints <= 1000000 &&
+        data.quizzesCompleted is number && data.quizzesCompleted >= 0 && data.quizzesCompleted <= 100000 &&
+        data.correctAnswers is number && data.correctAnswers >= 0 && data.correctAnswers <= 1000000 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminEntry(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidSchoolAccountSync(data, accountKey) {
+      return data.keys().hasAll([
+          'accountKey',
+          'email',
+          'name',
+          'role',
+          'isAdmin',
+          'passwordHash',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'accountKey',
+          'email',
+          'name',
+          'role',
+          'isAdmin',
+          'passwordHash',
+          'grade',
+          'bio',
+          'birthday',
+          'avatarUrl',
+          'notifPromptStatus',
+          'notificationsEnabled',
+          'createdAtIso',
+          'updatedAt'
+        ]) &&
+        data.accountKey is string && data.accountKey == accountKey && isValidId(data.accountKey) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 180 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.role in ['student', 'teacher'] &&
+        data.isAdmin is bool &&
+        data.passwordHash is string && data.passwordHash.size() >= 1 && data.passwordHash.size() <= 200 &&
+        (!data.keys().hasAny(['grade']) || (data.grade is string && data.grade.size() <= 40)) &&
+        (!data.keys().hasAny(['bio']) || (data.bio is string && data.bio.size() <= 500)) &&
+        (!data.keys().hasAny(['birthday']) || (data.birthday is string && data.birthday.size() <= 20)) &&
+        (!data.keys().hasAny(['avatarUrl']) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000)) &&
+        (!data.keys().hasAny(['notifPromptStatus']) || (data.notifPromptStatus is string && data.notifPromptStatus in ['', 'allowed', 'denied'])) &&
+        (!data.keys().hasAny(['notificationsEnabled']) || data.notificationsEnabled is bool) &&
+        (!data.keys().hasAny(['createdAtIso']) || (data.createdAtIso is string && data.createdAtIso.size() <= 64)) &&
+        data.updatedAt is timestamp;
+    }
+
+    // 1. Private User Accounts (/users/{userId}) - PII isolated to Owner or Admin
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isMainAdminEmail() && resource.data.role in ['student', 'teacher'];
+
+      allow create: if isValidId(userId) &&
+        isValidUserAccount(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isOwner(userId) &&
+            request.auth.token.email is string &&
+            incoming().email == request.auth.token.email &&
+            (
+              isMainAdminEmail()
+                ? (incoming().role == 'teacher' && incoming().isAdmin == true)
+                : (incoming().role == 'student' && incoming().isAdmin == false)
+            )
+          ) ||
+          isAdmin()
+        );
+
+      allow update: if isValidId(userId) &&
+        isValidUserAccount(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().isAdmin == existing().isAdmin &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'name',
+              'grade',
+              'bio',
+              'birthday',
+              'avatarUrl',
+              'notificationsEnabled',
+              'notifPromptStatus',
+              'totalPoints',
+              'quizzesCompleted',
+              'correctAnswers',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // Master Gate Subcollection: Quiz Attempts (/users/{userId}/quiz_attempts/{attemptId})
+      match /quiz_attempts/{attemptId} {
+        allow get: if isValidId(userId) && isValidId(attemptId) && (isOwner(userId) || isAdmin()) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
+        allow list: if isSignedIn() && resource.data.userId is string &&
+          (resource.data.userId == request.auth.uid || isMainAdminEmail());
+
+        allow create: if isValidId(userId) && isValidId(attemptId) &&
+          (isOwner(userId) || isAdmin()) &&
+          isValidQuizAttempt(incoming(), userId) &&
+          incoming().createdAt == request.time &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
+
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(attemptId) && isAdmin();
+      }
+    }
+
+    // 2. PII-Free Public Student Leaderboard (/leaderboard_entries/{userId})
+    match /leaderboard_entries/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.role == 'student';
+
+      allow create: if isValidId(userId) &&
+        (isOwner(userId) || isAdmin()) &&
+        isValidLeaderboardEntry(incoming(), userId) &&
+        incoming().updatedAt == request.time;
+
+      allow update: if isValidId(userId) &&
+        (isOwner(userId) || isAdmin()) &&
+        isValidLeaderboardEntry(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().role == existing().role &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name',
+          'grade',
+          'avatarUrl',
+          'totalPoints',
+          'quizzesCompleted',
+          'correctAnswers',
+          'updatedAt'
+        ]);
+
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 3. Verified Admins Registry (/admins/{userId})
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isMainAdminEmail() && resource.data.email == 'mohamdm791@gmail.com';
+      allow create: if isValidId(userId) &&
+        isMainAdminEmail() &&
+        isOwner(userId) &&
+        isValidAdminEntry(incoming(), userId) &&
+        incoming().email == request.auth.token.email &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(userId) && isMainAdminEmail();
+    }
+
+    // 4. Admin-Only School Account Mirror (/school_accounts/{accountKey})
+    match /school_accounts/{accountKey} {
+      allow get: if isValidId(accountKey) && isAdmin();
+      allow list: if isMainAdminEmail() && resource.data.role in ['student', 'teacher'];
+      allow create: if isValidId(accountKey) &&
+        isAdmin() &&
+        isValidSchoolAccountSync(incoming(), accountKey) &&
+        incoming().updatedAt == request.time;
+      allow update: if isValidId(accountKey) &&
+        isAdmin() &&
+        isValidSchoolAccountSync(incoming(), accountKey) &&
+        incoming().accountKey == existing().accountKey &&
+        incoming().email == existing().email &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'name',
+          'role',
+          'isAdmin',
+          'passwordHash',
+          'grade',
+          'bio',
+          'birthday',
+          'avatarUrl',
+          'notifPromptStatus',
+          'notificationsEnabled',
+          'createdAtIso',
+          'updatedAt'
+        ]);
+      allow delete: if isValidId(accountKey) && isAdmin();
+    }
+  }
+}

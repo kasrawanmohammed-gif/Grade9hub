@@ -1,0 +1,331 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Private authenticated student or teacher account profile stored in Firestore so accounts never disappear on app updates or URL changes.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the account owner."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Full display name of the student or teacher."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 180,
+          "description": "Account email address (strictly owner or admin readable)."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["student", "teacher"],
+          "description": "Account role; teachers/admins cannot be self-assigned by non-admin users."
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Whether this user holds main administrator privileges."
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Optional student grade label."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Short biography text."
+        },
+        "birthday": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Student birthday in YYYY-MM-DD format."
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Compacted Base64 WebP avatar data URI or empty string."
+        },
+        "notificationsEnabled": {
+          "type": "boolean",
+          "description": "Whether push/in-app notifications are enabled."
+        },
+        "notifPromptStatus": {
+          "type": "string",
+          "enum": ["", "allowed", "denied"],
+          "description": "Saved notification permission choice."
+        },
+        "totalPoints": {
+          "type": "number",
+          "description": "Total student competition points."
+        },
+        "quizzesCompleted": {
+          "type": "number",
+          "description": "Total completed quizzes count."
+        },
+        "correctAnswers": {
+          "type": "number",
+          "description": "Total correct answers count."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of account creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": ["uid", "name", "email", "role", "isAdmin", "createdAt", "updatedAt"]
+    },
+    "QuizAttemptRecord": {
+      "title": "QuizAttemptRecord",
+      "description": "Immutable completed quiz record under a student account for cross-update progress preservation.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Parent user UID."
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["all_chapters", "chapter", "general"],
+          "description": "Quiz mode."
+        },
+        "chapterNumber": {
+          "type": "number",
+          "description": "Chapter number 1-11 or 0 for general/all-chapters."
+        },
+        "totalQuestions": {
+          "type": "number",
+          "description": "Number of questions in the quiz."
+        },
+        "correctCount": {
+          "type": "number",
+          "description": "Number of correct answers."
+        },
+        "scorePercent": {
+          "type": "number",
+          "description": "Score percentage 0-100."
+        },
+        "pointsAwarded": {
+          "type": "number",
+          "description": "Competition points awarded for this attempt."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when attempt was recorded."
+        }
+      },
+      "required": ["userId", "mode", "chapterNumber", "totalQuestions", "correctCount", "scorePercent", "pointsAwarded", "createdAt"]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "PII-free student competition scoreboard entry visible to signed-in users.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Student UID."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Student display name."
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Student grade."
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Compacted Base64 avatar or empty string."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["student"],
+          "description": "Must always be student for leaderboard entries."
+        },
+        "totalPoints": {
+          "type": "number",
+          "description": "Total student competition points."
+        },
+        "quizzesCompleted": {
+          "type": "number",
+          "description": "Completed quizzes count."
+        },
+        "correctAnswers": {
+          "type": "number",
+          "description": "Correct answers count."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest score sync."
+        }
+      },
+      "required": ["uid", "name", "role", "totalPoints", "quizzesCompleted", "correctAnswers", "updatedAt"]
+    },
+    "AdminRegistryEntry": {
+      "title": "AdminRegistryEntry",
+      "description": "Verified administrator allowlist document.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Admin UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 180,
+          "description": "Verified admin email."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp."
+        }
+      },
+      "required": ["uid", "email", "createdAt"]
+    },
+    "SchoolAccountSyncRecord": {
+      "title": "SchoolAccountSyncRecord",
+      "description": "Admin-only cloud mirror of local student/teacher accounts for surviving app rebuilds and URL changes.",
+      "type": "object",
+      "properties": {
+        "accountKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Deterministic key derived from normalized email."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 180,
+          "description": "Normalized account email."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Account display name."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["student", "teacher"],
+          "description": "Account role."
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Admin privilege flag."
+        },
+        "passwordHash": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Bcrypt password hash."
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Grade label."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Biography."
+        },
+        "birthday": {
+          "type": "string",
+          "maxLength": 20,
+          "description": "Birthday string."
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Compacted Base64 avatar or empty string."
+        },
+        "notifPromptStatus": {
+          "type": "string",
+          "enum": ["", "allowed", "denied"],
+          "description": "Notification choice."
+        },
+        "notificationsEnabled": {
+          "type": "boolean",
+          "description": "Notification enabled state."
+        },
+        "createdAtIso": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Original account creation timestamp string."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest sync."
+        }
+      },
+      "required": ["accountKey", "email", "name", "role", "isAdmin", "passwordHash", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserAccount"
+      },
+      "description": "Owner-only and admin user profile documents."
+    },
+    "/users/{userId}/quiz_attempts/{attemptId}": {
+      "schema": {
+        "$ref": "#/entities/QuizAttemptRecord"
+      },
+      "description": "Immutable student quiz attempt records under user profile."
+    },
+    "/leaderboard_entries/{userId}": {
+      "schema": {
+        "$ref": "#/entities/LeaderboardEntry"
+      },
+      "description": "PII-free student competition leaderboard profiles."
+    },
+    "/admins/{userId}": {
+      "schema": {
+        "$ref": "#/entities/AdminRegistryEntry"
+      },
+      "description": "Verified administrator allowlist collection."
+    },
+    "/school_accounts/{accountKey}": {
+      "schema": {
+        "$ref": "#/entities/SchoolAccountSyncRecord"
+      },
+      "description": "Admin-only cloud mirror of school user accounts."
+    }
+  }
+}

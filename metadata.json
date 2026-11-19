@@ -1,0 +1,6 @@
+{
+  "name": "MajQuiz Educational Hub",
+  "description": "Interactive science and physics educational hub with 11-chapter quizzes, Ask Your Teacher messaging with attachments, real-time notifications, AI study tutor, and installable PWA support. Powered by Mr. Kasrawan.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

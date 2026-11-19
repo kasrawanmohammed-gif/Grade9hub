@@ -1,0 +1,29 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { registerSW } from 'virtual:pwa-register';
+import App from './App.tsx';
+import { LanguageProvider } from './contexts/LanguageContext';
+import { SettingsProvider } from './contexts/SettingsContext';
+import { FirestoreErrorBoundary } from './components/FirestoreErrorBoundary';
+import './index.css';
+
+registerSW({
+  immediate: true,
+  onRegisteredSW(_swUrl, registration) {
+    if (registration) {
+      void registration.update();
+    }
+  },
+});
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <FirestoreErrorBoundary>
+      <SettingsProvider>
+        <LanguageProvider>
+          <App />
+        </LanguageProvider>
+      </SettingsProvider>
+    </FirestoreErrorBoundary>
+  </StrictMode>
+);
