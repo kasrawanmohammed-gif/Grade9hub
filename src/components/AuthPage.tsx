@@ -14,7 +14,6 @@ import {
   Sparkles,
   Upload,
 } from 'lucide-react';
-import type { AuthCredential } from 'firebase/auth';
 import { ApiError, apiFetch, setStoredSessionToken } from '../lib/api';
 import {
   decryptAdminVaultWithPassword,
@@ -26,13 +25,11 @@ import {
 } from '../lib/recoveryVault';
 import {
   consumePendingRedirectSignIn,
-  extractPendingFacebookCredential,
   MAIN_ADMIN_EMAIL,
   pullAllSchoolAccountsAsAdmin,
   pullCloudUserProfile,
   pushSchoolAccountsAsAdmin,
   SchoolAccountMirrorRow,
-  signInWithFacebookCloud,
   signInWithGoogleCloud,
   SocialAuthIdentity,
   syncCurrentUserToFirestore,
@@ -67,8 +64,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
 
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [facebookLoading, setFacebookLoading] = useState(false);
-  const [pendingFacebookCred, setPendingFacebookCred] = useState<AuthCredential | null>(null);
   const [restoringVault, setRestoringVault] = useState(false);
   const [serverDbEmpty, setServerDbEmpty] = useState(false);
   const [vaultSummary, setVaultSummary] = useState<{
@@ -95,15 +90,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     consumePendingRedirectSignIn()
       .then(async (redirectIdentity) => {
         if (active && redirectIdentity) {
-          setFacebookLoading(true);
+          setGoogleLoading(true);
           try {
             await completeFirebaseSocialSignIn(redirectIdentity);
           } catch (err) {
             if (active) {
-              setError(err instanceof Error ? err.message : t.auth.facebookSignInFailed);
+              setError(err instanceof Error ? err.message : t.auth.googleSignInFailed);
             }
           } finally {
-            if (active) setFacebookLoading(false);
+            if (active) setGoogleLoading(false);
           }
         }
       })
@@ -204,8 +199,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     setInfo(null);
     setGoogleLoading(true);
     try {
-      const fbIdentity = await signInWithGoogleCloud(pendingFacebookCred);
-      setPendingFacebookCred(null);
+      const fbIdentity = await signInWithGoogleCloud();
       await completeFirebaseSocialSignIn(fbIdentity);
     } catch (err) {
       const code = extractFirebaseAuthCode(err);
@@ -231,122 +225,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
       }
     } finally {
       setGoogleLoading(false);
-    }
-  };
-
-  const openDirectFacebookPopup = (oauthUrl: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const width = 520;
-      const height = 640;
-      const left = Math.max(0, Math.round((window.screen.width - width) / 2));
-      const top = Math.max(0, Math.round((window.screen.height - height) / 2));
-      const popup = window.open(
-        oauthUrl,
-        'grade9hub_facebook_oauth',
-        `width=${width},height=${height},left=${left},top=${top},noopener=no`
-      );
-      if (!popup) {
-        reject(new Error(t.auth.facebookSignInFailed));
-        return;
-      }
-
-      let settled = false;
-      const cleanup = () => {
-        window.removeEventListener('message', onMessage);
-        window.clearInterval(closedTimer);
-      };
-
-      const onMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        const payload = event.data as {
-          type?: string;
-          user?: User;
-          sessionToken?: string;
-          accountPassport?: string;
-          error?: string;
-        } | null;
-        if (!payload || typeof payload.type !== 'string') return;
-        if (payload.type === 'FACEBOOK_OAUTH_SUCCESS' && payload.user) {
-          settled = true;
-          cleanup();
-          setStoredSessionToken(payload.sessionToken);
-          if (payload.accountPassport && payload.user.email) {
-            await saveUserPassport(payload.user.email, payload.accountPassport, true).catch(
-              () => {}
-            );
-          }
-          onAuthenticated(payload.user);
-          resolve();
-        } else if (payload.type === 'FACEBOOK_OAUTH_ERROR') {
-          settled = true;
-          cleanup();
-          reject(new Error(payload.error || t.auth.facebookSignInFailed));
-        }
-      };
-
-      window.addEventListener('message', onMessage);
-      const closedTimer = window.setInterval(() => {
-        if (popup.closed && !settled) {
-          settled = true;
-          cleanup();
-          resolve();
-        }
-      }, 400);
-    });
-  };
-
-  const handleFacebookSignIn = async () => {
-    setError(null);
-    setInfo(null);
-    setFacebookLoading(true);
-    try {
-      const fbIdentity = await signInWithFacebookCloud();
-      if (fbIdentity) {
-        await completeFirebaseSocialSignIn(fbIdentity);
-      }
-    } catch (err) {
-      const code = extractFirebaseAuthCode(err);
-      const msg = err instanceof Error ? err.message : '';
-      if (
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request' ||
-        msg.includes('popup-closed-by-user') ||
-        msg.includes('cancelled-popup-request')
-      ) {
-        setError(null);
-      } else if (code === 'auth/account-exists-with-different-credential') {
-        const pendingCred = extractPendingFacebookCredential(err);
-        if (pendingCred) setPendingFacebookCred(pendingCred);
-        setInfo(t.auth.socialAccountExistsDiffCredential);
-      } else if (
-        code === 'auth/operation-not-allowed' ||
-        code === 'auth/configuration-not-found' ||
-        code === 'auth/invalid-credential'
-      ) {
-        try {
-          const direct = await apiFetch<{ configured: boolean; url?: string }>(
-            '/api/auth/facebook/url'
-          );
-          if (direct.configured && direct.url) {
-            await openDirectFacebookPopup(direct.url);
-          } else {
-            setError(t.auth.facebookNotEnabledHelp);
-          }
-        } catch {
-          setError(t.auth.facebookNotEnabledHelp);
-        }
-      } else if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
-        const host = typeof window !== 'undefined' ? window.location.hostname : '';
-        setError(
-          host
-            ? `Domain "${host}" is not authorized in Firebase Authentication yet. Add it under Authentication → Settings → Authorized domains.`
-            : t.auth.facebookSignInFailed
-        );
-      } else {
-        setError(msg || t.auth.facebookSignInFailed);
-      }
-    } finally {
-      setFacebookLoading(false);
     }
   };
 
@@ -536,7 +414,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
 
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft;
 
-  const socialBusy = googleLoading || facebookLoading;
+  const socialBusy = googleLoading;
 
   return (
     <div className="min-h-dvh flex flex-col bg-[#FAF8F5] text-[#1C1917]">
@@ -743,7 +621,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
                   <div className="flex-grow border-t border-[#E6DFD5]" />
                 </div>
 
-                <div className="space-y-1.5 sm:space-y-2">
+                <div>
                   <button
                     type="button"
                     onClick={handleGoogleSignIn}
@@ -770,23 +648,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
                     </svg>
                     <span>
                       {googleLoading ? t.auth.googleSignInLoading : t.auth.continueWithGoogle}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={handleFacebookSignIn}
-                    disabled={socialBusy || loading}
-                    className="w-full flex items-center justify-center gap-2.5 rounded-xl border border-[#E6DFD5] bg-white px-4 py-2 text-sm font-semibold text-[#1C1917] hover:border-[#1877F2]/45 hover:bg-[#FAF8F5] shadow-xs transition-colors disabled:opacity-60 cursor-pointer min-h-[40px] sm:min-h-[42px]"
-                  >
-                    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        fill="#1877F2"
-                        d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.41c0-3.025 1.792-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.268h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073Z"
-                      />
-                    </svg>
-                    <span>
-                      {facebookLoading ? t.auth.facebookSignInLoading : t.auth.continueWithFacebook}
                     </span>
                   </button>
                 </div>
