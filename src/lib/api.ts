@@ -1,7 +1,24 @@
 import { getActivePassport, saveUserPassport } from './recoveryVault';
+import {
+  handleStaticApiFallback,
+  isStaticHostMode,
+  StaticFallbackHttpError,
+} from './staticFallback';
 
 const SESSION_TOKEN_KEY = 'grade9hub_session_token';
 const CACHED_USER_KEY = 'grade9hub_cached_user';
+const API_BASE =
+  typeof import.meta !== 'undefined' &&
+  import.meta.env &&
+  typeof import.meta.env.VITE_API_BASE_URL === 'string'
+    ? import.meta.env.VITE_API_BASE_URL.trim().replace(/\/+$/, '')
+    : '';
+
+function resolveApiUrl(url: string): string {
+  if (!API_BASE) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_BASE}${url.startsWith('/') ? url : `/${url}`}`;
+}
 
 export function getStoredSessionToken(): string | null {
   try {
@@ -89,6 +106,10 @@ export async function tryRestoreActiveSessionPassport(): Promise<{
   }
 
   passportRestoreInFlight = (async () => {
+    if (isStaticHostMode() && !API_BASE) {
+      return null;
+    }
+
     const token = getStoredSessionToken();
     const cachedUser = getStoredCachedUser<{ email?: string }>();
     const passport = await getActivePassport(cachedUser?.email);
@@ -97,7 +118,7 @@ export async function tryRestoreActiveSessionPassport(): Promise<{
     }
 
     try {
-      const response = await fetch('/api/auth/restore-passport', {
+      const response = await fetch(resolveApiUrl('/api/auth/restore-passport'), {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -164,42 +185,108 @@ async function performFetch(url: string, options: RequestInit): Promise<Response
     ...(options.headers || {}),
   };
 
-  return fetch(url, {
+  return fetch(resolveApiUrl(url), {
     credentials: 'include',
     ...options,
     headers,
   });
 }
 
+async function invokeStaticFallback<T>(url: string, options: RequestInit): Promise<T> {
+  try {
+    const fallbackData = await handleStaticApiFallback(url, options);
+    if (fallbackData && typeof fallbackData === 'object') {
+      capturePassportFromResponse(fallbackData as Record<string, unknown>);
+    }
+    return fallbackData as T;
+  } catch (fallbackErr) {
+    if (fallbackErr instanceof StaticFallbackHttpError) {
+      throw new ApiError(fallbackErr.message, fallbackErr.status, fallbackErr.data);
+    }
+    throw fallbackErr;
+  }
+}
+
+const ALWAYS_BACKEND_PREFIXES = [
+  '/api/auth/login',
+  '/api/auth/firebase-login',
+  '/api/auth/me',
+  '/api/auth/recovery-status',
+  '/api/auth/facebook/url',
+  '/api/auth/logout',
+  '/api/chapters',
+  '/api/questions',
+  '/api/quizzes/',
+  '/api/textbooks-qa',
+  '/api/competition/',
+  '/api/profile',
+  '/api/notifications',
+  '/api/announcements',
+  '/api/push/',
+];
+
+function isAlwaysBackendApiPath(url: string): boolean {
+  const pathOnly = url.split('?')[0];
+  return ALWAYS_BACKEND_PREFIXES.some((prefix) => pathOnly.startsWith(prefix));
+}
+
 export async function apiFetch<T>(
   url: string,
   options: RequestInit = {}
 ): Promise<T> {
-  let response = await performFetch(url, options);
-  let data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  if (isStaticHostMode() && !API_BASE && url.startsWith('/api/')) {
+    return invokeStaticFallback<T>(url, options);
+  }
+
+  let response: Response;
+  try {
+    response = await performFetch(url, options);
+  } catch (networkErr) {
+    if (!API_BASE && url.startsWith('/api/') && isStaticHostMode()) {
+      return invokeStaticFallback<T>(url, options);
+    }
+    throw networkErr;
+  }
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const isJsonResponse = contentType.includes('application/json');
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+  const shouldFallbackToStatic =
+    !API_BASE &&
+    url.startsWith('/api/') &&
+    (response.status === 404 || response.status === 405) &&
+    (!isJsonResponse || typeof data.error !== 'string' || isAlwaysBackendApiPath(url));
+
+  if (shouldFallbackToStatic) {
+    return invokeStaticFallback<T>(url, options);
+  }
+
+  let currentResponse = response;
+  let currentData = data;
 
   if (
-    response.status === 401 &&
-    Boolean(data.needsPassportRestore) &&
+    currentResponse.status === 401 &&
+    Boolean(currentData.needsPassportRestore) &&
     !url.startsWith('/api/auth/restore-passport') &&
     !url.startsWith('/api/auth/login') &&
     !url.startsWith('/api/auth/logout')
   ) {
     const restored = await tryRestoreActiveSessionPassport();
     if (restored?.user) {
-      response = await performFetch(url, options);
-      data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      currentResponse = await performFetch(url, options);
+      currentData = (await currentResponse.json().catch(() => ({}))) as Record<string, unknown>;
     }
   }
 
-  if (!response.ok) {
+  if (!currentResponse.ok) {
     const errMsg =
-      typeof data.error === 'string' && data.error
-        ? data.error
-        : `Request failed (${response.status})`;
-    throw new ApiError(errMsg, response.status, data);
+      typeof currentData.error === 'string' && currentData.error
+        ? currentData.error
+        : `Request failed (${currentResponse.status})`;
+    throw new ApiError(errMsg, currentResponse.status, currentData);
   }
 
-  capturePassportFromResponse(data);
-  return data as T;
+  capturePassportFromResponse(currentData);
+  return currentData as T;
 }

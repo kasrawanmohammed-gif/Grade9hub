@@ -550,3 +550,44 @@ export async function pushSchoolAccountsAsAdmin(
   }
   return synced;
 }
+
+export interface CloudLeaderboardRow {
+  uid: string;
+  name: string;
+  grade: string;
+  avatarUrl: string;
+  totalPoints: number;
+  quizzesCompleted: number;
+  correctAnswers: number;
+}
+
+export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser)) {
+    return [];
+  }
+  try {
+    const q = query(
+      collection(db, 'leaderboard_entries'),
+      where('role', '==', 'student')
+    );
+    const snaps = await getDocs(q);
+    const rows: CloudLeaderboardRow[] = [];
+    snaps.forEach((docSnap) => {
+      const d = docSnap.data();
+      rows.push({
+        uid: String(d.uid || docSnap.id),
+        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+        grade: clampStr(d.grade || '', 40),
+        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
+        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
+        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
+      });
+    });
+    return rows;
+  } catch {
+    return [];
+  }
+}
+

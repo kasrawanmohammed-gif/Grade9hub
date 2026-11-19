@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ApiError,
   apiFetch,
   clearStoredCachedUser,
   clearStoredSessionToken,
@@ -35,6 +36,7 @@ import {
   setStoredSessionToken,
   tryRestoreActiveSessionPassport,
 } from './lib/api';
+import { isStaticHostMode } from './lib/staticFallback';
 import {
   clearActiveVaultKey,
   decryptAdminVaultForAutoResume,
@@ -390,16 +392,15 @@ export default function App() {
           setUser(null);
           setAuthChecked(true);
         }
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        // Transient network / 502 / 503 while dev server restarts during app edit:
-        // keep logged-in user active and retry quietly in background.
+        const isNotFound = err instanceof ApiError && err.status === 404;
         const cachedUser = getStoredCachedUser<User>();
         const storedToken = getStoredSessionToken();
         if (cachedUser && storedToken) {
           setUser(cachedUser);
           setAuthChecked(true);
-          if (attempt < 5) {
+          if (!isNotFound && !isStaticHostMode() && attempt < 5) {
             const delayMs = Math.min(2500 * (attempt + 1), 12000);
             retryTimer = setTimeout(() => {
               void checkAuth(attempt + 1);
@@ -520,7 +521,7 @@ export default function App() {
 
   // Real-time WebSocket for student presence & live Admin Dashboard rankings
   useEffect(() => {
-    if (!user) {
+    if (!user || isStaticHostMode()) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -533,7 +534,7 @@ export default function App() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
-      if (cancelled) return;
+      if (cancelled || isStaticHostMode()) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const token = getStoredSessionToken();
       const wsUrl = `${protocol}//${window.location.host}/ws${

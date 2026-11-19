@@ -928,7 +928,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       facebookNotEnabledHelp:
         'Facebook is not enabled yet in Firebase project "gen-lang-client-0277416465" (Authentication → Sign-in method → Facebook). If you enabled Facebook in a different Firebase project, share its Project ID so we can connect it.',
       socialAccountExistsDiffCredential:
-        'This email is already linked with Google. Click "Continue with Google" above to sign in and automatically link your Facebook account.',
+        'This email is already linked with Google. Click "Continue with Google" below to sign in and automatically link your Facebook account.',
       adminClaimPrompt:
         'This server database was reset after an update. Sign in with Google below or switch to Create Account to set your administrator password.',
     },
@@ -2550,7 +2550,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       facebookNotEnabledHelp:
         'مزوّد Facebook غير مفعّل بعد في مشروع Firebase "gen-lang-client-0277416465" (Authentication → Sign-in method → Facebook). إذا فعّلته في مشروع آخر، أرسل معرّف المشروع لربطه.',
       socialAccountExistsDiffCredential:
-        'هذا البريد مسجّل مسبقاً عبر Google. انقر على "المتابعة باستخدام Google" أعلاه لتسجيل الدخول وربط حساب Facebook تلقائياً.',
+        'هذا البريد مسجّل مسبقاً عبر Google. انقر على "المتابعة باستخدام Google" أدناه لتسجيل الدخول وربط حساب Facebook تلقائياً.',
       adminClaimPrompt:
         'تمت إعادة تعيين قاعدة البيانات بعد التحديث. سجّل الدخول عبر Google أدناه أو انتقل إلى إنشاء حساب لتعيين كلمة المرور.',
     },
