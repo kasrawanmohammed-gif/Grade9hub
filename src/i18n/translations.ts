@@ -41,6 +41,7 @@ export interface Translations {
     greetingAfternoon: string;
     greetingEvening: string;
     studentGreetingTemplate: string;
+    heroJourneySubtitle: string;
   };
   nav: {
     home: string;
@@ -847,8 +848,9 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       greetingMorning: 'Good morning',
       greetingAfternoon: 'Good afternoon',
       greetingEvening: 'Good evening',
-      studentGreetingTemplate:
-        'Welcome, dear student! {timeGreeting}—we’re glad you’re here and wish you a focused, rewarding learning session ahead.',
+      studentGreetingTemplate: '{timeGreeting}, dear student! Welcome',
+      heroJourneySubtitle:
+        'Wishing you a bright, focused, and successful science learning journey.',
     },
     nav: {
       home: 'Home',
@@ -1665,8 +1667,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       greetingMorning: 'بەیانیت باش',
       greetingAfternoon: 'پاشنیوەڕۆت باش',
       greetingEvening: 'ئێوارەت باش',
-      studentGreetingTemplate:
-        'بەخێربێیت قوتابی خۆشەویست! {timeGreeting} — خۆشحاڵین بە ئامادەبوونت و هیوای خوێندنێکی سەرکەوتووت بۆ دەخوازین.',
+      studentGreetingTemplate: '{timeGreeting}، قوتابی خۆشەویست! بەخێربێیت',
+      heroJourneySubtitle: 'هیوای گەشتێکی سەرکەوتوو و پڕ لە زانستت بۆ دەخوازین.',
     },
     nav: {
       home: 'سەرەکی',
@@ -2483,8 +2485,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       greetingMorning: 'صباح الخير',
       greetingAfternoon: 'طاب مساؤك',
       greetingEvening: 'مساء الخير',
-      studentGreetingTemplate:
-        'مرحباً بك يا طالبي العزيز! {timeGreeting} — يسعدنا وجودك ونتمنى لك وقتاً مثمراً وموفقاً في التعلم.',
+      studentGreetingTemplate: '{timeGreeting}، طالبي العزيز! مرحباً بك',
+      heroJourneySubtitle: 'نتمنى لك رحلة تعليمية موفقة ومليئة بالاكتشاف والنجاح.',
     },
     nav: {
       home: 'الرئيسية',

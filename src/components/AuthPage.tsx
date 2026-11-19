@@ -48,7 +48,6 @@ import { LanguageSwitcher, useLanguage } from '../contexts/LanguageContext';
 import { ThemeToggleButton } from '../contexts/SettingsContext';
 import { PWAInstallButton } from './PWAInstallButton';
 import { RotatingQuote } from './RotatingQuote';
-import prismHeroImg from '../assets/images/physics_optics_prism_hero_1794573933754.jpg';
 
 interface AuthPageProps {
   onAuthenticated: (user: User) => void;
@@ -449,14 +448,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     <div className="min-h-dvh flex flex-col bg-[#FAF8F5] text-[#1C1917]">
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 items-stretch">
         {/* Left Editorial Brand Showcase */}
-        <div className="lg:col-span-6 relative flex flex-col justify-between bg-[#6B1118] text-white px-4 pt-2 pb-2.5 sm:px-6 sm:pt-3 sm:pb-4 lg:p-10 overflow-hidden">
-          <img
-            src={prismHeroImg}
-            alt="Optical glass prism refracting light beam in a Grade 9 science studio"
-            referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-cover opacity-25 mix-blend-luminosity pointer-events-none"
-          />
-          <div className="absolute inset-0 bg-gradient-to-br from-[#6B1118]/95 via-[#6B1118]/85 to-[#3E080C]/95 pointer-events-none" />
+        <div className="lg:col-span-6 relative flex flex-col justify-between gap-4 sm:gap-5 lg:gap-8 bg-gradient-to-br from-[#7A131C] via-[#6B1118] to-[#3B080C] text-white px-5 py-3.5 sm:px-8 sm:py-5 lg:p-11 overflow-hidden">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_18%,rgba(229,183,66,0.16),transparent_55%)] pointer-events-none" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_85%,rgba(255,255,255,0.08),transparent_50%)] pointer-events-none" />
 
           {/* Top Bar on Left Showcase */}
           <div className="relative z-30 flex items-center justify-between gap-2">
@@ -483,54 +477,67 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
             </div>
           </div>
 
-          {/* Dominant Centered Main Title & Student Greeting (Mobile / Tablet Red Header Banner) */}
-          <div className="lg:hidden relative z-20 my-auto pt-1.5 pb-0.5 sm:pt-3 sm:pb-1 text-center px-1">
-            <p className="text-[11px] sm:text-xs font-semibold text-[#FBF4DF] leading-snug max-w-md mx-auto mb-1">
+          {/* Dominant Centered Hero Content (Mobile / Tablet) */}
+          <div className="lg:hidden relative z-20 flex flex-col items-center text-center gap-2.5 px-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 backdrop-blur-xs px-3 py-1 text-[11px] font-medium text-white/95">
               {studentGreeting}
-            </p>
-            <h1 className="text-[17px] sm:text-xl font-extrabold tracking-tight text-white leading-[1.15] [text-wrap:balance] max-w-md mx-auto">
-              {t.auth.heroTitle}
-            </h1>
+            </span>
+            <div className="space-y-1 max-w-md mx-auto">
+              <h1 className="text-[19px] sm:text-2xl font-extrabold tracking-tight text-white leading-[1.16] [text-wrap:balance]">
+                {t.auth.heroTitle}
+              </h1>
+              <p className="text-[11px] sm:text-xs text-white/80 leading-relaxed max-w-sm mx-auto">
+                {t.brand.heroJourneySubtitle}
+              </p>
+            </div>
             <RotatingQuote
               quotes={t.brand.motivationalQuotes}
               dir={dir}
-              className="mt-1 sm:mt-1.5 text-[10px] sm:text-xs font-medium text-[#FBF4DF]/85 leading-snug tracking-wide max-w-sm mx-auto"
-              iconClassName="w-3 h-3 text-[#E5B742] shrink-0"
+              intervalMs={3500}
+              className="mt-1 text-[11px] sm:text-xs font-medium text-[#FBF4DF]/95 leading-snug tracking-wide max-w-md"
+              iconClassName="w-3.5 h-3.5 text-[#E5B742] shrink-0"
             />
           </div>
 
-          {/* Dominant Centered Main Title & Student Greeting (Desktop / Laptop Showcase) */}
-          <div className="hidden lg:flex flex-col items-center justify-center relative z-10 my-auto max-w-xl mx-auto text-center px-2">
-            <p className="mb-3 text-sm font-semibold text-[#FBF4DF] bg-white/10 border border-white/15 rounded-xl px-4 py-2 leading-relaxed">
+          {/* Dominant Centered Hero Content (Desktop / Laptop Showcase) */}
+          <div className="hidden lg:flex flex-col items-center justify-center relative z-10 my-auto max-w-xl mx-auto text-center px-2 gap-6">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 backdrop-blur-xs px-4 py-1.5 text-xs font-medium text-white/95">
               {studentGreeting}
-            </p>
-            <h1 className="text-4xl xl:text-5xl font-extrabold leading-[1.12] tracking-tight text-white [text-wrap:balance]">
-              {t.auth.heroTitle}
-            </h1>
-            <RotatingQuote
-              quotes={t.brand.motivationalQuotes}
-              dir={dir}
-              className="mt-4 text-base font-medium text-[#FBF4DF]/90 leading-snug tracking-wide gap-2"
-              iconClassName="w-4 h-4 text-[#E5B742] shrink-0"
-            />
-            <div className="mt-8 w-full grid grid-cols-3 gap-4 border-t border-white/15 pt-5 text-sm">
+            </span>
+            <div className="space-y-3">
+              <h1 className="text-4xl xl:text-[42px] font-extrabold leading-[1.12] tracking-tight text-white [text-wrap:balance]">
+                {t.auth.heroTitle}
+              </h1>
+              <p className="text-base text-white/80 leading-relaxed max-w-md mx-auto">
+                {t.brand.heroJourneySubtitle}
+              </p>
+            </div>
+            <div className="w-full grid grid-cols-3 gap-4 border-t border-white/15 pt-5 text-sm">
               <div>
                 <p className="text-xl font-bold text-[#E5B742] tabular-nums">11</p>
-                <p className="text-xs text-[#FBF4DF]/80 mt-0.5">{t.auth.statChaptersLabel}</p>
+                <p className="text-xs text-white/75 mt-0.5">{t.auth.statChaptersLabel}</p>
               </div>
               <div>
                 <p className="text-xl font-bold text-[#E5B742]">{t.auth.statDirectTitle}</p>
-                <p className="text-xs text-[#FBF4DF]/80 mt-0.5">{t.auth.statDirectLabel}</p>
+                <p className="text-xs text-white/75 mt-0.5">{t.auth.statDirectLabel}</p>
               </div>
               <div>
                 <p className="text-xl font-bold text-[#E5B742]">PWA</p>
-                <p className="text-xs text-[#FBF4DF]/80 mt-0.5">{t.auth.statPwaLabel}</p>
+                <p className="text-xs text-white/75 mt-0.5">{t.auth.statPwaLabel}</p>
               </div>
             </div>
           </div>
 
-          <div className="hidden lg:flex relative z-10 items-center justify-center gap-4 text-xs text-[#FBF4DF]/75">
-            <span>{t.brand.schoolTag}</span>
+          {/* Bottom Separated Glass Rotating Quote Card (Desktop) & Footer Tag */}
+          <div className="hidden lg:flex flex-col items-center gap-4 relative z-10 max-w-xl w-full mx-auto">
+            <RotatingQuote
+              quotes={t.brand.motivationalQuotes}
+              dir={dir}
+              intervalMs={3500}
+              className="text-sm font-medium text-[#FBF4DF]/95 leading-snug tracking-wide"
+              iconClassName="w-4 h-4 text-[#E5B742] shrink-0"
+            />
+            <span className="text-xs text-white/70">{t.brand.schoolTag}</span>
           </div>
         </div>
 
