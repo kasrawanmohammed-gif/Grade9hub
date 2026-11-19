@@ -387,11 +387,20 @@ export async function streamAiTutorChat(
   let firebaseIdToken = '';
   try {
     if (auth.currentUser) {
-      firebaseIdToken = await auth.currentUser.getIdToken();
+      firebaseIdToken = await Promise.race([
+        auth.currentUser.getIdToken(),
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 1000)),
+      ]);
     }
   } catch {
     // ignore if offline or Firebase token unavailable
   }
+
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const fetchTimer =
+    controller && typeof setTimeout !== 'undefined'
+      ? setTimeout(() => controller.abort(), 25000)
+      : null;
 
   const requestInit: RequestInit = {
     method: 'POST',
@@ -400,6 +409,7 @@ export async function streamAiTutorChat(
       ...(firebaseIdToken ? { 'X-Firebase-Id-Token': firebaseIdToken } : {}),
     },
     body: payload,
+    ...(controller ? { signal: controller.signal } : {}),
   };
 
   const runCurriculumFallback = async () => {
@@ -418,8 +428,10 @@ export async function streamAiTutorChat(
   try {
     response = await performFetch('/api/ai/chat', requestInit);
   } catch {
+    if (fetchTimer) clearTimeout(fetchTimer);
     return await runCurriculumFallback();
   }
+  if (fetchTimer) clearTimeout(fetchTimer);
 
   if (response.status === 401) {
     const firstErrData = (await response.clone().json().catch(() => ({}))) as Record<
@@ -432,7 +444,7 @@ export async function streamAiTutorChat(
         response = await performFetch('/api/ai/chat', requestInit);
       }
     }
-    if (response.status === 401 && isStaticHostMode()) {
+    if (response.status === 401 && (isStaticHostMode() || Boolean(getStoredCachedUser()))) {
       return await runCurriculumFallback();
     }
   }

@@ -1418,6 +1418,41 @@ export async function handleStaticApiFallback(
     };
   }
 
+  if (pathname === '/api/ai/generate-image' && method === 'POST') {
+    const promptText = String(body.prompt || '').trim();
+    if (!promptText) {
+      throw new StaticFallbackHttpError(
+        'Please describe the scientific diagram or illustration you want to generate.',
+        400
+      );
+    }
+    const safeTitle = promptText
+      .replace(/[<>&"']/g, ' ')
+      .trim()
+      .slice(0, 56);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" width="800" height="450">
+  <rect width="800" height="450" fill="#FAF8F5"/>
+  <rect x="20" y="20" width="760" height="410" rx="16" fill="#FFFFFF" stroke="#E6DFD5" stroke-width="2"/>
+  <text x="400" y="68" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="bold" fill="#6B1118">Grade 9 Science Study Visual</text>
+  <text x="400" y="98" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#57534E">${safeTitle}</text>
+  <line x1="120" y1="240" x2="320" y2="210" stroke="#D9A62E" stroke-width="4" stroke-linecap="round"/>
+  <polygon points="400,135 495,305 305,305" fill="#F9EFF0" stroke="#6B1118" stroke-width="3" stroke-linejoin="round"/>
+  <line x1="450" y1="215" x2="660" y2="175" stroke="#D9A62E" stroke-width="3"/>
+  <line x1="454" y1="226" x2="660" y2="226" stroke="#6B1118" stroke-width="3"/>
+  <line x1="458" y1="238" x2="660" y2="278" stroke="#2A7B76" stroke-width="3"/>
+  <circle cx="400" cy="360" r="18" fill="none" stroke="#6B1118" stroke-width="2"/>
+  <text x="400" y="398" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="13" fill="#57534E">Offline study schematic — live AI diagram rendering resumes when backend is connected.</text>
+</svg>`;
+    const encodedSvg =
+      typeof btoa === 'function'
+        ? btoa(unescape(encodeURIComponent(svg)))
+        : '';
+    return {
+      imageUrl: `data:image/svg+xml;base64,${encodedSvg}`,
+      caption: `Grade 9 Hub offline science schematic for "${safeTitle}".`,
+    };
+  }
+
   // 16. Interactive write actions requiring full backend server
   throw new StaticFallbackHttpError(
     'This action requires the live backend server. Sign in, quizzes, textbooks, and profile sync work in cloud mode.',
