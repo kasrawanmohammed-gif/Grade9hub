@@ -350,20 +350,24 @@ export interface StreamAiChatParams {
   history: Array<{ role: 'user' | 'model'; text: string }>;
   message: string;
   lang?: string;
+  signal?: AbortSignal;
   onChunk: (deltaText: string) => void;
 }
+
+const AI_CONNECT_TIMEOUT_MS = 20000;
+const AI_STREAM_IDLE_TIMEOUT_MS = 22000;
 
 export async function streamAiTutorChat(
   params: StreamAiChatParams
 ): Promise<{ reply: string; model: string }> {
   const payload = JSON.stringify({
     model: params.model,
-    systemInstruction: params.systemInstruction.trim().slice(0, 450),
-    history: params.history.slice(-8).map((t) => ({
+    systemInstruction: params.systemInstruction.trim().slice(0, 240),
+    history: params.history.slice(-6).map((t) => ({
       role: t.role,
-      text: t.text.slice(0, 1000),
+      text: t.text.slice(0, 650),
     })),
-    message: params.message,
+    message: params.message.trim().slice(0, 2000),
     lang: params.lang,
     stream: true,
   });
@@ -375,14 +379,27 @@ export async function streamAiTutorChat(
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 
+  if (params.signal?.aborted) {
+    throw new DOMException('Request aborted', 'AbortError');
+  }
+
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  let timedOut = false;
-  const fetchTimer =
+  let connectTimedOut = false;
+  let streamIdleTimedOut = false;
+  let externalAborted = false;
+
+  const onExternalAbort = () => {
+    externalAborted = true;
+    controller?.abort();
+  };
+  params.signal?.addEventListener('abort', onExternalAbort, { once: true });
+
+  const connectTimer =
     controller && typeof setTimeout !== 'undefined'
       ? setTimeout(() => {
-          timedOut = true;
+          connectTimedOut = true;
           controller.abort();
-        }, 30000)
+        }, AI_CONNECT_TIMEOUT_MS)
       : null;
 
   const sendDirectChatRequest = (endpoint: string) =>
@@ -393,11 +410,34 @@ export async function streamAiTutorChat(
       ...(controller ? { signal: controller.signal } : {}),
     });
 
+  const handleNetworkFailure = (err: unknown): never => {
+    if (externalAborted || params.signal?.aborted) {
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+    if (connectTimedOut || (err instanceof DOMException && err.name === 'AbortError')) {
+      throw new ApiError(
+        'The AI response timed out. Please try a shorter question or try again.',
+        408
+      );
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new ApiError(
+        'You appear to be offline. Reconnect to the internet to chat with the AI Tutor.',
+        0
+      );
+    }
+    throw new ApiError(
+      'Unable to reach the AI chat service. Please check your connection and try again.',
+      0
+    );
+  };
+
   const primaryEndpoint = resolveApiUrl('/api/ai/chat');
   let response: Response;
   try {
     response = await sendDirectChatRequest(primaryEndpoint);
     if (
+      !externalAborted &&
       API_BASE &&
       primaryEndpoint !== '/api/ai/chat' &&
       (response.status === 404 ||
@@ -409,105 +449,140 @@ export async function streamAiTutorChat(
       response = await sendDirectChatRequest('/api/ai/chat');
     }
   } catch (networkErr) {
-    if (API_BASE && primaryEndpoint !== '/api/ai/chat' && !timedOut) {
+    if (API_BASE && primaryEndpoint !== '/api/ai/chat' && !connectTimedOut && !externalAborted) {
       try {
         response = await sendDirectChatRequest('/api/ai/chat');
       } catch (retryErr) {
-        if (fetchTimer) clearTimeout(fetchTimer);
-        if (timedOut || (retryErr instanceof DOMException && retryErr.name === 'AbortError')) {
-          throw new ApiError(
-            'The AI response timed out. Please try a shorter question or try again.',
-            408
-          );
-        }
-        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          throw new ApiError(
-            'You appear to be offline. Reconnect to the internet to chat with the AI Tutor.',
-            0
-          );
-        }
-        throw new ApiError(
-          'Unable to reach the AI chat service. Please check your connection and try again.',
-          0
-        );
+        if (connectTimer) clearTimeout(connectTimer);
+        params.signal?.removeEventListener('abort', onExternalAbort);
+        handleNetworkFailure(retryErr);
       }
     } else {
-      if (fetchTimer) clearTimeout(fetchTimer);
-      if (timedOut || (networkErr instanceof DOMException && networkErr.name === 'AbortError')) {
+      if (connectTimer) clearTimeout(connectTimer);
+      params.signal?.removeEventListener('abort', onExternalAbort);
+      handleNetworkFailure(networkErr);
+    }
+  }
+
+  if (connectTimer) clearTimeout(connectTimer);
+
+  if (response!.status === 502 || response!.status === 503 || response!.status === 504) {
+    params.signal?.removeEventListener('abort', onExternalAbort);
+    const errData = (await response!.json().catch(() => ({}))) as Record<string, unknown>;
+    const errMsg =
+      typeof errData.error === 'string' && errData.error
+        ? errData.error
+        : 'The AI server timed out before finishing. Please try again.';
+    throw new ApiError(errMsg, response!.status, errData);
+  }
+
+  const contentType = (response!.headers.get('content-type') || '').toLowerCase();
+  const isSse = contentType.includes('text/event-stream');
+  const isJson = contentType.includes('application/json');
+
+  if (response!.status === 404 || response!.status === 405 || (!isSse && !isJson)) {
+    params.signal?.removeEventListener('abort', onExternalAbort);
+    throw new ApiError(
+      'AI chat endpoint (/api/ai/chat) is unavailable on this host. Ensure your deployment includes the /api/ai/chat route with GEMINI_API_KEY configured.',
+      response!.status || 404
+    );
+  }
+
+  if (!response!.ok) {
+    params.signal?.removeEventListener('abort', onExternalAbort);
+    const errData = (await response!.json().catch(() => ({}))) as Record<string, unknown>;
+    const errMsg =
+      typeof errData.error === 'string' && errData.error
+        ? errData.error
+        : `AI Tutor request failed (${response!.status}).`;
+    throw new ApiError(errMsg, response!.status, errData);
+  }
+
+  if (isSse && response!.body) {
+    const reader = response!.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullReply = '';
+    let resolvedModel = params.model;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        streamIdleTimedOut = true;
+        controller?.abort();
+        reader.cancel().catch(() => {});
+      }, AI_STREAM_IDLE_TIMEOUT_MS);
+    };
+
+    const onStreamAbort = () => {
+      externalAborted = true;
+      reader.cancel().catch(() => {});
+    };
+    params.signal?.addEventListener('abort', onStreamAbort, { once: true });
+
+    try {
+      resetIdleTimer();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        resetIdleTimer();
+
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split(/\r?\n\r?\n/);
+        buffer = events.pop() ?? '';
+
+        for (const evt of events) {
+          const lines = evt.split(/\r?\n/);
+          for (const line of lines) {
+            if (!line.startsWith('data:')) continue;
+            const jsonText = line.slice(5).trim();
+            if (!jsonText) continue;
+            try {
+              const parsed = JSON.parse(jsonText) as {
+                chunk?: string;
+                done?: boolean;
+                error?: string;
+                model?: string;
+              };
+              if (parsed.error) {
+                throw new ApiError(parsed.error, 500);
+              }
+              if (parsed.model) {
+                resolvedModel = parsed.model;
+              }
+              if (parsed.chunk) {
+                fullReply += parsed.chunk;
+                params.onChunk(parsed.chunk);
+              }
+            } catch (parseErr) {
+              if (parseErr instanceof ApiError) throw parseErr;
+            }
+          }
+        }
+      }
+
+      if (streamIdleTimedOut) {
         throw new ApiError(
           'The AI response timed out. Please try a shorter question or try again.',
           408
         );
       }
-      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        throw new ApiError(
-          'You appear to be offline. Reconnect to the internet to chat with the AI Tutor.',
-          0
-        );
+      if (externalAborted || params.signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
       }
-      throw new ApiError(
-        'Unable to reach the AI chat service. Please check your connection and try again.',
-        0
-      );
-    }
-  }
 
-  if (fetchTimer) clearTimeout(fetchTimer);
-
-  const contentType = (response.headers.get('content-type') || '').toLowerCase();
-  const isSse = contentType.includes('text/event-stream');
-  const isJson = contentType.includes('application/json');
-
-  if (response.status === 404 || response.status === 405 || (!isSse && !isJson)) {
-    throw new ApiError(
-      'AI chat endpoint (/api/ai/chat) is unavailable on this host. Ensure your deployment includes the /api/ai/chat route with GEMINI_API_KEY configured.',
-      response.status || 404
-    );
-  }
-
-  if (!response.ok) {
-    const errData = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-    const errMsg =
-      typeof errData.error === 'string' && errData.error
-        ? errData.error
-        : `AI Tutor request failed (${response.status}).`;
-    throw new ApiError(errMsg, response.status, errData);
-  }
-
-  if (isSse && response.body) {
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let fullReply = '';
-    let resolvedModel = params.model;
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const events = buffer.split(/\r?\n\r?\n/);
-      buffer = events.pop() ?? '';
-
-      for (const evt of events) {
-        const lines = evt.split(/\r?\n/);
-        for (const line of lines) {
+      if (buffer.trim()) {
+        for (const line of buffer.split(/\r?\n/)) {
           if (!line.startsWith('data:')) continue;
-          const jsonText = line.slice(5).trim();
-          if (!jsonText) continue;
           try {
-            const parsed = JSON.parse(jsonText) as {
+            const parsed = JSON.parse(line.slice(5).trim()) as {
               chunk?: string;
-              done?: boolean;
               error?: string;
               model?: string;
             };
-            if (parsed.error) {
-              throw new ApiError(parsed.error, 500);
-            }
-            if (parsed.model) {
-              resolvedModel = parsed.model;
-            }
+            if (parsed.error) throw new ApiError(parsed.error, 500);
+            if (parsed.model) resolvedModel = parsed.model;
             if (parsed.chunk) {
               fullReply += parsed.chunk;
               params.onChunk(parsed.chunk);
@@ -517,43 +592,45 @@ export async function streamAiTutorChat(
           }
         }
       }
-    }
 
-    if (buffer.trim()) {
-      for (const line of buffer.split(/\r?\n/)) {
-        if (!line.startsWith('data:')) continue;
-        try {
-          const parsed = JSON.parse(line.slice(5).trim()) as {
-            chunk?: string;
-            error?: string;
-            model?: string;
-          };
-          if (parsed.error) throw new ApiError(parsed.error, 500);
-          if (parsed.model) resolvedModel = parsed.model;
-          if (parsed.chunk) {
-            fullReply += parsed.chunk;
-            params.onChunk(parsed.chunk);
-          }
-        } catch (parseErr) {
-          if (parseErr instanceof ApiError) throw parseErr;
-        }
+      return {
+        reply: fullReply.trim() || 'I could not generate a response for that question.',
+        model: resolvedModel,
+      };
+    } catch (streamErr) {
+      if (externalAborted || params.signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
       }
+      if (
+        streamIdleTimedOut ||
+        (streamErr instanceof DOMException && streamErr.name === 'AbortError')
+      ) {
+        throw new ApiError(
+          'The AI response timed out. Please try a shorter question or try again.',
+          408
+        );
+      }
+      throw streamErr;
+    } finally {
+      if (idleTimer) clearTimeout(idleTimer);
+      params.signal?.removeEventListener('abort', onExternalAbort);
+      params.signal?.removeEventListener('abort', onStreamAbort);
+      reader.cancel().catch(() => {});
     }
-
-    return {
-      reply: fullReply.trim() || 'I could not generate a response for that question.',
-      model: resolvedModel,
-    };
   }
 
-  const data = (await response.json().catch(() => ({}))) as {
-    reply?: string;
-    model?: string;
-  };
-  const reply = (data.reply || '').trim() || 'I could not generate a response for that question.';
-  params.onChunk(reply);
-  return {
-    reply,
-    model: data.model || params.model,
-  };
+  try {
+    const data = (await response!.json().catch(() => ({}))) as {
+      reply?: string;
+      model?: string;
+    };
+    const reply = (data.reply || '').trim() || 'I could not generate a response for that question.';
+    params.onChunk(reply);
+    return {
+      reply,
+      model: data.model || params.model,
+    };
+  } finally {
+    params.signal?.removeEventListener('abort', onExternalAbort);
+  }
 }

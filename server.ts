@@ -4516,7 +4516,7 @@ async function startServer() {
   };
 
   app.post('/api/ai/chat', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
-    const model = String(req.body?.model || 'gemini-4-hydrogen');
+    const model = String(req.body?.model || 'gemini-3.1-flash-lite');
     const systemInstruction = String(
       req.body?.systemInstruction ||
         'Grade 9 Science Tutor: explain concepts clearly step-by-step with SI units.'
@@ -4554,54 +4554,89 @@ async function startServer() {
       }
     };
 
+    const requestAbortController = new AbortController();
+    const onClientClose = () => {
+      if (!res.writableFinished) {
+        requestAbortController.abort();
+      }
+    };
+    res.on('close', onClientClose);
+
     if (wantsStream) {
-      let headersSent = false;
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+      if (!res.writableEnded) {
+        res.write(': stream-open\n\n');
+      }
+
+      const keepalive = setInterval(() => {
+        if (!res.writableEnded && !requestAbortController.signal.aborted) {
+          res.write(': ping\n\n');
+        }
+      }, 4000);
+
       try {
-        const stream = runTutorChatStream({ model, systemInstruction, history, message });
-        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-cache, no-transform');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no');
-        res.flushHeaders?.();
-        headersSent = true;
+        const stream = runTutorChatStream({
+          model,
+          systemInstruction,
+          history,
+          message,
+          signal: requestAbortController.signal,
+        });
 
         let finalModel = model;
         let receivedAny = false;
         for await (const part of stream) {
+          if (requestAbortController.signal.aborted || res.writableEnded) break;
           finalModel = part.model;
           if (part.chunk) {
             receivedAny = true;
             res.write(`data: ${JSON.stringify({ chunk: part.chunk, model: part.model })}\n\n`);
           }
         }
-        if (!receivedAny) {
-          res.write(
-            `data: ${JSON.stringify({ chunk: 'I could not generate a response for that question.', model: finalModel })}\n\n`
-          );
+        if (!requestAbortController.signal.aborted && !res.writableEnded) {
+          if (!receivedAny) {
+            res.write(
+              `data: ${JSON.stringify({ chunk: 'I could not generate a response for that question.', model: finalModel })}\n\n`
+            );
+          }
+          res.write(`data: ${JSON.stringify({ done: true, model: finalModel })}\n\n`);
+          res.end();
+          recordAiTurn();
         }
-        res.write(`data: ${JSON.stringify({ done: true, model: finalModel })}\n\n`);
-        res.end();
-        recordAiTurn();
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
-        const status = getGeminiErrorStatus(err);
-        if (!headersSent) {
-          res.status(status).json({ error: msg });
-        } else {
+        if (!requestAbortController.signal.aborted && !res.writableEnded) {
+          const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
           res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
           res.end();
         }
+      } finally {
+        clearInterval(keepalive);
+        res.off('close', onClientClose);
       }
       return;
     }
 
     try {
-      const result = await runTutorChat({ model, systemInstruction, history, message });
+      const result = await runTutorChat({
+        model,
+        systemInstruction,
+        history,
+        message,
+        signal: requestAbortController.signal,
+      });
       recordAiTurn();
       res.json(result);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
-      res.status(getGeminiErrorStatus(err)).json({ error: msg });
+      if (!res.headersSent && !requestAbortController.signal.aborted) {
+        const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
+        res.status(getGeminiErrorStatus(err)).json({ error: msg });
+      }
+    } finally {
+      res.off('close', onClientClose);
     }
   });
 

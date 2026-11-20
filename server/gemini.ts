@@ -16,11 +16,12 @@ function getClient(): GoogleGenAI {
   });
 }
 
-export type TutorModelId = 'gemini-4-hydrogen' | 'gemini-3.1-flash-lite';
+export type TutorModelId = 'gemini-3.1-flash-lite' | 'gemini-4-hydrogen';
 
+const DEFAULT_TUTOR_MODEL: TutorModelId = 'gemini-3.1-flash-lite';
 const ALLOWED_TUTOR_MODELS = new Set<TutorModelId>([
-  'gemini-4-hydrogen',
   'gemini-3.1-flash-lite',
+  'gemini-4-hydrogen',
 ]);
 
 export interface ChatHistoryTurn {
@@ -48,6 +49,13 @@ function formatGeminiError(err: unknown): Error {
   if (raw.includes('GEMINI_API_KEY')) {
     return new Error('GEMINI_API_KEY is not configured. Please check Settings > Secrets to use Science AI Studio.');
   }
+  if (
+    raw.toLowerCase().includes('timed out') ||
+    raw.toLowerCase().includes('timeout') ||
+    (err instanceof DOMException && err.name === 'AbortError')
+  ) {
+    return new Error('The AI response timed out. Please try again or switch to Gemini 3.1 Flash Lite.');
+  }
   if (raw.includes('404') || raw.includes('NOT_FOUND')) {
     return new Error(`The selected AI model is temporarily unavailable (${extracted}). Please try again.`);
   }
@@ -63,6 +71,7 @@ function formatGeminiError(err: unknown): Error {
 export function getGeminiErrorStatus(err: unknown): number {
   const msg = err instanceof Error ? err.message : String(err || '');
   if (msg.includes('GEMINI_API_KEY')) return 503;
+  if (msg.toLowerCase().includes('timed out') || msg.toLowerCase().includes('timeout')) return 504;
   if (msg.includes('permission') || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID')) {
     return 403;
   }
@@ -87,15 +96,39 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
       msg.includes('ECONNRESET') ||
       msg.includes('fetch failed');
     if (!isTransient) throw err;
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 400));
     return await fn();
   }
 }
 
-const MAX_HISTORY_TURNS = 8;
-const MAX_HISTORY_TURN_CHARS = 1000;
+const MAX_HISTORY_TURNS = 6;
+const MAX_HISTORY_TURN_CHARS = 650;
+const MAX_SYSTEM_INSTRUCTION_CHARS = 240;
+const MAX_MESSAGE_CHARS = 2000;
+const UPSTREAM_CHAT_TIMEOUT_MS = 24000;
 const CONCISE_SI_RULE =
-  'Grade 9 Science Tutor: be accurate, clear, and concise. Use Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic.';
+  'Grade 9 Science Tutor: give clear, concise answers (about 120-200 words unless asked for more). Use Latin SI symbols (N, kg, m, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and digits 0-9.';
+
+function buildTutorChatConfig(
+  selectedModel: TutorModelId,
+  systemInstruction: string,
+  abortSignal?: AbortSignal
+) {
+  if (selectedModel === 'gemini-3.1-flash-lite') {
+    return {
+      systemInstruction,
+      maxOutputTokens: 700,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+      ...(abortSignal ? { abortSignal } : {}),
+    };
+  }
+  return {
+    systemInstruction,
+    maxOutputTokens: 1200,
+    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    ...(abortSignal ? { abortSignal } : {}),
+  };
+}
 
 function prepareChatContext(params: {
   model: string;
@@ -104,7 +137,7 @@ function prepareChatContext(params: {
 }) {
   const selectedModel: TutorModelId = ALLOWED_TUTOR_MODELS.has(params.model as TutorModelId)
     ? (params.model as TutorModelId)
-    : 'gemini-4-hydrogen';
+    : DEFAULT_TUTOR_MODEL;
 
   const recentSlice = Array.isArray(params.history)
     ? params.history.slice(-MAX_HISTORY_TURNS)
@@ -137,7 +170,9 @@ function prepareChatContext(params: {
     parts: [{ text: turn.text }],
   }));
 
-  const trimmedInstruction = String(params.systemInstruction || '').trim().slice(0, 450);
+  const trimmedInstruction = String(params.systemInstruction || '')
+    .trim()
+    .slice(0, MAX_SYSTEM_INSTRUCTION_CHARS);
   const combinedSystemInstruction = trimmedInstruction
     ? `${trimmedInstruction}\n${CONCISE_SI_RULE}`
     : CONCISE_SI_RULE;
@@ -154,8 +189,19 @@ export async function runTutorChat(params: {
   systemInstruction: string;
   history: ChatHistoryTurn[];
   message: string;
+  signal?: AbortSignal;
 }): Promise<{ reply: string; model: TutorModelId }> {
   const { selectedModel, formattedHistory, combinedSystemInstruction } = prepareChatContext(params);
+  const message = String(params.message || '').trim().slice(0, MAX_MESSAGE_CHARS);
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutTimer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, UPSTREAM_CHAT_TIMEOUT_MS);
+  const onExternalAbort = () => controller.abort();
+  params.signal?.addEventListener('abort', onExternalAbort, { once: true });
 
   try {
     const ai = getClient();
@@ -163,17 +209,13 @@ export async function runTutorChat(params: {
     const response: GenerateContentResponse = await withRetry(async () => {
       const chat = ai.chats.create({
         model: selectedModel,
-        config: {
-          systemInstruction: combinedSystemInstruction,
-          ...(selectedModel === 'gemini-4-hydrogen'
-            ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-            : {}),
-        },
+        config: buildTutorChatConfig(selectedModel, combinedSystemInstruction, controller.signal),
         history: formattedHistory,
       });
 
       return await chat.sendMessage({
-        message: params.message,
+        message,
+        config: { abortSignal: controller.signal },
       });
     });
 
@@ -182,7 +224,13 @@ export async function runTutorChat(params: {
       model: selectedModel,
     };
   } catch (err) {
+    if (timedOut) {
+      throw new Error('The AI response timed out. Please try again or switch to Gemini 3.1 Flash Lite.');
+    }
     throw formatGeminiError(err);
+  } finally {
+    clearTimeout(timeoutTimer);
+    params.signal?.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -191,37 +239,58 @@ export async function* runTutorChatStream(params: {
   systemInstruction: string;
   history: ChatHistoryTurn[];
   message: string;
+  signal?: AbortSignal;
 }): AsyncGenerator<{ chunk?: string; model: TutorModelId }> {
   const { selectedModel, formattedHistory, combinedSystemInstruction } = prepareChatContext(params);
+  const message = String(params.message || '').trim().slice(0, MAX_MESSAGE_CHARS);
+
+  const controller = new AbortController();
+  let timedOut = false;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const resetIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, UPSTREAM_CHAT_TIMEOUT_MS);
+  };
+  const onExternalAbort = () => controller.abort();
+  params.signal?.addEventListener('abort', onExternalAbort, { once: true });
+  resetIdleTimer();
 
   try {
     const ai = getClient();
 
-    const streamResponse = await withRetry(async () => {
-      const chat = ai.chats.create({
-        model: selectedModel,
-        config: {
-          systemInstruction: combinedSystemInstruction,
-          ...(selectedModel === 'gemini-4-hydrogen'
-            ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-            : {}),
-        },
-        history: formattedHistory,
-      });
+    const chat = ai.chats.create({
+      model: selectedModel,
+      config: buildTutorChatConfig(selectedModel, combinedSystemInstruction, controller.signal),
+      history: formattedHistory,
+    });
 
-      return await chat.sendMessageStream({
-        message: params.message,
-      });
+    const streamResponse = await chat.sendMessageStream({
+      message,
+      config: { abortSignal: controller.signal },
     });
 
     for await (const chunk of streamResponse) {
+      if (params.signal?.aborted) break;
+      resetIdleTimer();
       const c = chunk as GenerateContentResponse;
       if (c.text) {
         yield { chunk: c.text, model: selectedModel };
       }
     }
+    if (timedOut) {
+      throw new Error('The AI response timed out. Please try again or switch to Gemini 3.1 Flash Lite.');
+    }
   } catch (err) {
+    if (timedOut) {
+      throw new Error('The AI response timed out. Please try again or switch to Gemini 3.1 Flash Lite.');
+    }
     throw formatGeminiError(err);
+  } finally {
+    if (idleTimer) clearTimeout(idleTimer);
+    params.signal?.removeEventListener('abort', onExternalAbort);
   }
 }
 

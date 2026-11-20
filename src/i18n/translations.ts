@@ -315,6 +315,8 @@ export interface Translations {
     thinking: string;
     chatPlaceholder: string;
     send: string;
+    retry: string;
+    stop: string;
     diagramTitle: string;
     diagramSub: string;
     diagramPromptLabel: string;
@@ -1158,6 +1160,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'Thinking...',
       chatPlaceholder: 'Ask about work, power, kinetic energy, heat transfer...',
       send: 'Send',
+      retry: 'Retry',
+      stop: 'Stop',
       diagramTitle: 'High-Resolution Diagram Generator',
       diagramSub: 'Powered by Gemini 4 Hydrogen diagram engine with selectable 1K, 2K, and 4K PNG output.',
       diagramPromptLabel: 'Diagram or Visual Prompt',
@@ -1178,13 +1182,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'Science Concept Tutor',
         physicsTutorInstruction:
-          'You are an encouraging Grade 9 Science Concept Tutor for Grade 9 Hub. Break down scientific principles into clear intuition, equations with standard international Latin SI unit symbols (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K), and real-world examples.',
+          'You are a concise Grade 9 Science Tutor. Explain concepts clearly with key formulas, Latin SI units (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K), and a short real-world example.',
         stepSolverLabel: 'Step-by-Step Problem Solver',
         stepSolverInstruction:
-          'You are a rigorous Grade 9 Science Problem Solver. List known variables, state the governing law, show algebraic rearrangement step-by-step, and verify units using strict international Latin SI symbols (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K).',
+          'You are a Grade 9 Science Problem Solver. List given values, state the formula, show clear steps, and keep standard Latin SI units (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
         labCoachLabel: 'Lab & Experiment Coach',
         labCoachInstruction:
-          'You are a Laboratory Science Coach helping Grade 9 students design safe experiments, identify independent/dependent variables, and analyze measurement error.',
+          'You are a Grade 9 Lab Coach. Help design safe science experiments, identify variables, and explain measurements concisely.',
       },
     },
     profile: {
@@ -2004,6 +2008,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'بیرکردنەوە...',
       chatPlaceholder: 'پرسیار بکە لەسەر ئیش، توانا، وزەی جووڵە، گەرمی...',
       send: 'ناردن',
+      retry: 'دووبارە هەوڵبدە',
+      stop: 'وەستاندن',
       diagramTitle: 'دروستکەری هێڵکاری بە کوالێتی بەرز',
       diagramSub: 'کار دەکات بە بزوێنەری هێڵکاری Gemini 4 Hydrogen بە کوالێتی هەڵبژاردراوی 1K، 2K، و 4K.',
       diagramPromptLabel: 'وەسفی هێڵکاری یان وێنەکە',
@@ -2024,13 +2030,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'مامۆستای چەمکە زانستییەکان',
         physicsTutorInstruction:
-          'تۆ مامۆستایەکی هاندەری زانستی پۆلی ٩یت لە ناوەندی پۆلی ٩. بنەما زانستییەکان بە سادەیی و ڕوونی ڕوون بکەرەوە لەگەڵ هاوکێشە و نموونەی ڕۆژانە بە زمانی کوردی، و هەمیشە هێمای یەکە زانستییە نێودەوڵەتییەکان بە پیتی لاتینی استاندارد (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) وەک خۆیان بهێڵەرەوە و مەیانگۆڕە بۆ پیتی کوردی.',
+          'تۆ مامۆستایەکی پوخت و ڕوونی زانستی پۆلی ٩یت. بە کوردی یاسا و نموونەیەکی کورت ڕوون بکەرەوە و هێمای یەکە زانستییەکان بە لاتینی بهێڵەرەوە (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
         stepSolverLabel: 'شیکارکەری هەنگاو بە هەنگاو',
         stepSolverInstruction:
-          'تۆ شیکارکەرێکی وردی پرسیارەکانی زانستی پۆلی ٩یت. دراوەکان بنووسە، یاساکە دیاری بکە، هەنگاو بە هەنگاو هاوکێشەکە شیکار بکە بە زمانی کوردی، و هەمیشە یەکە پێوانەییە نێودەوڵەتییەکان بە پیتی لاتینی (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) بپارێزە.',
+          'تۆ شیکارکەری پرسیارەکانی زانستی پۆلی ٩یت. دراوەکان و یاسا و هەنگاوەکان بە کوردی و کورتی بنووسە و یەکە لاتینییەکان بپارێزە (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
         labCoachLabel: 'ڕاهێنەری تاقیگە و تاقیکردنەوە',
         labCoachInstruction:
-          'تۆ ڕاهێنەری تاقیگەی زانستیت و یارمەتی قوتابیانی پۆلی ٩ دەدەیت بۆ دیزاینکردنی تاقیکردنەوەی سەلامەت و دیاریکردنی گۆڕاوەکان بە زمانی کوردی.',
+          'تۆ ڕاهێنەری تاقیگەی زانستی پۆلی ٩یت. بە کوردی و کورتی یارمەتی دیزاینی تاقیکردنەوە و دیاریکردنی گۆڕاوەکان بدە.',
       },
     },
     profile: {
@@ -2850,6 +2856,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'جاري التفكير...',
       chatPlaceholder: 'اسأل عن الشغل، القدرة، الطاقة الحركية، انتقال الحرارة...',
       send: 'إرسال',
+      retry: 'إعادة المحاولة',
+      stop: 'إيقاف',
       diagramTitle: 'مولّد المخططات عالية الدقة',
       diagramSub: 'مدعوم بمحرك المخططات Gemini 4 Hydrogen مع اختيار دقة PNG 1K و 2K و 4K.',
       diagramPromptLabel: 'وصف المخطط أو الصورة العلمية',
@@ -2870,13 +2878,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'معلم مفاهيم العلوم',
         physicsTutorInstruction:
-          'أنت معلم مشجّع لمادة علوم الصف التاسع في منصة الصف التاسع. اشرح المبادئ العلمية بوضوح مع المعادلات وأمثلة من الحياة اليومية باللغة العربية، واحرص دائماً على إبقاء رموز الوحدات العلمية الدولية بالأحرف اللاتينية القياسية (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) دون ترجمتها أو تعريبها.',
+          'أنت معلم علوم للصف التاسع تشرح بإيجاز ووضوح باللغة العربية مع القانون ومثال يومي قصير، مع إبقاء رموز الوحدات الدولية باللاتينية (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
         stepSolverLabel: 'حلّال المسائل خطوة بخطوة',
         stepSolverInstruction:
-          'أنت حلّال مسائل دقيق لعلوم الصف التاسع. اكتب المعطيات، واذكر القانون المناسب، واعرض خطوات الحل الجبرية بالتفصيل باللغة العربية، مع الحفاظ الدائم على رموز الوحدات الدولية بالأحرف اللاتينية القياسية (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K).',
+          'أنت حلّال مسائل علوم للصف التاسع. اكتب المعطيات والقانون وخطوات الحل بإيجاز باللغة العربية مع إبقاء رموز الوحدات الدولية باللاتينية (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
         labCoachLabel: 'مدرّب المختبر والتجارب',
         labCoachInstruction:
-          'أنت مدرّب مختبر العلوم تساعد طلاب الصف التاسع على تصميم تجارب آمنة وتحديد المتغيرات وتحليل دقة القياس باللغة العربية.',
+          'أنت مدرّب مختبر علوم للصف التاسع. ساعد بإيجاز بالعربية في تصميم تجارب آمنة وتحديد المتغيرات وتحليل القياسات.',
       },
     },
     profile: {

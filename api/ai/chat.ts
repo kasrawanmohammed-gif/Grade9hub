@@ -1,16 +1,22 @@
 import { GoogleGenAI, GenerateContentResponse, ThinkingLevel } from '@google/genai';
 
-type TutorModelId = 'gemini-4-hydrogen' | 'gemini-3.1-flash-lite';
+type TutorModelId = 'gemini-3.1-flash-lite' | 'gemini-4-hydrogen';
 
+const DEFAULT_MODEL: TutorModelId = 'gemini-3.1-flash-lite';
 const ALLOWED_MODELS = new Set<TutorModelId>([
-  'gemini-4-hydrogen',
   'gemini-3.1-flash-lite',
+  'gemini-4-hydrogen',
 ]);
 
-const MAX_HISTORY_TURNS = 8;
-const MAX_HISTORY_TURN_CHARS = 1000;
+const MAX_HISTORY_TURNS = 6;
+const MAX_HISTORY_TURN_CHARS = 650;
+const MAX_MESSAGE_CHARS = 2000;
+const MAX_SYSTEM_INSTRUCTION_CHARS = 240;
+const UPSTREAM_IDLE_TIMEOUT_MS = 24000;
+const KEEPALIVE_INTERVAL_MS = 4000;
+
 const CONCISE_SI_RULE =
-  'Grade 9 Science Tutor: be accurate, clear, and concise. Use Latin SI unit symbols (N, kg, g, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and ASCII digits (0-9) even in Kurdish or Arabic.';
+  'Grade 9 Science Tutor: give clear, concise answers (about 120-200 words unless asked for more). Use Latin SI symbols (N, kg, m, s, m/s, m/s², J, W, Hz, Pa, °C, K, A, V, Ω) and digits 0-9.';
 
 interface RawTurn {
   role?: string;
@@ -49,6 +55,23 @@ function buildCleanHistory(rawHistory: unknown) {
   }));
 }
 
+function buildChatConfig(selectedModel: TutorModelId, systemInstruction: string, abortSignal?: AbortSignal) {
+  if (selectedModel === 'gemini-3.1-flash-lite') {
+    return {
+      systemInstruction,
+      maxOutputTokens: 700,
+      thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+      ...(abortSignal ? { abortSignal } : {}),
+    };
+  }
+  return {
+    systemInstruction,
+    maxOutputTokens: 1200,
+    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    ...(abortSignal ? { abortSignal } : {}),
+  };
+}
+
 function formatError(err: unknown): { status: number; message: string } {
   const raw = err instanceof Error ? err.message : String(err || 'Gemini API request failed.');
   let extracted = raw;
@@ -70,6 +93,16 @@ function formatError(err: unknown): { status: number; message: string } {
     return {
       status: 503,
       message: 'GEMINI_API_KEY is not configured in server secrets.',
+    };
+  }
+  if (
+    raw.toLowerCase().includes('timed out') ||
+    raw.toLowerCase().includes('timeout') ||
+    (err instanceof DOMException && err.name === 'AbortError')
+  ) {
+    return {
+      status: 504,
+      message: 'The AI response timed out. Please try again or use Gemini 3.1 Flash Lite.',
     };
   }
   if (raw.includes('404') || raw.includes('NOT_FOUND')) {
@@ -126,12 +159,12 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const rawModel = String(body?.model || 'gemini-4-hydrogen');
+  const rawModel = String(body?.model || DEFAULT_MODEL);
   const selectedModel: TutorModelId = ALLOWED_MODELS.has(rawModel as TutorModelId)
     ? (rawModel as TutorModelId)
-    : 'gemini-4-hydrogen';
+    : DEFAULT_MODEL;
 
-  const message = String(body?.message || '').trim();
+  const message = String(body?.message || '').trim().slice(0, MAX_MESSAGE_CHARS);
   if (!message) {
     return new Response(JSON.stringify({ error: 'Please enter a message for the AI tutor.' }), {
       status: 400,
@@ -139,7 +172,9 @@ export async function POST(request: Request): Promise<Response> {
     });
   }
 
-  const trimmedInstruction = String(body?.systemInstruction || '').trim().slice(0, 450);
+  const trimmedInstruction = String(body?.systemInstruction || '')
+    .trim()
+    .slice(0, MAX_SYSTEM_INSTRUCTION_CHARS);
   const combinedSystemInstruction = trimmedInstruction
     ? `${trimmedInstruction}\n${CONCISE_SI_RULE}`
     : CONCISE_SI_RULE;
@@ -159,90 +194,167 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   if (wantsStream) {
-    try {
-      const chat = ai.chats.create({
-        model: selectedModel,
-        config: {
-          systemInstruction: combinedSystemInstruction,
-          ...(selectedModel === 'gemini-4-hydrogen'
-            ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-            : {}),
-        },
-        history: formattedHistory,
-      });
+    const encoder = new TextEncoder();
+    const upstreamController = new AbortController();
+    let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let timedOut = false;
+    let clientAborted = false;
 
-      const streamResponse = await chat.sendMessageStream({ message });
-      const encoder = new TextEncoder();
+    const cleanup = () => {
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+    };
 
-      const stream = new ReadableStream({
-        async start(controller) {
-          let sentAny = false;
+    const onRequestAbort = () => {
+      clientAborted = true;
+      cleanup();
+      upstreamController.abort();
+    };
+    request.signal?.addEventListener('abort', onRequestAbort, { once: true });
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        let sentAny = false;
+        let closed = false;
+
+        const safeEnqueue = (chunkText: string) => {
+          if (closed || clientAborted) return;
           try {
-            for await (const chunk of streamResponse) {
-              const c = chunk as GenerateContentResponse;
-              if (c.text) {
-                sentAny = true;
-                controller.enqueue(
-                  encoder.encode(
-                    `data: ${JSON.stringify({ chunk: c.text, model: selectedModel })}\n\n`
-                  )
-                );
-              }
-            }
-            if (!sentAny) {
-              controller.enqueue(
-                encoder.encode(
-                  `data: ${JSON.stringify({
-                    chunk: 'I could not generate a response for that question.',
-                    model: selectedModel,
-                  })}\n\n`
-                )
+            controller.enqueue(encoder.encode(chunkText));
+          } catch {
+            // stream already closed
+          }
+        };
+
+        const safeClose = () => {
+          if (closed) return;
+          closed = true;
+          cleanup();
+          request.signal?.removeEventListener('abort', onRequestAbort);
+          try {
+            controller.close();
+          } catch {
+            // already closed
+          }
+        };
+
+        const resetIdleTimer = () => {
+          if (idleTimer) clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => {
+            timedOut = true;
+            upstreamController.abort();
+          }, UPSTREAM_IDLE_TIMEOUT_MS);
+        };
+
+        // Flush stream headers + opening comment immediately so Vercel starts streaming at 0ms
+        safeEnqueue(`: stream-open\n\n`);
+        keepaliveTimer = setInterval(() => {
+          safeEnqueue(`: ping\n\n`);
+        }, KEEPALIVE_INTERVAL_MS);
+        resetIdleTimer();
+
+        try {
+          const chat = ai.chats.create({
+            model: selectedModel,
+            config: buildChatConfig(
+              selectedModel,
+              combinedSystemInstruction,
+              upstreamController.signal
+            ),
+            history: formattedHistory,
+          });
+
+          const streamResponse = await chat.sendMessageStream({
+            message,
+            config: { abortSignal: upstreamController.signal },
+          });
+
+          for await (const chunk of streamResponse) {
+            if (clientAborted || timedOut) break;
+            resetIdleTimer();
+            const c = chunk as GenerateContentResponse;
+            if (c.text) {
+              sentAny = true;
+              safeEnqueue(
+                `data: ${JSON.stringify({ chunk: c.text, model: selectedModel })}\n\n`
               );
             }
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ done: true, model: selectedModel })}\n\n`)
-            );
-          } catch (err) {
-            const formatted = formatError(err);
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify({ error: formatted.message })}\n\n`)
-            );
-          } finally {
-            controller.close();
           }
-        },
-      });
 
-      return new Response(stream, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/event-stream; charset=utf-8',
-          'Cache-Control': 'no-cache, no-transform',
-          'X-Accel-Buffering': 'no',
-        },
-      });
-    } catch (err) {
-      const formatted = formatError(err);
-      return new Response(JSON.stringify({ error: formatted.message }), {
-        status: formatted.status,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
+          if (timedOut) {
+            safeEnqueue(
+              `data: ${JSON.stringify({
+                error: 'The AI response timed out. Please try again or use Gemini 3.1 Flash Lite.',
+              })}\n\n`
+            );
+            return;
+          }
+
+          if (!clientAborted) {
+            if (!sentAny) {
+              safeEnqueue(
+                `data: ${JSON.stringify({
+                  chunk: 'I could not generate a response for that question.',
+                  model: selectedModel,
+                })}\n\n`
+              );
+            }
+            safeEnqueue(
+              `data: ${JSON.stringify({ done: true, model: selectedModel })}\n\n`
+            );
+          }
+        } catch (err) {
+          if (!clientAborted) {
+            const formatted = timedOut
+              ? {
+                  message:
+                    'The AI response timed out. Please try again or use Gemini 3.1 Flash Lite.',
+                }
+              : formatError(err);
+            safeEnqueue(`data: ${JSON.stringify({ error: formatted.message })}\n\n`);
+          }
+        } finally {
+          safeClose();
+        }
+      },
+      cancel() {
+        onRequestAbort();
+      },
+    });
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no',
+      },
+    });
   }
+
+  const nonStreamController = new AbortController();
+  const nonStreamTimer = setTimeout(() => nonStreamController.abort(), UPSTREAM_IDLE_TIMEOUT_MS);
+  const onAbort = () => nonStreamController.abort();
+  request.signal?.addEventListener('abort', onAbort, { once: true });
 
   try {
     const chat = ai.chats.create({
       model: selectedModel,
-      config: {
-        systemInstruction: combinedSystemInstruction,
-        ...(selectedModel === 'gemini-4-hydrogen'
-          ? { thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
-          : {}),
-      },
+      config: buildChatConfig(selectedModel, combinedSystemInstruction, nonStreamController.signal),
       history: formattedHistory,
     });
 
-    const response = await chat.sendMessage({ message });
+    const response = await chat.sendMessage({
+      message,
+      config: { abortSignal: nonStreamController.signal },
+    });
     return new Response(
       JSON.stringify({
         reply: response.text?.trim() || 'I could not generate a response for that question.',
@@ -256,5 +368,8 @@ export async function POST(request: Request): Promise<Response> {
       status: formatted.status,
       headers: { 'Content-Type': 'application/json' },
     });
+  } finally {
+    clearTimeout(nonStreamTimer);
+    request.signal?.removeEventListener('abort', onAbort);
   }
 }
