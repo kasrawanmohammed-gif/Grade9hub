@@ -14,17 +14,22 @@ import {
   Globe,
   HelpCircle,
   Lock,
+  Megaphone,
   MessageCircle,
   MessageSquare,
+  Pencil,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
   Trash2,
   Trophy,
   Upload,
+  UserCog,
   Users,
   X,
 } from 'lucide-react';
@@ -35,7 +40,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
 import { ScientificText } from './ScientificText';
 import { UserAvatar } from './UserAvatar';
-import { formatUtcDateTime } from '../utils/dateFormat';
+import { formatUtcDate, formatUtcDateTime } from '../utils/dateFormat';
 import {
   AdminBackupsResponse,
   AdminCommunityOverview,
@@ -44,6 +49,9 @@ import {
   AdminSearchResults,
   AdminStudentDetailResponse,
   AdminStudentPerformance,
+  AdminUserRecord,
+  Announcement,
+  AppSettings,
   BackupFileInfo,
   CommunityDirectMessage,
   CommunityGroup,
@@ -63,6 +71,8 @@ interface AdminDashboardViewProps {
   wsConnected: boolean;
   focusSearchTrigger?: number;
   liveEvent?: LiveCommunityEvent | null;
+  appSettings?: AppSettings | null;
+  onSettingsUpdated?: (settings: AppSettings) => void;
   onRefreshDashboard: () => Promise<void>;
   onNavigate: (tab: TabId) => void;
   onSelectChapter: (chapterNumber: number | 'all') => void;
@@ -70,7 +80,16 @@ interface AdminDashboardViewProps {
 }
 
 type SearchScopeFilter = 'all' | 'students' | 'questions' | 'chapters' | 'messages';
-type MonitoringTab = 'overview' | 'dms' | 'groups' | 'logs' | 'moderation' | 'backups';
+type MonitoringTab =
+  | 'overview'
+  | 'accounts'
+  | 'dms'
+  | 'groups'
+  | 'logs'
+  | 'moderation'
+  | 'content'
+  | 'settings'
+  | 'backups';
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   currentUser,
@@ -78,6 +97,8 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   wsConnected,
   focusSearchTrigger,
   liveEvent,
+  appSettings,
+  onSettingsUpdated,
   onRefreshDashboard,
   onNavigate,
   onSelectChapter,
@@ -127,6 +148,44 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [accountActionMsg, setAccountActionMsg] = useState<string | null>(null);
   const [accountActionError, setAccountActionError] = useState<string | null>(null);
+
+  // Registered Accounts & Profile Edit State
+  const [registeredUsers, setRegisteredUsers] = useState<AdminUserRecord[]>([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
+  const [accountQuery, setAccountQuery] = useState('');
+  const [accountFilter, setAccountFilter] = useState<
+    'all' | 'students' | 'admins' | 'online' | 'restricted'
+  >('all');
+  const [editUserTarget, setEditUserTarget] = useState<AdminUserRecord | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editGrade, setEditGrade] = useState('');
+  const [editBirthday, setEditBirthday] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editRole, setEditRole] = useState<'student' | 'teacher'>('student');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Content & Announcements Quick Control State
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [annTitle, setAnnTitle] = useState('');
+  const [annContent, setAnnContent] = useState('');
+  const [annType, setAnnType] = useState<'announcement' | 'material'>('announcement');
+  const [annSaving, setAnnSaving] = useState(false);
+  const [annError, setAnnError] = useState<string | null>(null);
+
+  // Global App Settings State
+  const [settingsDraft, setSettingsDraft] = useState<AppSettings>({
+    allowStudentRegistration: appSettings?.allowStudentRegistration ?? true,
+    communityEnabled: appSettings?.communityEnabled ?? true,
+    communityPostingEnabled: appSettings?.communityPostingEnabled ?? true,
+    aiTutorEnabled: appSettings?.aiTutorEnabled ?? true,
+    defaultLanguage: appSettings?.defaultLanguage ?? 'en',
+    maintenanceMessage: appSettings?.maintenanceMessage ?? '',
+  });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   // Database Backup & Recovery State
   const [dbStats, setDbStats] = useState<DatabaseHealthStats | null>(null);
@@ -229,6 +288,39 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     }
   };
 
+  const fetchRegisteredUsers = async () => {
+    setLoadingAccounts(true);
+    setAccountsError(null);
+    try {
+      const data = await apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users');
+      setRegisteredUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (err) {
+      setAccountsError(err instanceof Error ? err.message : t.profile.loadAccountsError);
+    } finally {
+      setLoadingAccounts(false);
+    }
+  };
+
+  const fetchAdminAnnouncements = async () => {
+    try {
+      const data = await apiFetch<{ announcements: Announcement[] }>('/api/announcements');
+      setAnnouncements(Array.isArray(data.announcements) ? data.announcements : []);
+    } catch {
+      // ignore
+    }
+  };
+
+  const fetchAdminSettings = async () => {
+    try {
+      const data = await apiFetch<{ settings: AppSettings }>('/api/admin/settings');
+      if (data?.settings) {
+        setSettingsDraft(data.settings);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     if (!snapshot) {
       void onRefreshDashboard();
@@ -236,15 +328,36 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   }, [snapshot, onRefreshDashboard]);
 
   useEffect(() => {
+    if (appSettings) {
+      setSettingsDraft(appSettings);
+    }
+  }, [appSettings]);
+
+  useEffect(() => {
     void Promise.all([
+      fetchRegisteredUsers(),
       fetchCommunityOverview(),
       fetchDmConversations(''),
       fetchAdminGroups(),
       fetchActivityLogs('', 'all'),
       fetchReports('all'),
+      fetchAdminAnnouncements(),
+      fetchAdminSettings(),
       fetchBackups(),
     ]);
   }, []);
+
+  useEffect(() => {
+    if (wsConnected) return;
+    const interval = setInterval(() => {
+      void Promise.all([
+        onRefreshDashboard(),
+        fetchRegisteredUsers(),
+        fetchCommunityOverview(),
+      ]);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [wsConnected, onRefreshDashboard]);
 
   useEffect(() => {
     if (!liveEvent) return;
@@ -354,11 +467,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     try {
       await Promise.all([
         onRefreshDashboard(),
+        fetchRegisteredUsers(),
         fetchCommunityOverview(),
         fetchDmConversations(dmQuery),
         fetchAdminGroups(),
         fetchActivityLogs(logQuery, logActionFilter),
         fetchReports(reportStatusFilter),
+        fetchAdminAnnouncements(),
+        fetchAdminSettings(),
         fetchBackups(),
       ]);
       if (selectedStudentId !== null) {
@@ -384,6 +500,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       setRestrictReason('');
       await Promise.all([
         onRefreshDashboard(),
+        fetchRegisteredUsers(),
         fetchCommunityOverview(),
         fetchActivityLogs(logQuery, logActionFilter),
         fetchReports(reportStatusFilter),
@@ -403,6 +520,154 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const isProtectedUser = (target: { id: number; email: string }) =>
     target.id === currentUser.id || target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
+
+  const openEditUserModal = async (target: AdminUserRecord) => {
+    setEditUserTarget(target);
+    setEditName(target.name);
+    setEditGrade(target.grade || '');
+    setEditBirthday(target.birthday || '');
+    setEditBio(target.bio || '');
+    setEditRole(target.role);
+    setEditError(null);
+    try {
+      const detail = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${target.id}`);
+      if (detail?.user) {
+        setEditUserTarget(detail.user);
+        setEditName(detail.user.name);
+        setEditGrade(detail.user.grade || '');
+        setEditBirthday(detail.user.birthday || '');
+        setEditBio(detail.user.bio || '');
+        setEditRole(detail.user.role);
+      }
+    } catch {
+      // Fallback to list record if detail fetch unavailable
+    }
+  };
+
+  const handleSaveEditedUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editUserTarget || editSaving) return;
+    setEditSaving(true);
+    setEditError(null);
+    setAccountActionMsg(null);
+    const isTargetProtected = isProtectedUser(editUserTarget);
+    try {
+      const payload: Record<string, unknown> = {
+        name: editName.trim(),
+        grade: editGrade.trim(),
+        birthday: editBirthday.trim(),
+        bio: editBio.trim(),
+      };
+      if (!isTargetProtected) {
+        payload.role = editRole;
+        payload.isAdmin = editRole === 'teacher';
+      }
+      const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${editUserTarget.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      setEditUserTarget(res.user);
+      setRegisteredUsers((prev) =>
+        prev.map((u) => (u.id === res.user.id ? { ...u, ...res.user } : u))
+      );
+      setAccountActionMsg(t.profile.accountUpdatedMsg);
+      await Promise.all([onRefreshDashboard(), fetchRegisteredUsers()]);
+      if (selectedStudentId === res.user.id) {
+        const detail = await apiFetch<AdminStudentDetailResponse>(
+          `/api/admin/students/${res.user.id}/stats?lang=${language}`
+        ).catch(() => null);
+        if (detail) setStudentDetail(detail);
+      }
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Failed to update profile.');
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const handleToggleAccountRole = async (target: AdminUserRecord) => {
+    if (isProtectedUser(target)) return;
+    setAccountActionMsg(null);
+    setAccountActionError(null);
+    const nextRole = target.role === 'teacher' ? 'student' : 'teacher';
+    try {
+      await apiFetch(`/api/admin/users/${target.id}/role`, {
+        method: 'PUT',
+        body: JSON.stringify({ role: nextRole, isAdmin: nextRole === 'teacher' }),
+      });
+      setAccountActionMsg(
+        formatMsg(t.profile.roleUpdatedMsg, {
+          name: target.name,
+          role: nextRole === 'teacher' ? t.profile.adminTeacherTag : t.profile.studentTag,
+        })
+      );
+      await Promise.all([onRefreshDashboard(), fetchRegisteredUsers()]);
+    } catch (err) {
+      setAccountActionError(err instanceof Error ? err.message : 'Failed to update role.');
+    }
+  };
+
+  const handleCreateQuickAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annTitle.trim() || !annContent.trim() || annSaving) return;
+    setAnnSaving(true);
+    setAnnError(null);
+    try {
+      const fd = new FormData();
+      fd.append('title', annTitle.trim());
+      fd.append('content', annContent.trim());
+      fd.append('type', annType);
+      const res = await apiFetch<{ announcement: Announcement }>('/api/announcements', {
+        method: 'POST',
+        body: fd,
+      });
+      if (res?.announcement) {
+        setAnnouncements((prev) => [res.announcement, ...prev]);
+      } else {
+        await fetchAdminAnnouncements();
+      }
+      setAnnTitle('');
+      setAnnContent('');
+      setAccountActionMsg(t.home.announcementsTitle);
+    } catch (err) {
+      setAnnError(err instanceof Error ? err.message : 'Failed to publish announcement.');
+    } finally {
+      setAnnSaving(false);
+    }
+  };
+
+  const handleDeleteQuickAnnouncement = async (annId: number) => {
+    setAnnError(null);
+    try {
+      await apiFetch(`/api/announcements/${annId}`, { method: 'DELETE' });
+      setAnnouncements((prev) => prev.filter((a) => a.id !== annId));
+    } catch (err) {
+      setAnnError(err instanceof Error ? err.message : 'Failed to delete announcement.');
+    }
+  };
+
+  const handleSaveAppSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (settingsSaving) return;
+    setSettingsSaving(true);
+    setSettingsMsg(null);
+    setSettingsError(null);
+    try {
+      const res = await apiFetch<{ settings: AppSettings }>('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify(settingsDraft),
+      });
+      if (res?.settings) {
+        setSettingsDraft(res.settings);
+        onSettingsUpdated?.(res.settings);
+      }
+      setSettingsMsg(t.admin.settingsSavedMsg);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : 'Failed to update settings.');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const openDeleteUserModal = (target: { id: number; name: string; email: string }) => {
     setAccountActionMsg(null);
@@ -444,6 +709,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         setSelectedStudentId(null);
         setStudentDetail(null);
       }
+      if (editUserTarget?.id === removed.id) {
+        setEditUserTarget(null);
+      }
+      setRegisteredUsers((prev) => prev.filter((u) => u.id !== removed.id));
       setSearchResults((prev) =>
         prev
           ? {
@@ -455,6 +724,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       setAccountActionMsg(formatMsg(t.admin.userDeletedSuccess, { name: removed.name }));
       await Promise.all([
         onRefreshDashboard(),
+        fetchRegisteredUsers(),
         fetchCommunityOverview(),
         fetchActivityLogs(logQuery, logActionFilter),
         fetchReports(reportStatusFilter),
@@ -719,6 +989,22 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const topStudent = snapshot?.topStudent || null;
   const mostActiveStudent = snapshot?.mostActiveStudent || null;
   const allStudents = snapshot?.students || [];
+
+  const filteredRegisteredUsers = registeredUsers.filter((u) => {
+    const q = accountQuery.trim().toLowerCase();
+    if (q) {
+      const hit =
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.grade || '').toLowerCase().includes(q);
+      if (!hit) return false;
+    }
+    if (accountFilter === 'students') return u.role !== 'teacher' && !u.isAdmin;
+    if (accountFilter === 'admins') return u.role === 'teacher' || Boolean(u.isAdmin);
+    if (accountFilter === 'online') return Boolean(u.online);
+    if (accountFilter === 'restricted') return Boolean(u.isRestricted);
+    return true;
+  });
 
   const totalSearchHits = searchResults
     ? searchResults.students.length +
@@ -1427,6 +1713,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             [
               { id: 'overview', label: t.admin.tabOverview, icon: BarChart3 },
               {
+                id: 'accounts',
+                label: t.admin.tabAccounts,
+                icon: UserCog,
+                badge: registeredUsers.length,
+              },
+              {
                 id: 'dms',
                 label: t.admin.tabPrivateDms,
                 icon: MessageSquare,
@@ -1448,6 +1740,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 label: t.admin.tabModeration,
                 icon: ShieldAlert,
                 badge: communityOverview?.openReportsCount,
+              },
+              {
+                id: 'content',
+                label: t.admin.tabContentControl,
+                icon: BookOpen,
+              },
+              {
+                id: 'settings',
+                label: t.admin.tabAppSettings,
+                icon: Settings,
               },
               {
                 id: 'backups',
@@ -1538,6 +1840,233 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 </p>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Sub-Tab 1B: Full Registered Accounts Directory & Profile Control */}
+        {monitoringTab === 'accounts' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs sm:text-sm text-[#57534E]">{t.admin.registeredAccountsSub}</p>
+              <button
+                type="button"
+                disabled={loadingAccounts}
+                onClick={() => void fetchRegisteredUsers()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] disabled:opacity-50 cursor-pointer min-h-[36px]"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingAccounts ? 'animate-spin' : ''}`} />
+                <span>{t.profile.refreshAccountsBtn}</span>
+              </button>
+            </div>
+
+            <div className="relative">
+              <Search className="w-4 h-4 text-[#57534E] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={accountQuery}
+                onChange={(e) => setAccountQuery(e.target.value)}
+                placeholder={t.profile.searchAccountsPlaceholder}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] ps-10 pe-4 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118]"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  {
+                    id: 'all',
+                    label: `${t.profile.filterAllAccounts} (${registeredUsers.length})`,
+                  },
+                  {
+                    id: 'students',
+                    label: `${t.profile.filterStudentsOnly} (${
+                      registeredUsers.filter((u) => u.role !== 'teacher' && !u.isAdmin).length
+                    })`,
+                  },
+                  {
+                    id: 'admins',
+                    label: `${t.profile.filterAdminsOnly} (${
+                      registeredUsers.filter((u) => u.role === 'teacher' || u.isAdmin).length
+                    })`,
+                  },
+                  {
+                    id: 'online',
+                    label: `${t.profile.filterOnlineOnly} (${
+                      registeredUsers.filter((u) => Boolean(u.online)).length
+                    })`,
+                  },
+                  {
+                    id: 'restricted',
+                    label: `${t.profile.filterRestrictedOnly} (${
+                      registeredUsers.filter((u) => Boolean(u.isRestricted)).length
+                    })`,
+                  },
+                ] as const
+              ).map((pill) => (
+                <button
+                  key={pill.id}
+                  type="button"
+                  onClick={() => setAccountFilter(pill.id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                    accountFilter === pill.id
+                      ? 'bg-[#6B1118] text-white'
+                      : 'border border-[#E6DFD5] bg-[#FAF8F5] text-[#57534E] hover:text-[#1C1917]'
+                  }`}
+                >
+                  {pill.label}
+                </button>
+              ))}
+            </div>
+
+            {accountsError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-2.5 text-xs text-[#991B1B]">
+                {accountsError}
+              </div>
+            )}
+
+            {loadingAccounts && registeredUsers.length === 0 ? (
+              <p className="text-sm text-[#57534E] py-6 text-center">{t.profile.loadingAccounts}</p>
+            ) : filteredRegisteredUsers.length === 0 ? (
+              <p className="text-sm text-[#57534E] py-6 text-center">{t.profile.noAccounts}</p>
+            ) : (
+              <div className="border border-[#E6DFD5] rounded-xl divide-y divide-[#E6DFD5]">
+                {filteredRegisteredUsers.map((u) => {
+                  const isMain = u.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
+                  const isSelf = u.id === currentUser.id;
+                  return (
+                    <div
+                      key={`${u.id}-${u.email}`}
+                      className="p-4 flex flex-wrap items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative shrink-0">
+                          <UserAvatar
+                            name={u.name}
+                            avatarUrl={u.avatar_url}
+                            sizeClass="w-10 h-10"
+                            textClass="text-xs"
+                          />
+                          <span
+                            className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
+                              u.online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                            }`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-bold text-[#1C1917] truncate">{u.name}</p>
+                            <span
+                              className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                                u.online
+                                  ? 'bg-[#ECFDF5] text-[#065F46]'
+                                  : 'bg-[#FAF8F5] text-[#57534E]'
+                              }`}
+                            >
+                              {u.online ? t.admin.onlineLabel : t.admin.offlineLabel}
+                            </span>
+                            {isMain ? (
+                              <span className="text-[11px] font-bold text-[#6B1118] bg-[#FBF4DF] border border-[#D9A62E]/40 rounded px-2 py-0.5">
+                                {t.profile.mainAdminTag}
+                              </span>
+                            ) : u.role === 'teacher' || u.isAdmin ? (
+                              <span className="text-[11px] font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#059669]/30 rounded px-2 py-0.5">
+                                {t.profile.adminTeacherTag}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] font-medium text-[#57534E]">
+                                {t.profile.studentTag}
+                              </span>
+                            )}
+                            {u.isRestricted && (
+                              <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#FEF2F2] text-[#DC2626]">
+                                {t.admin.restrictedBadge}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-[#57534E] truncate">
+                            {u.email}
+                            {u.grade ? ` · ${u.grade}` : ''}
+                            {typeof u.quizzesCompleted === 'number' && u.quizzesCompleted > 0
+                              ? ` · ${u.quizzesCompleted} ${t.admin.quizzesCompleted} (${u.avgScorePercent ?? 0}%)`
+                              : ''}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => void openEditUserModal(u)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#E6DFD5] bg-white px-2.5 py-1.5 font-semibold text-[#6B1118] hover:border-[#6B1118] cursor-pointer min-h-[34px]"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          <span>{t.admin.editProfileBtn}</span>
+                        </button>
+
+                        {u.role === 'student' && (
+                          <button
+                            type="button"
+                            onClick={() => void openStudentStats(u.id)}
+                            className="rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] px-2.5 py-1.5 font-semibold text-[#6B1118] hover:border-[#6B1118] cursor-pointer min-h-[34px]"
+                          >
+                            {t.admin.viewStatsBtn}
+                          </button>
+                        )}
+
+                        {!isSelf && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenStudentChat(u.id)}
+                            className="rounded-lg bg-[#6B1118] px-2.5 py-1.5 font-semibold text-white hover:bg-[#530D12] cursor-pointer min-h-[34px]"
+                          >
+                            {t.admin.messageBtn}
+                          </button>
+                        )}
+
+                        {!isMain && !isSelf && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleAccountRole(u)}
+                              className="rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] px-2.5 py-1.5 font-semibold text-[#1C1917] hover:border-[#6B1118] cursor-pointer min-h-[34px]"
+                            >
+                              {u.role === 'teacher' ? t.profile.setStudent : t.profile.makeAdmin}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                u.isRestricted
+                                  ? void handleToggleRestrict(u.id, false)
+                                  : setRestrictTarget({ id: u.id, name: u.name })
+                              }
+                              className={`rounded-lg px-2.5 py-1.5 font-semibold cursor-pointer min-h-[34px] border ${
+                                u.isRestricted
+                                  ? 'border-[#059669]/30 bg-[#ECFDF5] text-[#065F46]'
+                                  : 'border-[#DC2626]/30 bg-[#FEF2F2] text-[#DC2626]'
+                              }`}
+                            >
+                              {u.isRestricted ? t.admin.unrestrictBtn : t.admin.restrictBtn}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openDeleteUserModal({ id: u.id, name: u.name, email: u.email })
+                              }
+                              className="inline-flex items-center gap-1 rounded-lg border border-[#DC2626]/30 bg-[#FEF2F2] px-2.5 py-1.5 font-semibold text-[#DC2626] hover:bg-[#DC2626] hover:text-white cursor-pointer min-h-[34px]"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>{t.admin.deleteUserBtn}</span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
@@ -2207,6 +2736,268 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             )}
           </div>
         )}
+        {/* Sub-Tab 7: Content & Curriculum Control */}
+        {monitoringTab === 'content' && (
+          <div className="space-y-5">
+            <div>
+              <h4 className="text-base font-bold text-[#1C1917]">{t.admin.contentControlTitle}</h4>
+              <p className="text-xs text-[#57534E] mt-0.5">{t.admin.contentControlSub}</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('multiple-choice')}
+                className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 text-start hover:border-[#6B1118] transition-colors cursor-pointer space-y-1.5"
+              >
+                <BookOpen className="w-5 h-5 text-[#6B1118]" />
+                <p className="text-sm font-bold text-[#1C1917]">{t.admin.openQuizzesBtn}</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('general-questions')}
+                className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 text-start hover:border-[#6B1118] transition-colors cursor-pointer space-y-1.5"
+              >
+                <HelpCircle className="w-5 h-5 text-[#6B1118]" />
+                <p className="text-sm font-bold text-[#1C1917]">{t.admin.openGeneralQaBtn}</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('textbooks-qa')}
+                className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 text-start hover:border-[#6B1118] transition-colors cursor-pointer space-y-1.5"
+              >
+                <BookOpen className="w-5 h-5 text-[#D9A62E]" />
+                <p className="text-sm font-bold text-[#1C1917]">{t.admin.openTextbooksQaBtn}</p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => onNavigate('home')}
+                className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 text-start hover:border-[#6B1118] transition-colors cursor-pointer space-y-1.5"
+              >
+                <Megaphone className="w-5 h-5 text-[#059669]" />
+                <p className="text-sm font-bold text-[#1C1917]">
+                  {t.admin.openHomeAnnouncementsBtn}
+                </p>
+              </button>
+            </div>
+
+            {/* Quick Announcement / Material Publisher */}
+            <form
+              onSubmit={handleCreateQuickAnnouncement}
+              className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 space-y-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <h5 className="text-sm font-bold text-[#1C1917]">{t.home.announcementsTitle}</h5>
+                <select
+                  value={annType}
+                  onChange={(e) => setAnnType(e.target.value as 'announcement' | 'material')}
+                  className="rounded-lg border border-[#E6DFD5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1C1917]"
+                >
+                  <option value="announcement">{t.home.announcementOpt}</option>
+                  <option value="material">{t.home.materialOpt}</option>
+                </select>
+              </div>
+              {annError && (
+                <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
+                  {annError}
+                </div>
+              )}
+              <input
+                type="text"
+                required
+                value={annTitle}
+                onChange={(e) => setAnnTitle(e.target.value)}
+                placeholder={t.home.titleLabel}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-sm text-[#1C1917]"
+              />
+              <textarea
+                rows={2}
+                required
+                value={annContent}
+                onChange={(e) => setAnnContent(e.target.value)}
+                placeholder={t.home.messageLabel}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-sm text-[#1C1917]"
+              />
+              <button
+                type="submit"
+                disabled={annSaving || !annTitle.trim() || !annContent.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 cursor-pointer min-h-[38px]"
+              >
+                <Megaphone className="w-3.5 h-3.5 text-[#E5B742]" />
+                <span>{annSaving ? t.home.publishingNotify : t.home.publishNotifyBtn}</span>
+              </button>
+            </form>
+
+            {announcements.length > 0 && (
+              <div className="border border-[#E6DFD5] rounded-xl divide-y divide-[#E6DFD5] max-h-[300px] overflow-y-auto">
+                {announcements.map((a) => (
+                  <div
+                    key={a.id}
+                    className="p-3.5 flex items-start justify-between gap-3 text-xs sm:text-sm"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-[#1C1917]">{a.title}</span>
+                        <span className="rounded bg-[#F9EFF0] px-2 py-0.5 text-[10px] font-bold text-[#6B1118] uppercase">
+                          {a.type}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#57534E] mt-0.5 line-clamp-2">{a.content}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteQuickAnnouncement(a.id)}
+                      className="p-1.5 rounded-lg text-[#57534E] hover:text-[#DC2626] hover:bg-[#FEF2F2] cursor-pointer shrink-0"
+                      aria-label={t.admin.deleteMsgBtn}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Sub-Tab 8: Global App Settings */}
+        {monitoringTab === 'settings' && (
+          <form onSubmit={handleSaveAppSettings} className="space-y-4">
+            <div>
+              <h4 className="text-base font-bold text-[#1C1917]">{t.admin.appSettingsTitle}</h4>
+              <p className="text-xs text-[#57534E] mt-0.5">{t.admin.appSettingsSub}</p>
+            </div>
+
+            {settingsMsg && (
+              <div className="flex items-center gap-2 rounded-xl border border-[#059669]/30 bg-[#ECFDF5] px-4 py-2.5 text-xs font-medium text-[#065F46]">
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
+                <span>{settingsMsg}</span>
+              </div>
+            )}
+            {settingsError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-2.5 text-xs font-medium text-[#991B1B]">
+                {settingsError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+              <label className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="font-semibold text-[#1C1917]">{t.admin.settingAllowReg}</span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.allowStudentRegistration}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      allowStudentRegistration: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 accent-[#6B1118]"
+                />
+              </label>
+
+              <label className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="font-semibold text-[#1C1917]">
+                  {t.admin.settingCommunityEnabled}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.communityEnabled}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      communityEnabled: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 accent-[#6B1118]"
+                />
+              </label>
+
+              <label className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="font-semibold text-[#1C1917]">
+                  {t.admin.settingCommunityPosting}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.communityPostingEnabled}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      communityPostingEnabled: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 accent-[#6B1118]"
+                />
+              </label>
+
+              <label className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 flex items-center justify-between gap-3 cursor-pointer">
+                <span className="font-semibold text-[#1C1917]">{t.admin.settingAiTutor}</span>
+                <input
+                  type="checkbox"
+                  checked={settingsDraft.aiTutorEnabled}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      aiTutorEnabled: e.target.checked,
+                    }))
+                  }
+                  className="w-4 h-4 accent-[#6B1118]"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] mb-1">
+                  {t.admin.settingDefaultLang}
+                </label>
+                <select
+                  value={settingsDraft.defaultLanguage}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      defaultLanguage: e.target.value as 'en' | 'ku' | 'ar',
+                    }))
+                  }
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917]"
+                >
+                  <option value="en">English (en)</option>
+                  <option value="ku">کوردی (ku)</option>
+                  <option value="ar">العربية (ar)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] mb-1">
+                  {t.admin.settingMaintenanceMsg}
+                </label>
+                <input
+                  type="text"
+                  value={settingsDraft.maintenanceMessage}
+                  onChange={(e) =>
+                    setSettingsDraft((prev) => ({
+                      ...prev,
+                      maintenanceMessage: e.target.value,
+                    }))
+                  }
+                  placeholder={t.admin.settingMaintenancePlaceholder}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917]"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={settingsSaving}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-5 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 cursor-pointer min-h-[42px]"
+            >
+              <Save className="w-4 h-4 text-[#E5B742]" />
+              <span>{settingsSaving ? t.profile.saving : t.admin.saveSettingsBtn}</span>
+            </button>
+          </form>
+        )}
       </section>
 
       {/* Detailed Student Performance Modal */}
@@ -2269,6 +3060,33 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = registeredUsers.find(
+                          (u) => u.id === studentDetail.student.id
+                        );
+                        void openEditUserModal(
+                          target || {
+                            id: studentDetail.student.id,
+                            name: studentDetail.student.name,
+                            email: studentDetail.student.email,
+                            role: 'student',
+                            isAdmin: false,
+                            grade: studentDetail.student.grade || '',
+                            avatar_url: studentDetail.student.avatar_url,
+                            online: studentDetail.student.online,
+                            isRestricted: studentDetail.student.isRestricted,
+                            restrictionReason: studentDetail.student.restrictionReason,
+                            created_at: studentDetail.student.lastActiveAt || '',
+                          }
+                        );
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] cursor-pointer min-h-[40px]"
+                    >
+                      <Pencil className="w-3.5 h-3.5 text-[#6B1118]" />
+                      <span>{t.admin.editProfileBtn}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -2556,6 +3374,170 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Inspect & Edit User Profile Modal */}
+      {editUserTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => {
+            if (!editSaving) setEditUserTarget(null);
+          }}
+          className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
+        >
+          <form
+            onSubmit={handleSaveEditedUser}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-[#1E1A1A] border border-[#E6DFD5] dark:border-[#342D2D] p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] dark:border-[#342D2D] pb-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    name={editUserTarget.name}
+                    avatarUrl={editUserTarget.avatar_url}
+                    sizeClass="w-12 h-12"
+                    textClass="text-base"
+                  />
+                  <span
+                    className={`absolute bottom-0 end-0 w-3 h-3 rounded-full ring-2 ring-white ${
+                      editUserTarget.online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                    }`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-[#1C1917] dark:text-[#F5EFE9] truncate">
+                    {t.profile.inspectModalTitle}
+                  </h3>
+                  <p className="text-xs text-[#57534E] truncate">{editUserTarget.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={editSaving}
+                onClick={() => setEditUserTarget(null)}
+                aria-label={t.admin.closeBtn}
+                className="p-1 text-[#57534E] hover:text-[#1C1917] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editUserTarget.created_at && (
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#57534E] bg-[#FAF8F5] border border-[#E6DFD5] rounded-xl px-3 py-2">
+                {editUserTarget.source && (
+                  <span>
+                    {t.profile.sourceLabel}:{' '}
+                    <strong className="uppercase">{editUserTarget.source}</strong>
+                  </span>
+                )}
+                <span>
+                  {t.profile.joinedLabel}: {formatUtcDate(editUserTarget.created_at)}
+                </span>
+                {editUserTarget.lastLoginAt && (
+                  <span>
+                    {t.admin.lastLogin}: {formatUtcDateTime(editUserTarget.lastLoginAt)}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {editError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
+                {editError}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.fullName}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                    {t.profile.gradeFocus}
+                  </label>
+                  <input
+                    type="text"
+                    value={editGrade}
+                    onChange={(e) => setEditGrade(e.target.value)}
+                    className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                    {t.profile.birthdayLabel}
+                  </label>
+                  <input
+                    type="date"
+                    dir="ltr"
+                    max={new Date().toISOString().split('T')[0]}
+                    value={editBirthday}
+                    onChange={(e) => setEditBirthday(e.target.value)}
+                    className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.roleLabel}
+                </label>
+                <select
+                  value={editRole}
+                  disabled={isProtectedUser(editUserTarget)}
+                  onChange={(e) => setEditRole(e.target.value as 'student' | 'teacher')}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] disabled:opacity-60"
+                >
+                  <option value="student">{t.profile.studentTag}</option>
+                  <option value="teacher">{t.profile.adminTeacherTag}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.bio}
+                </label>
+                <textarea
+                  rows={2}
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={editSaving}
+                onClick={() => setEditUserTarget(null)}
+                className="rounded-xl border border-[#E6DFD5] px-4 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] cursor-pointer min-h-[40px]"
+              >
+                {t.admin.closeBtn}
+              </button>
+              <button
+                type="submit"
+                disabled={editSaving || !editName.trim()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 cursor-pointer min-h-[40px]"
+              >
+                <Save className="w-4 h-4 text-[#E5B742]" />
+                <span>{editSaving ? t.profile.saving : t.admin.saveProfileBtn}</span>
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

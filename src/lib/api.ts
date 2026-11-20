@@ -275,6 +275,9 @@ const ALWAYS_BACKEND_PREFIXES = [
   '/api/notifications',
   '/api/announcements',
   '/api/push/',
+  '/api/admin/',
+  '/api/community/',
+  '/api/settings/',
 ];
 
 function isAlwaysBackendApiPath(url: string): boolean {

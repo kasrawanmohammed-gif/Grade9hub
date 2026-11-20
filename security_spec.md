@@ -20,4 +20,5 @@
 9. **Oversized ID Poisoning**: Creating `/users/<200-char-invalid-id>` -> DENIED (`isValidId` rejects).
 10. **Forged Client Timestamp**: Creating `/users/{uid}` with `createdAt: Timestamp.fromDate(...)` instead of `request.time` -> DENIED.
 11. **Parentless Quiz Attempt**: Writing `/users/{otherUid}/quiz_attempts/{id}` or without parent `/users/{uid}` -> DENIED (Master Gate `get()`).
-12. **PII Injection into Leaderboard**: Writing `email` into `/leaderboard_entries/{uid}` or querying `/leaderboard_entries` without `role == 'student'` filter -> DENIED.
+12. **PII Injection into Leaderboard or Peer Presence**: Writing `email` into `/leaderboard_entries/{uid}` or `/peer_presence/{uid}`, or non-admin writing `/app_settings/global` -> DENIED.
+13. **Restricted & Main Admin Protection**: Non-admin user updating `isRestricted` on themselves, or any admin deleting/demoting/restricting `mohamdm791@gmail.com` -> DENIED.

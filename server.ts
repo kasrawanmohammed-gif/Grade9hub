@@ -635,6 +635,92 @@ const ALLOWED_PRESENCE_SECTIONS = new Set([
   'admin-dashboard',
 ]);
 
+interface ServerAppSettings {
+  allowStudentRegistration: boolean;
+  communityEnabled: boolean;
+  communityPostingEnabled: boolean;
+  aiTutorEnabled: boolean;
+  defaultLanguage: 'en' | 'ku' | 'ar';
+  maintenanceMessage: string;
+  updatedAt?: string;
+}
+
+const DEFAULT_SERVER_APP_SETTINGS: ServerAppSettings = {
+  allowStudentRegistration: true,
+  communityEnabled: true,
+  communityPostingEnabled: true,
+  aiTutorEnabled: true,
+  defaultLanguage: 'en',
+  maintenanceMessage: '',
+};
+
+function getAppSettings(): ServerAppSettings {
+  try {
+    const row = db
+      .prepare('SELECT value FROM app_settings WHERE key = ?')
+      .get('app_settings_v1') as { value: string } | undefined;
+    if (!row?.value) return { ...DEFAULT_SERVER_APP_SETTINGS };
+    const parsed = JSON.parse(row.value) as Partial<ServerAppSettings>;
+    return {
+      allowStudentRegistration:
+        typeof parsed.allowStudentRegistration === 'boolean'
+          ? parsed.allowStudentRegistration
+          : true,
+      communityEnabled:
+        typeof parsed.communityEnabled === 'boolean' ? parsed.communityEnabled : true,
+      communityPostingEnabled:
+        typeof parsed.communityPostingEnabled === 'boolean'
+          ? parsed.communityPostingEnabled
+          : true,
+      aiTutorEnabled:
+        typeof parsed.aiTutorEnabled === 'boolean' ? parsed.aiTutorEnabled : true,
+      defaultLanguage: normalizeLang(parsed.defaultLanguage),
+      maintenanceMessage:
+        typeof parsed.maintenanceMessage === 'string'
+          ? parsed.maintenanceMessage.slice(0, 300)
+          : '',
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
+    };
+  } catch {
+    return { ...DEFAULT_SERVER_APP_SETTINGS };
+  }
+}
+
+function saveAppSettings(patch: Partial<ServerAppSettings>): ServerAppSettings {
+  const current = getAppSettings();
+  const next: ServerAppSettings = {
+    allowStudentRegistration:
+      typeof patch.allowStudentRegistration === 'boolean'
+        ? patch.allowStudentRegistration
+        : current.allowStudentRegistration,
+    communityEnabled:
+      typeof patch.communityEnabled === 'boolean'
+        ? patch.communityEnabled
+        : current.communityEnabled,
+    communityPostingEnabled:
+      typeof patch.communityPostingEnabled === 'boolean'
+        ? patch.communityPostingEnabled
+        : current.communityPostingEnabled,
+    aiTutorEnabled:
+      typeof patch.aiTutorEnabled === 'boolean' ? patch.aiTutorEnabled : current.aiTutorEnabled,
+    defaultLanguage:
+      patch.defaultLanguage !== undefined
+        ? normalizeLang(patch.defaultLanguage)
+        : current.defaultLanguage,
+    maintenanceMessage:
+      typeof patch.maintenanceMessage === 'string'
+        ? patch.maintenanceMessage.trim().slice(0, 300)
+        : current.maintenanceMessage,
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.prepare(
+    `INSERT INTO app_settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run('app_settings_v1', JSON.stringify(next));
+  return next;
+}
+
 interface StudentStatsRow {
   id: number;
   name: string;
@@ -1440,6 +1526,13 @@ async function startServer() {
       Boolean(existing) &&
       existing!.password_hash === BOOTSTRAP_PENDING_HASH &&
       isMainAdmin;
+
+    if (!isMainAdmin && !claimingPendingAdmin && !getAppSettings().allowStudentRegistration) {
+      res.status(403).json({
+        error: 'New student registration is currently paused by the administrator.',
+      });
+      return;
+    }
 
     if (existing && !claimingPendingAdmin) {
       res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
@@ -2778,30 +2871,342 @@ async function startServer() {
     res.json({ ok: true });
   });
 
-  // ---------------- ADMIN USER & PERMISSION MANAGEMENT ----------------
-  app.get('/api/admin/users', requireTeacher, (_req: AuthenticatedRequest, res: Response) => {
+  // ---------------- APP SETTINGS & ADMIN USER MANAGEMENT ----------------
+  app.get('/api/settings/public', (_req: Request, res: Response) => {
+    res.json({ settings: getAppSettings() });
+  });
+
+  app.get('/api/admin/settings', requireTeacher, (_req: AuthenticatedRequest, res: Response) => {
+    res.json({ settings: getAppSettings() });
+  });
+
+  app.put('/api/admin/settings', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
+    const patch = (req.body || {}) as Partial<ServerAppSettings>;
+    const updated = saveAppSettings(patch);
+    checkpointDatabase();
+    writeRecoverySnapshotSync('admin-settings-update');
+    broadcastToAllUsers({ type: 'app:settings', payload: updated });
+    res.json({ ok: true, settings: updated });
+  });
+
+  app.get('/api/admin/users', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
+    const q = String(req.query.q || '').trim().toLowerCase();
+    const roleFilter = String(req.query.role || 'all').toLowerCase();
+    const statusFilter = String(req.query.status || 'all').toLowerCase();
+
     const rows = db
       .prepare(
-        `SELECT id, name, email, role, is_admin, grade, created_at
-         FROM users
-         ORDER BY is_admin DESC, CASE WHEN role = 'teacher' THEN 0 ELSE 1 END, id DESC`
+        `SELECT u.id, u.name, u.email, u.role, u.is_admin, u.grade, u.bio, u.birthday, u.avatar_url,
+                u.is_restricted, u.restriction_reason, u.last_login_at, u.last_active_at,
+                u.ai_tutor_turns, u.created_at,
+                COALESCE(qa.quizzes_completed, 0) AS quizzes_completed,
+                COALESCE(qa.quiz_questions_total, 0) AS quiz_questions_total,
+                COALESCE(qa.quiz_correct_total, 0) AS quiz_correct_total,
+                COALESCE(qa.avg_score_percent, 0) AS avg_score_percent
+         FROM users u
+         LEFT JOIN (
+           SELECT user_id,
+                  COUNT(*) AS quizzes_completed,
+                  SUM(total_questions) AS quiz_questions_total,
+                  SUM(correct_count) AS quiz_correct_total,
+                  ROUND(AVG(score_percent), 1) AS avg_score_percent
+           FROM quiz_attempts
+           GROUP BY user_id
+         ) qa ON qa.user_id = u.id
+         ORDER BY u.is_admin DESC, CASE WHEN u.role = 'teacher' THEN 0 ELSE 1 END, u.id DESC`
       )
-      .all() as DbUserRow[];
+      .all() as Array<
+      DbUserRow & {
+        last_active_at?: string;
+        ai_tutor_turns?: number;
+        quizzes_completed?: number;
+        quiz_questions_total?: number;
+        quiz_correct_total?: number;
+        avg_score_percent?: number;
+      }
+    >;
+
+    const mapped = rows
+      .map((r) => {
+        const isMain = r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
+        const role: 'student' | 'teacher' = isMain ? 'teacher' : (r.role as 'student' | 'teacher');
+        const isAdmin = isMain || Boolean(r.is_admin);
+        const online = isUserOnline(r.id);
+        return {
+          id: r.id,
+          name: r.name,
+          email: r.email,
+          role,
+          isAdmin,
+          grade: r.grade || '',
+          bio: r.bio || '',
+          birthday: r.birthday || '',
+          avatar_url: r.avatar_url || '',
+          online,
+          currentSection: online ? userActiveSection.get(r.id) || 'home' : '',
+          isRestricted: !isMain && Boolean(r.is_restricted),
+          restrictionReason: r.restriction_reason || '',
+          lastLoginAt: r.last_login_at || '',
+          lastActiveAt: r.last_active_at || '',
+          quizzesCompleted: Number(r.quizzes_completed || 0),
+          questionsAnswered: Number(r.quiz_questions_total || 0),
+          correctAnswers: Number(r.quiz_correct_total || 0),
+          avgScorePercent: Number(r.avg_score_percent || 0),
+          aiTutorTurns: Number(r.ai_tutor_turns || 0),
+          source: 'local' as const,
+          created_at: r.created_at,
+        };
+      })
+      .filter((u) => {
+        if (roleFilter === 'student' && (u.role !== 'student' || u.isAdmin)) return false;
+        if (roleFilter === 'teacher' && u.role !== 'teacher' && !u.isAdmin) return false;
+        if (statusFilter === 'online' && !u.online) return false;
+        if (statusFilter === 'offline' && u.online) return false;
+        if (statusFilter === 'restricted' && !u.isRestricted) return false;
+        if (q) {
+          const hay = `${u.name} ${u.email} ${u.grade} ${u.bio}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+    res.json({ users: mapped });
+  });
+
+  app.get('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      res.status(400).json({ error: 'Invalid user ID.' });
+      return;
+    }
+
+    const row = db
+      .prepare(
+        `SELECT u.id, u.name, u.email, u.role, u.is_admin, u.grade, u.bio, u.birthday, u.avatar_url,
+                u.is_restricted, u.restriction_reason, u.last_login_at, u.last_active_at,
+                u.ai_tutor_turns, u.created_at,
+                COALESCE(qa.quizzes_completed, 0) AS quizzes_completed,
+                COALESCE(qa.quiz_questions_total, 0) AS quiz_questions_total,
+                COALESCE(qa.quiz_correct_total, 0) AS quiz_correct_total,
+                COALESCE(qa.avg_score_percent, 0) AS avg_score_percent
+         FROM users u
+         LEFT JOIN (
+           SELECT user_id,
+                  COUNT(*) AS quizzes_completed,
+                  SUM(total_questions) AS quiz_questions_total,
+                  SUM(correct_count) AS quiz_correct_total,
+                  ROUND(AVG(score_percent), 1) AS avg_score_percent
+           FROM quiz_attempts
+           GROUP BY user_id
+         ) qa ON qa.user_id = u.id
+         WHERE u.id = ?`
+      )
+      .get(targetId) as
+      | (DbUserRow & {
+          last_active_at?: string;
+          ai_tutor_turns?: number;
+          quizzes_completed?: number;
+          quiz_questions_total?: number;
+          quiz_correct_total?: number;
+          avg_score_percent?: number;
+        })
+      | undefined;
+
+    if (!row) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+
+    const isMain = row.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
+    const online = isUserOnline(row.id);
+
+    const attempts = db
+      .prepare(
+        `SELECT qa.id, qa.mode, qa.chapter_number, c.title AS chapter_title,
+                qa.total_questions, qa.correct_count, qa.score_percent, qa.created_at
+         FROM quiz_attempts qa
+         LEFT JOIN chapters c ON c.chapter_number = qa.chapter_number
+         WHERE qa.user_id = ?
+         ORDER BY qa.id DESC
+         LIMIT 20`
+      )
+      .all(targetId);
+
+    const recentActivity = db
+      .prepare(
+        `SELECT id, action_type, details, target_type, created_at
+         FROM student_activity_logs
+         WHERE user_id = ?
+         ORDER BY id DESC
+         LIMIT 25`
+      )
+      .all(targetId);
 
     res.json({
-      users: rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        email: r.email,
-        role: r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase() ? 'teacher' : r.role,
-        isAdmin: r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase() || Boolean(r.is_admin),
-        grade: r.grade,
-        created_at: r.created_at,
-      })),
+      user: {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        role: isMain ? 'teacher' : (row.role as 'student' | 'teacher'),
+        isAdmin: isMain || Boolean(row.is_admin),
+        grade: row.grade || '',
+        bio: row.bio || '',
+        birthday: row.birthday || '',
+        avatar_url: row.avatar_url || '',
+        online,
+        currentSection: online ? userActiveSection.get(row.id) || 'home' : '',
+        isRestricted: !isMain && Boolean(row.is_restricted),
+        restrictionReason: row.restriction_reason || '',
+        lastLoginAt: row.last_login_at || '',
+        lastActiveAt: row.last_active_at || '',
+        quizzesCompleted: Number(row.quizzes_completed || 0),
+        questionsAnswered: Number(row.quiz_questions_total || 0),
+        correctAnswers: Number(row.quiz_correct_total || 0),
+        avgScorePercent: Number(row.avg_score_percent || 0),
+        aiTutorTurns: Number(row.ai_tutor_turns || 0),
+        source: 'local',
+        created_at: row.created_at,
+      },
+      attempts,
+      recentActivity,
+    });
+  });
+
+  app.put('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
+    const requester = req.user!;
+    const targetId = Number(req.params.id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      res.status(400).json({ error: 'Invalid user ID.' });
+      return;
+    }
+
+    const target = db
+      .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
+      .get(targetId) as DbUserRow | undefined;
+
+    if (!target) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+
+    const isMain = target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
+    const name =
+      req.body?.name !== undefined ? String(req.body.name || '').trim() : target.name;
+    const grade =
+      req.body?.grade !== undefined ? String(req.body.grade || '').trim().slice(0, 40) : target.grade;
+    const bio =
+      req.body?.bio !== undefined ? String(req.body.bio || '').trim().slice(0, 500) : target.bio;
+    const birthday =
+      req.body?.birthday !== undefined ? String(req.body.birthday || '').trim() : target.birthday || '';
+
+    if (name.length < 2) {
+      res.status(400).json({ error: 'Name must be at least 2 characters.' });
+      return;
+    }
+    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+      res.status(400).json({ error: 'Birthday must be in YYYY-MM-DD format.' });
+      return;
+    }
+
+    let nextRole: 'student' | 'teacher' = target.role as 'student' | 'teacher';
+    let nextAdmin = target.is_admin ? 1 : 0;
+
+    if (req.body?.role !== undefined) {
+      const requestedRole = req.body.role === 'teacher' ? 'teacher' : 'student';
+      if (isMain && requestedRole !== 'teacher') {
+        res.status(400).json({
+          error: 'The main administrator account (mohamdm791@gmail.com) cannot be demoted.',
+        });
+        return;
+      }
+      if (targetId === requester.id && requestedRole !== 'teacher') {
+        res.status(400).json({ error: 'You cannot demote your own administrator account.' });
+        return;
+      }
+      nextRole = requestedRole;
+      if (req.body?.isAdmin !== undefined) {
+        nextAdmin = requestedRole === 'teacher' && Boolean(req.body.isAdmin) ? 1 : 0;
+      } else {
+        nextAdmin = requestedRole === 'teacher' ? 1 : 0;
+      }
+    } else if (req.body?.isAdmin !== undefined && !isMain) {
+      nextAdmin = Boolean(req.body.isAdmin) ? 1 : 0;
+      if (nextAdmin === 1) nextRole = 'teacher';
+    }
+
+    if (isMain) {
+      nextRole = 'teacher';
+      nextAdmin = 1;
+    }
+
+    let nextRestricted = target.is_restricted ? 1 : 0;
+    let nextReason = target.restriction_reason || '';
+    if (req.body?.restricted !== undefined) {
+      const wantRestrict = Boolean(req.body.restricted);
+      if (isMain && wantRestrict) {
+        res.status(400).json({
+          error: 'The main administrator account cannot be restricted.',
+        });
+        return;
+      }
+      if (targetId === requester.id && wantRestrict) {
+        res.status(400).json({ error: 'You cannot restrict your own active account.' });
+        return;
+      }
+      nextRestricted = wantRestrict ? 1 : 0;
+      nextReason = wantRestrict
+        ? String(req.body?.reason || '').trim().slice(0, 300)
+        : '';
+    }
+
+    db.prepare(
+      `UPDATE users
+       SET name = ?, grade = ?, bio = ?, birthday = ?, role = ?, is_admin = ?,
+           is_restricted = ?, restriction_reason = ?
+       WHERE id = ?`
+    ).run(
+      name,
+      grade,
+      bio,
+      birthday,
+      nextRole,
+      nextAdmin,
+      nextRestricted,
+      nextReason,
+      targetId
+    );
+
+    checkpointDatabase();
+    writeRecoverySnapshotSync('admin-user-update');
+    broadcastAdminDashboard();
+
+    const updated = db
+      .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
+      .get(targetId) as DbUserRow;
+
+    res.json({
+      ok: true,
+      user: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        role: isMain ? 'teacher' : updated.role,
+        isAdmin: isMain || Boolean(updated.is_admin),
+        grade: updated.grade || '',
+        bio: updated.bio || '',
+        birthday: updated.birthday || '',
+        avatar_url: updated.avatar_url || '',
+        online: isUserOnline(updated.id),
+        isRestricted: !isMain && Boolean(updated.is_restricted),
+        restrictionReason: updated.restriction_reason || '',
+        lastLoginAt: updated.last_login_at || '',
+        created_at: updated.created_at,
+      },
     });
   });
 
   app.put('/api/admin/users/:id/role', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
+    const requester = req.user!;
     const targetId = Number(req.params.id);
     const target = db
       .prepare('SELECT id, email, role, is_admin FROM users WHERE id = ?')
@@ -2818,6 +3223,11 @@ async function startServer() {
     }
 
     const nextRole = req.body?.role === 'teacher' ? 'teacher' : 'student';
+    if (targetId === requester.id && nextRole !== 'teacher') {
+      res.status(400).json({ error: 'You cannot demote your own administrator account.' });
+      return;
+    }
+
     const nextAdmin = nextRole === 'teacher' && req.body?.isAdmin !== false ? 1 : 0;
 
     db.prepare('UPDATE users SET role = ?, is_admin = ? WHERE id = ?').run(
@@ -2827,6 +3237,7 @@ async function startServer() {
     );
     checkpointDatabase();
     writeRecoverySnapshotSync('admin-role-update');
+    broadcastAdminDashboard();
 
     res.json({ ok: true, role: nextRole, isAdmin: Boolean(nextAdmin) });
   });
@@ -4516,6 +4927,10 @@ async function startServer() {
   };
 
   app.post('/api/ai/chat', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
+    if (req.user && req.user.role === 'student' && !req.user.isAdmin && !getAppSettings().aiTutorEnabled) {
+      res.status(403).json({ error: 'AI Studio is currently disabled by the administrator.' });
+      return;
+    }
     const model = String(req.body?.model || 'gemini-3.1-flash-lite');
     const systemInstruction = String(
       req.body?.systemInstruction ||

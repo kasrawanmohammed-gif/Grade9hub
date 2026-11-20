@@ -5,8 +5,12 @@ import {
   Bell,
   Camera,
   CheckCircle2,
+  Eye,
+  RefreshCw,
   Save,
+  Search,
   Shield,
+  ShieldAlert,
   Trash2,
   UserCog,
   X,
@@ -77,15 +81,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
   const [adminError, setAdminError] = useState<string | null>(null);
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<number | null>(null);
+  const [accountSearch, setAccountSearch] = useState('');
+  const [accountFilter, setAccountFilter] = useState<
+    'all' | 'students' | 'admins' | 'online' | 'restricted'
+  >('all');
+  const [inspectUser, setInspectUser] = useState<AdminUserRecord | null>(null);
+  const [inspectName, setInspectName] = useState('');
+  const [inspectGrade, setInspectGrade] = useState('');
+  const [inspectBirthday, setInspectBirthday] = useState('');
+  const [inspectBio, setInspectBio] = useState('');
+  const [inspectRole, setInspectRole] = useState<'student' | 'teacher'>('student');
+  const [inspectSaving, setInspectSaving] = useState(false);
+  const [inspectError, setInspectError] = useState<string | null>(null);
 
   const loadAdminUsers = async () => {
     if (!isPrivileged) return;
     setLoadingUsers(true);
+    setAdminError(null);
     try {
       const data = await apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users');
-      setAllUsers(data.users);
-    } catch {
-      // ignore
+      setAllUsers(Array.isArray(data.users) ? data.users : []);
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : t.profile.loadAccountsError);
     } finally {
       setLoadingUsers(false);
     }
@@ -232,6 +249,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handleToggleUserRole = async (target: AdminUserRecord) => {
     setAdminMsg(null);
     setAdminError(null);
+    if (target.id === user.id || target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) return;
     const nextRole = target.role === 'teacher' ? 'student' : 'teacher';
     try {
       await apiFetch(`/api/admin/users/${target.id}/role`, {
@@ -259,12 +277,129 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     try {
       await apiFetch(`/api/admin/users/${targetId}`, { method: 'DELETE' });
       setConfirmDeleteUserId(null);
+      if (inspectUser?.id === targetId) setInspectUser(null);
       setAdminMsg(t.profile.accountRemovedMsg);
       await loadAdminUsers();
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : 'Failed to delete user.');
     }
   };
+
+  const openInspectModal = async (target: AdminUserRecord) => {
+    setInspectUser(target);
+    setInspectName(target.name);
+    setInspectGrade(target.grade || '');
+    setInspectBirthday(target.birthday || '');
+    setInspectBio(target.bio || '');
+    setInspectRole(target.role);
+    setInspectError(null);
+    try {
+      const detail = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${target.id}`);
+      if (detail?.user) {
+        setInspectUser(detail.user);
+        setInspectName(detail.user.name);
+        setInspectGrade(detail.user.grade || '');
+        setInspectBirthday(detail.user.birthday || '');
+        setInspectBio(detail.user.bio || '');
+        setInspectRole(detail.user.role);
+      }
+    } catch {
+      // Keep summary record if detail lookup is unavailable
+    }
+  };
+
+  const handleSaveInspectUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inspectUser || inspectSaving) return;
+    setInspectSaving(true);
+    setInspectError(null);
+    setAdminMsg(null);
+    const isTargetMain = inspectUser.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
+    const isSelf = inspectUser.id === user.id;
+    try {
+      const payload: Record<string, unknown> = {
+        name: inspectName.trim(),
+        grade: inspectGrade.trim(),
+        birthday: inspectBirthday.trim(),
+        bio: inspectBio.trim(),
+      };
+      if (!isTargetMain && !isSelf) {
+        payload.role = inspectRole;
+        payload.isAdmin = inspectRole === 'teacher';
+      }
+      const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${inspectUser.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      const updated = res.user;
+      setInspectUser(updated);
+      setAllUsers((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
+      if (isSelf) {
+        const mergedSelf: User = {
+          ...user,
+          name: updated.name,
+          grade: updated.grade,
+          birthday: updated.birthday,
+          bio: updated.bio ?? user.bio,
+        };
+        setStoredCachedUser(mergedSelf);
+        onUserUpdated(mergedSelf);
+      }
+      setAdminMsg(t.profile.accountUpdatedMsg);
+      await loadAdminUsers();
+    } catch (err) {
+      setInspectError(err instanceof Error ? err.message : 'Failed to update account.');
+    } finally {
+      setInspectSaving(false);
+    }
+  };
+
+  const handleToggleAccountRestrict = async (target: AdminUserRecord) => {
+    if (target.id === user.id || target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) return;
+    setAdminMsg(null);
+    setAdminError(null);
+    const nextRestricted = !Boolean(target.isRestricted);
+    try {
+      await apiFetch(`/api/admin/users/${target.id}/restrict`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          restricted: nextRestricted,
+          reason: nextRestricted ? t.community.restrictedBannerDefault : '',
+        }),
+      });
+      if (inspectUser?.id === target.id) {
+        setInspectUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                isRestricted: nextRestricted,
+                restrictionReason: nextRestricted ? t.community.restrictedBannerDefault : '',
+              }
+            : null
+        );
+      }
+      setAdminMsg(t.profile.accountUpdatedMsg);
+      await loadAdminUsers();
+    } catch (err) {
+      setAdminError(err instanceof Error ? err.message : 'Failed to update restriction status.');
+    }
+  };
+
+  const filteredAdminUsers = allUsers.filter((u) => {
+    const q = accountSearch.trim().toLowerCase();
+    if (q) {
+      const hit =
+        u.name.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q) ||
+        (u.grade || '').toLowerCase().includes(q);
+      if (!hit) return false;
+    }
+    if (accountFilter === 'students') return u.role !== 'teacher' && !u.isAdmin;
+    if (accountFilter === 'admins') return u.role === 'teacher' || Boolean(u.isAdmin);
+    if (accountFilter === 'online') return Boolean(u.online);
+    if (accountFilter === 'restricted') return Boolean(u.isRestricted);
+    return true;
+  });
 
   const handleConfirmDeleteOwnAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -575,74 +710,218 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <p className="text-xs text-[#57534E]">{t.profile.adminControlsDesc}</p>
               </div>
             </div>
-            <span className="text-xs font-semibold text-[#57534E] tabular-nums">
-              {allUsers.length} {t.profile.accountsCount}
-            </span>
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-semibold text-[#57534E] tabular-nums">
+                {allUsers.length} {t.profile.accountsCount}
+              </span>
+              <button
+                type="button"
+                disabled={loadingUsers}
+                onClick={() => void loadAdminUsers()}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] disabled:opacity-50 cursor-pointer min-h-[36px]"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingUsers ? 'animate-spin' : ''}`} />
+                <span>{t.profile.refreshAccountsBtn}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search & Account Filters */}
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="w-4 h-4 text-[#57534E] absolute start-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="search"
+                value={accountSearch}
+                onChange={(e) => setAccountSearch(e.target.value)}
+                placeholder={t.profile.searchAccountsPlaceholder}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] ps-10 pe-4 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118]"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  {
+                    id: 'all',
+                    label: `${t.profile.filterAllAccounts} (${allUsers.length})`,
+                  },
+                  {
+                    id: 'students',
+                    label: `${t.profile.filterStudentsOnly} (${
+                      allUsers.filter((u) => u.role !== 'teacher' && !u.isAdmin).length
+                    })`,
+                  },
+                  {
+                    id: 'admins',
+                    label: `${t.profile.filterAdminsOnly} (${
+                      allUsers.filter((u) => u.role === 'teacher' || u.isAdmin).length
+                    })`,
+                  },
+                  {
+                    id: 'online',
+                    label: `${t.profile.filterOnlineOnly} (${
+                      allUsers.filter((u) => Boolean(u.online)).length
+                    })`,
+                  },
+                  {
+                    id: 'restricted',
+                    label: `${t.profile.filterRestrictedOnly} (${
+                      allUsers.filter((u) => Boolean(u.isRestricted)).length
+                    })`,
+                  },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setAccountFilter(f.id)}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    accountFilter === f.id
+                      ? 'bg-[#6B1118] text-white'
+                      : 'border border-[#E6DFD5] bg-[#FAF8F5] text-[#57534E] hover:text-[#1C1917]'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {adminMsg && (
-            <div className="rounded-xl border border-[#059669]/30 bg-[#ECFDF5] px-4 py-2.5 text-xs text-[#065F46]">
-              {adminMsg}
+            <div className="rounded-xl border border-[#059669]/30 bg-[#ECFDF5] px-4 py-2.5 text-xs text-[#065F46] flex items-center justify-between gap-2">
+              <span>{adminMsg}</span>
+              <button
+                type="button"
+                onClick={() => setAdminMsg(null)}
+                className="p-0.5 cursor-pointer"
+                aria-label={t.profile.cancel}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
           {adminError && (
-            <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-2.5 text-xs text-[#991B1B]">
-              {adminError}
+            <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-2.5 text-xs text-[#991B1B] flex items-center justify-between gap-2">
+              <span>{adminError}</span>
+              <button
+                type="button"
+                onClick={() => setAdminError(null)}
+                className="p-0.5 cursor-pointer"
+                aria-label={t.profile.cancel}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
 
-          {loadingUsers ? (
+          {loadingUsers && allUsers.length === 0 ? (
             <p className="text-sm text-[#57534E] py-4">{t.profile.loadingAccounts}</p>
-          ) : allUsers.length === 0 ? (
+          ) : filteredAdminUsers.length === 0 ? (
             <p className="text-sm text-[#57534E] py-4">{t.profile.noAccounts}</p>
           ) : (
             <div className="divide-y divide-[#E6DFD5]">
-              {allUsers.map((u) => {
-                const isMain = u.email.toLowerCase() === 'mohamdm791@gmail.com';
+              {filteredAdminUsers.map((u) => {
+                const isMain = u.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
+                const isSelf = u.id === user.id;
                 return (
                   <div
-                    key={u.id}
+                    key={`${u.id}-${u.email}`}
                     className="py-3.5 flex flex-wrap items-center justify-between gap-3"
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-[#1C1917]">{u.name}</p>
-                        {isMain ? (
-                          <span className="text-[11px] font-bold text-[#6B1118] bg-[#FBF4DF] border border-[#D9A62E]/40 rounded px-2 py-0.5">
-                            {t.profile.mainAdminTag}
-                          </span>
-                        ) : u.role === 'teacher' || u.isAdmin ? (
-                          <span className="text-[11px] font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#059669]/30 rounded px-2 py-0.5">
-                            {t.profile.adminTeacherTag}
-                          </span>
-                        ) : (
-                          <span className="text-[11px] font-medium text-[#57534E]">
-                            {t.profile.studentTag}
-                          </span>
-                        )}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative shrink-0">
+                        <UserAvatar
+                          name={u.name}
+                          avatarUrl={u.avatar_url}
+                          sizeClass="w-10 h-10"
+                          textClass="text-xs"
+                        />
+                        <span
+                          aria-label={u.online ? t.admin.onlineLabel : t.admin.offlineLabel}
+                          className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
+                            u.online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                          }`}
+                        />
                       </div>
-                      <p className="text-xs text-[#57534E] truncate">
-                        {u.email}
-                        {u.grade ? ` · ${u.grade}` : ''}
-                      </p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-[#1C1917]">{u.name}</p>
+                          <span
+                            className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                              u.online
+                                ? 'bg-[#ECFDF5] text-[#065F46]'
+                                : 'bg-[#FAF8F5] text-[#57534E]'
+                            }`}
+                          >
+                            {u.online ? t.admin.onlineLabel : t.admin.offlineLabel}
+                          </span>
+                          {isMain ? (
+                            <span className="text-[11px] font-bold text-[#6B1118] bg-[#FBF4DF] border border-[#D9A62E]/40 rounded px-2 py-0.5">
+                              {t.profile.mainAdminTag}
+                            </span>
+                          ) : u.role === 'teacher' || u.isAdmin ? (
+                            <span className="text-[11px] font-semibold text-[#065F46] bg-[#ECFDF5] border border-[#059669]/30 rounded px-2 py-0.5">
+                              {t.profile.adminTeacherTag}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-medium text-[#57534E]">
+                              {t.profile.studentTag}
+                            </span>
+                          )}
+                          {u.isRestricted && (
+                            <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-[#FEF2F2] text-[#DC2626]">
+                              {t.admin.restrictedBadge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-[#57534E] truncate">
+                          {u.email}
+                          {u.grade ? ` · ${u.grade}` : ''}
+                          {typeof u.quizzesCompleted === 'number' && u.quizzesCompleted > 0
+                            ? ` · ${u.quizzesCompleted} ${t.admin.quizzesCompleted} (${u.avgScorePercent ?? 0}%)`
+                            : ''}
+                        </p>
+                      </div>
                     </div>
 
-                    {!isMain && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleToggleUserRole(u)}
-                          className="rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] cursor-pointer min-h-[36px]"
-                        >
-                          {u.role === 'teacher' ? t.profile.setStudent : t.profile.makeAdmin}
-                        </button>
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => void openInspectModal(u)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#E6DFD5] bg-white px-3 py-1.5 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] cursor-pointer min-h-[36px]"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>{t.profile.inspectEditBtn}</span>
+                      </button>
 
-                        {u.id !== user.id &&
-                          (confirmDeleteUserId === u.id ? (
+                      {!isMain && !isSelf && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleUserRole(u)}
+                            className="rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-1.5 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] cursor-pointer min-h-[36px]"
+                          >
+                            {u.role === 'teacher' ? t.profile.setStudent : t.profile.makeAdmin}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => void handleToggleAccountRestrict(u)}
+                            className={`rounded-lg border px-2.5 py-1.5 text-xs font-semibold cursor-pointer min-h-[36px] ${
+                              u.isRestricted
+                                ? 'border-[#059669]/30 bg-[#ECFDF5] text-[#065F46]'
+                                : 'border-[#DC2626]/30 bg-[#FEF2F2] text-[#DC2626]'
+                            }`}
+                          >
+                            {u.isRestricted ? t.admin.unrestrictBtn : t.admin.restrictBtn}
+                          </button>
+
+                          {confirmDeleteUserId === u.id ? (
                             <div className="flex items-center gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => handleDeleteUser(u.id)}
+                                onClick={() => void handleDeleteUser(u.id)}
                                 className="rounded-lg bg-[#DC2626] px-2.5 py-1.5 text-xs font-semibold text-white cursor-pointer min-h-[36px]"
                               >
                                 {t.profile.confirm}
@@ -664,9 +943,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
-                          ))}
-                      </div>
-                    )}
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -773,6 +1053,224 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   {deletingAccount ? t.profile.deletingAccount : t.profile.confirmDeleteAccountBtn}
                 </span>
               </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Inspect & Edit Registered Account Modal */}
+      {inspectUser && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="inspect-account-title"
+          onClick={() => {
+            if (!inspectSaving) setInspectUser(null);
+          }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4"
+        >
+          <form
+            onSubmit={handleSaveInspectUser}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-[#1E1A1A] border border-[#E6DFD5] dark:border-[#342D2D] p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] dark:border-[#342D2D] pb-3.5">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    name={inspectUser.name}
+                    avatarUrl={inspectUser.avatar_url}
+                    sizeClass="w-12 h-12"
+                    textClass="text-base"
+                  />
+                  <span
+                    className={`absolute bottom-0 end-0 w-3 h-3 rounded-full ring-2 ring-white ${
+                      inspectUser.online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                    }`}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <h3
+                    id="inspect-account-title"
+                    className="text-base font-bold text-[#1C1917] dark:text-[#F5EFE9] truncate"
+                  >
+                    {t.profile.inspectModalTitle}
+                  </h3>
+                  <p className="text-xs text-[#57534E] truncate">{inspectUser.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={inspectSaving}
+                onClick={() => setInspectUser(null)}
+                aria-label={t.profile.cancel}
+                className="p-1 text-[#57534E] hover:text-[#1C1917] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Metadata & Activity KPIs */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-2.5">
+                <p className="text-[#57534E]">{t.admin.quizzesCompleted}</p>
+                <p className="mt-0.5 font-bold text-[#6B1118] tabular-nums">
+                  {inspectUser.quizzesCompleted ?? 0}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-2.5">
+                <p className="text-[#57534E]">{t.admin.correctAnswers}</p>
+                <p className="mt-0.5 font-bold text-[#1C1917] tabular-nums">
+                  {inspectUser.correctAnswers ?? 0}/{inspectUser.questionsAnswered ?? 0}
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-2.5">
+                <p className="text-[#57534E]">{t.admin.avgScore}</p>
+                <p className="mt-0.5 font-bold text-[#059669] tabular-nums">
+                  {inspectUser.avgScorePercent ?? 0}%
+                </p>
+              </div>
+              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-2.5">
+                <p className="text-[#57534E]">{t.admin.aiTutorTurns}</p>
+                <p className="mt-0.5 font-bold text-[#1C1917] tabular-nums">
+                  {inspectUser.aiTutorTurns ?? 0}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-[11px] text-[#57534E] bg-[#FAF8F5] border border-[#E6DFD5] rounded-xl px-3 py-2">
+              {inspectUser.source && (
+                <span>
+                  {t.profile.sourceLabel}: <strong className="uppercase">{inspectUser.source}</strong>
+                </span>
+              )}
+              <span>
+                {t.profile.joinedLabel}: {formatUtcDate(inspectUser.created_at)}
+              </span>
+              {inspectUser.lastLoginAt && (
+                <span>
+                  {t.admin.lastLogin}: {formatUtcDate(inspectUser.lastLoginAt)}
+                </span>
+              )}
+            </div>
+
+            {inspectError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3.5 py-2.5 text-xs text-[#991B1B]">
+                {inspectError}
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.fullName}
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={inspectName}
+                  onChange={(e) => setInspectName(e.target.value)}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                    {t.profile.gradeFocus}
+                  </label>
+                  <input
+                    type="text"
+                    value={inspectGrade}
+                    onChange={(e) => setInspectGrade(e.target.value)}
+                    className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                    {t.profile.birthdayLabel}
+                  </label>
+                  <input
+                    type="date"
+                    dir="ltr"
+                    max={new Date().toISOString().split('T')[0]}
+                    value={inspectBirthday}
+                    onChange={(e) => setInspectBirthday(e.target.value)}
+                    className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.roleLabel}
+                </label>
+                <select
+                  value={inspectRole}
+                  disabled={
+                    inspectUser.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL ||
+                    inspectUser.id === user.id
+                  }
+                  onChange={(e) => setInspectRole(e.target.value as 'student' | 'teacher')}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] disabled:opacity-60"
+                >
+                  <option value="student">{t.profile.studentTag}</option>
+                  <option value="teacher">{t.profile.adminTeacherTag}</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9] mb-1">
+                  {t.profile.bio}
+                </label>
+                <textarea
+                  rows={2}
+                  value={inspectBio}
+                  onChange={(e) => setInspectBio(e.target.value)}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917]"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E6DFD5]">
+              {inspectUser.email.trim().toLowerCase() !== MAIN_ADMIN_EMAIL &&
+              inspectUser.id !== user.id ? (
+                <button
+                  type="button"
+                  onClick={() => void handleToggleAccountRestrict(inspectUser)}
+                  className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold cursor-pointer min-h-[38px] ${
+                    inspectUser.isRestricted
+                      ? 'border-[#059669]/30 bg-[#ECFDF5] text-[#065F46]'
+                      : 'border-[#DC2626]/30 bg-[#FEF2F2] text-[#DC2626]'
+                  }`}
+                >
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>
+                    {inspectUser.isRestricted ? t.admin.unrestrictBtn : t.admin.restrictBtn}
+                  </span>
+                </button>
+              ) : (
+                <span />
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={inspectSaving}
+                  onClick={() => setInspectUser(null)}
+                  className="rounded-xl border border-[#E6DFD5] px-4 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] cursor-pointer min-h-[40px]"
+                >
+                  {t.profile.cancel}
+                </button>
+                <button
+                  type="submit"
+                  disabled={inspectSaving || !inspectName.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 cursor-pointer min-h-[40px]"
+                >
+                  <Save className="w-3.5 h-3.5 text-[#E5B742]" />
+                  <span>{inspectSaving ? t.profile.saving : t.profile.saveChanges}</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>

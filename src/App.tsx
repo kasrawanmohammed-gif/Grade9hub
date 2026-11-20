@@ -51,6 +51,7 @@ import {
 import {
   AdminDashboardSnapshot,
   Announcement,
+  AppSettings,
   Chapter,
   NotificationItem,
   TabId,
@@ -114,6 +115,7 @@ export default function App() {
   const [showNotifBanner, setShowNotifBanner] = useState(false);
 
   const [adminSnapshot, setAdminSnapshot] = useState<AdminDashboardSnapshot | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [liveCommunityEvent, setLiveCommunityEvent] = useState<LiveCommunityEvent | null>(null);
   const [leaderboardVersion, setLeaderboardVersion] = useState(0);
@@ -136,6 +138,21 @@ export default function App() {
   );
   const isPrivileged = Boolean(user && (user.role === 'teacher' || user.isAdmin));
 
+  const fetchPublicSettings = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ settings: AppSettings }>('/api/settings/public');
+      if (data?.settings) {
+        setAppSettings(data.settings);
+      }
+    } catch {
+      // ignore transient settings fetch errors
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchPublicSettings();
+  }, [fetchPublicSettings]);
+
   const fetchAdminDashboard = useCallback(async () => {
     if (!isPrivileged) return;
     try {
@@ -145,6 +162,15 @@ export default function App() {
       // ignore transient errors
     }
   }, [isPrivileged]);
+
+  useEffect(() => {
+    if (!isPrivileged || wsConnected) return;
+    void fetchAdminDashboard();
+    const timer = setInterval(() => {
+      void fetchAdminDashboard();
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [isPrivileged, wsConnected, fetchAdminDashboard]);
 
   const fetchChapters = useCallback(async () => {
     const data = await apiFetch<{ chapters: Chapter[]; generalCount: number }>(
@@ -636,6 +662,8 @@ export default function App() {
             });
           } else if (msg.type === 'leaderboard:update') {
             setLeaderboardVersion((v) => v + 1);
+          } else if (msg.type === 'app:settings' && msg.payload) {
+            setAppSettings(msg.payload as AppSettings);
           }
         } catch {
           // ignore malformed messages
@@ -690,19 +718,20 @@ export default function App() {
         ws.send(JSON.stringify({ type: 'presence:heartbeat', section: currentSection }));
         return;
       }
-      if (!isStaticHostMode()) {
-        void apiFetch('/api/presence/heartbeat', {
-          method: 'POST',
-          body: JSON.stringify({ section: currentSection }),
-        }).catch(() => {});
-      }
+      void apiFetch('/api/presence/heartbeat', {
+        method: 'POST',
+        body: JSON.stringify({ section: currentSection }),
+      }).catch(() => {});
     };
 
     const sendOfflineSignal = () => {
-      if (isStaticHostMode()) return;
       try {
         const token = getStoredSessionToken();
-        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        if (
+          !isStaticHostMode() &&
+          typeof navigator !== 'undefined' &&
+          typeof navigator.sendBeacon === 'function'
+        ) {
           const blob = new Blob([JSON.stringify({ token: token || undefined })], {
             type: 'application/json',
           });
@@ -1459,6 +1488,16 @@ export default function App() {
             </span>
           </div>
 
+          {appSettings?.maintenanceMessage?.trim() && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-[#F3D8A8] bg-[#FFFBEB] px-4 py-2.5 text-xs sm:text-sm text-[#92400E] flex items-center gap-2.5"
+            >
+              <ShieldCheck className="w-4 h-4 text-[#B45309] shrink-0" />
+              <span className="font-medium">{appSettings.maintenanceMessage}</span>
+            </div>
+          )}
+
           {showNotifBanner && !showNotifPrompt && (
             <div
               role="region"
@@ -1515,6 +1554,8 @@ export default function App() {
                   user={user}
                   chapters={chapters}
                   liveEvent={liveCommunityEvent}
+                  wsConnected={wsConnected}
+                  appSettings={appSettings}
                 />
               )}
 
@@ -1534,6 +1575,8 @@ export default function App() {
                   wsConnected={wsConnected}
                   focusSearchTrigger={focusAdminSearchTrigger}
                   liveEvent={liveCommunityEvent}
+                  appSettings={appSettings}
+                  onSettingsUpdated={(nextSettings) => setAppSettings(nextSettings)}
                   onRefreshDashboard={fetchAdminDashboard}
                   onNavigate={navigateTo}
                   onSelectChapter={(target) => setInitialChapterSelection(target)}
@@ -1594,7 +1637,17 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'ai-studio' && <AIStudioView />}
+              {activeTab === 'ai-studio' &&
+                (!isPrivileged && appSettings && !appSettings.aiTutorEnabled ? (
+                  <div className="rounded-2xl border border-[#E6DFD5] bg-white p-8 text-center">
+                    <Sparkles className="w-8 h-8 text-[#6B1118] mx-auto mb-3" />
+                    <p className="text-sm font-semibold text-[#1C1917]">
+                      {t.admin.aiDisabledNotice}
+                    </p>
+                  </div>
+                ) : (
+                  <AIStudioView />
+                ))}
 
               {activeTab === 'profile' && (
                 <ProfileView

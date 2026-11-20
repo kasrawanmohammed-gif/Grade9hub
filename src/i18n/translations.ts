@@ -408,6 +408,20 @@ export interface Translations {
     confirmDeleteAccountBtn: string;
     deletingAccount: string;
     protectedAdminDeleteNote: string;
+    refreshAccountsBtn: string;
+    searchAccountsPlaceholder: string;
+    filterAllAccounts: string;
+    filterStudentsOnly: string;
+    filterAdminsOnly: string;
+    filterOnlineOnly: string;
+    filterRestrictedOnly: string;
+    inspectEditBtn: string;
+    inspectModalTitle: string;
+    accountUpdatedMsg: string;
+    roleLabel: string;
+    sourceLabel: string;
+    joinedLabel: string;
+    loadAccountsError: string;
   };
   settings: {
     title: string;
@@ -631,6 +645,30 @@ export interface Translations {
     backupCreatedMsg: string;
     backupRestoredMsg: string;
     backupConfirmReplace: string;
+    aiDisabledNotice: string;
+    tabAccounts: string;
+    tabContentControl: string;
+    tabAppSettings: string;
+    registeredAccountsSub: string;
+    editProfileBtn: string;
+    saveProfileBtn: string;
+    contentControlTitle: string;
+    contentControlSub: string;
+    openQuizzesBtn: string;
+    openGeneralQaBtn: string;
+    openTextbooksQaBtn: string;
+    openHomeAnnouncementsBtn: string;
+    appSettingsTitle: string;
+    appSettingsSub: string;
+    settingAllowReg: string;
+    settingCommunityEnabled: string;
+    settingCommunityPosting: string;
+    settingAiTutor: string;
+    settingDefaultLang: string;
+    settingMaintenanceMsg: string;
+    settingMaintenancePlaceholder: string;
+    saveSettingsBtn: string;
+    settingsSavedMsg: string;
   };
   community: {
     title: string;
@@ -713,6 +751,11 @@ export interface Translations {
     youLabel: string;
     teacherBadge: string;
     restrictedUserTag: string;
+    filterAllPeers: string;
+    filterOnlinePeers: string;
+    filterOfflinePeers: string;
+    communityDisabledNotice: string;
+    postingPausedNotice: string;
   };
   competition: {
     title: string;
@@ -1256,6 +1299,20 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       confirmDeleteAccountBtn: 'Permanently Delete Account',
       deletingAccount: 'Deleting account...',
       protectedAdminDeleteNote: 'The main administrator account cannot be deleted to protect system continuity.',
+      refreshAccountsBtn: 'Refresh',
+      searchAccountsPlaceholder: 'Search accounts by name, email, or grade...',
+      filterAllAccounts: 'All',
+      filterStudentsOnly: 'Students',
+      filterAdminsOnly: 'Admins / Teachers',
+      filterOnlineOnly: 'Online',
+      filterRestrictedOnly: 'Restricted',
+      inspectEditBtn: 'Inspect / Edit',
+      inspectModalTitle: 'Inspect & Edit Account',
+      accountUpdatedMsg: 'Account profile for {name} updated.',
+      roleLabel: 'Account Role',
+      sourceLabel: 'Registry Source',
+      joinedLabel: 'Joined',
+      loadAccountsError: 'Could not load registered accounts.',
     },
     settings: {
       title: 'System & Study Settings',
@@ -1481,6 +1538,30 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'Backup snapshot created and verified on disk.',
       backupRestoredMsg: 'Backup restored successfully while preserving administrator permissions.',
       backupConfirmReplace: 'Full Replace will replace live records with this snapshot after creating a safety backup. Continue?',
+      aiDisabledNotice: 'AI Studio is currently paused by the administrator.',
+      tabAccounts: 'Registered Accounts',
+      tabContentControl: 'Content & Curriculum',
+      tabAppSettings: 'App Settings',
+      registeredAccountsSub: 'Inspect every student and teacher account, edit profile fields, manage admin permissions, restrict accounts, or safely remove accounts.',
+      editProfileBtn: 'Edit Profile',
+      saveProfileBtn: 'Save Account Changes',
+      contentControlTitle: 'Curriculum, Quizzes & Announcements Control',
+      contentControlSub: 'Jump directly into editing any Grade 9 Science chapter, quiz bank, general question, textbook Q&A, or classroom announcement.',
+      openQuizzesBtn: 'Edit Chapter Quizzes',
+      openGeneralQaBtn: 'Edit General Questions',
+      openTextbooksQaBtn: 'Edit Textbooks & Study Q&A',
+      openHomeAnnouncementsBtn: 'Manage Announcements',
+      appSettingsTitle: 'Global Application Settings & Access Control',
+      appSettingsSub: 'Configure platform registration, Student Community access, AI Studio availability, default language, and school-wide notice banners.',
+      settingAllowReg: 'Allow New Student Registration',
+      settingCommunityEnabled: 'Enable Student Community for Students',
+      settingCommunityPosting: 'Allow Student Posts, Comments & Messages',
+      settingAiTutor: 'Enable AI Studio for Students',
+      settingDefaultLang: 'Default Language',
+      settingMaintenanceMsg: 'School-Wide Notice Banner (Optional)',
+      settingMaintenancePlaceholder: 'Leave blank to hide banner, or write a notice for all users...',
+      saveSettingsBtn: 'Save App Settings',
+      settingsSavedMsg: 'Application settings saved and applied across Grade 9 Hub.',
     },
     community: {
       title: 'Student Community',
@@ -1563,6 +1644,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'You',
       teacherBadge: 'Admin / Teacher',
       restrictedUserTag: 'Restricted',
+      filterAllPeers: 'All Classmates',
+      filterOnlinePeers: 'Online',
+      filterOfflinePeers: 'Offline',
+      communityDisabledNotice: 'Student Community is currently disabled by the school administrator.',
+      postingPausedNotice: 'Posting and messaging are currently paused in the community (read-only mode).',
     },
     competition: {
       title: 'Student Competition & Leaderboard',
@@ -2104,6 +2190,20 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       confirmDeleteAccountBtn: 'سڕینەوەی هەژمار بۆ هەمیشە',
       deletingAccount: 'سڕینەوەی هەژمار...',
       protectedAdminDeleteNote: 'هەژماری بەڕێوەبەری سەرەکی ناتوانرێت بسڕدرێتەوە بۆ پاراستنی بەردەوامیی سیستەم.',
+      refreshAccountsBtn: 'نوێکردنەوە',
+      searchAccountsPlaceholder: 'گەڕان لە هەژمارەکان بە ناو، ئیمەیڵ یان پۆل...',
+      filterAllAccounts: 'هەموو',
+      filterStudentsOnly: 'قوتابیان',
+      filterAdminsOnly: 'بەڕێوەبەر / مامۆستا',
+      filterOnlineOnly: 'لە هێڵدایە',
+      filterRestrictedOnly: 'سنووردارکراو',
+      inspectEditBtn: 'پشکنین / دەستکاری',
+      inspectModalTitle: 'پشکنین و دەستکاریکردنی هەژمار',
+      accountUpdatedMsg: 'پڕۆفایلی هەژماری {name} نوێکرایەوە.',
+      roleLabel: 'ڕۆڵی هەژمار',
+      sourceLabel: 'سەرچاوەی تۆمار',
+      joinedLabel: 'بەرواری تۆمار',
+      loadAccountsError: 'بارکردنی هەژمارە تۆمارکراوەکان سەرکەوتوو نەبوو.',
     },
     settings: {
       title: 'ڕێکخستنەکانی سیستەم و خوێندن',
@@ -2329,6 +2429,30 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'پاشەکەوتی بنکەی زانیاری بە سەرکەوتوویی دروستکرا.',
       backupRestoredMsg: 'پاشەکەوت بە سەرکەوتوویی گەڕێندرایەوە لەگەڵ پاراستنی مۆڵەتی بەڕێوەبەر.',
       backupConfirmReplace: 'جێگۆڕکێی تەواو زانیارییەکان دەگەڕێنێتەوە بۆ ئەم کاتە دوای دروستکردنی پاشەکەوتی سەلامەتی. بەردەوام بیت؟',
+      aiDisabledNotice: 'ستۆدیۆی زیرەکی دەستکرد لە ئێستادا لەلایەن بەڕێوەبەرەوە وەستێنراوە.',
+      tabAccounts: 'هەژمارە تۆمارکراوەکان',
+      tabContentControl: 'ناوەڕۆک و پرۆگرام',
+      tabAppSettings: 'ڕێکخستنەکانی بەرنامە',
+      registeredAccountsSub: 'پشکنینی هەموو هەژمارەکانی قوتابی و مامۆستا، دەستکاریکردنی پڕۆفایل، بەڕێوەبردنی دەسەڵات، سنووردارکردن یان سڕینەوەی هەژمارەکان.',
+      editProfileBtn: 'دەستکاری پڕۆفایل',
+      saveProfileBtn: 'پاشەکەوتکردنی گۆڕانکارییەکان',
+      contentControlTitle: 'کۆنتڕۆڵی پرۆگرام، تاقیکردنەوە و ڕاگەیاندنەکان',
+      contentControlSub: 'ڕاستەوخۆ بچۆ ناو دەستکاریکردنی هەر بەشێکی زانستی پۆلی ٩، پرسیاری تاقیکردنەوە، پرسیارە گشتییەکان، کتێب یان ڕاگەیاندن.',
+      openQuizzesBtn: 'دەستکاری تاقیکردنەوەی بەشەکان',
+      openGeneralQaBtn: 'دەستکاری پرسیارە گشتییەکان',
+      openTextbooksQaBtn: 'دەستکاری کتێب و پرسیارەکان',
+      openHomeAnnouncementsBtn: 'بەڕێوەبردنی ڕاگەیاندنەکان',
+      appSettingsTitle: 'ڕێکخستنە گشتییەکانی بەرنامە و کۆنتڕۆڵی دەستڕاگەیشتن',
+      appSettingsSub: 'ڕێکخستنی تۆمارکردنی قوتابی، کۆمەڵگا، ستۆدیۆی زیرەک، زمانی سەرەکی و ئاگاداری سەرتاسەری.',
+      settingAllowReg: 'ڕێگەپێدان بە تۆمارکردنی قوتابی نوێ',
+      settingCommunityEnabled: 'چالاککردنی کۆمەڵگەی قوتابیان بۆ قوتابیان',
+      settingCommunityPosting: 'ڕێگەپێدان بە پۆست، لێدوان و نامەی قوتابیان',
+      settingAiTutor: 'چالاککردنی ستۆدیۆی AI بۆ قوتابیان',
+      settingDefaultLang: 'زمانی سەرەکی',
+      settingMaintenanceMsg: 'ئاگاداری سەرتاسەری لە ناو بەرنامە (ئارەزوومەندانە)',
+      settingMaintenancePlaceholder: 'بە بەتاڵی جێیبهێڵە یان ئاگادارییەک بنووسە بۆ هەموو بەکارهێنەران...',
+      saveSettingsBtn: 'پاشەکەوتکردنی ڕێکخستنەکان',
+      settingsSavedMsg: 'ڕێکخستنەکانی بەرنامە پاشەکەوت کران و جێبەجێکران.',
     },
     community: {
       title: 'کۆمەڵگەی قوتابیان',
@@ -2411,6 +2535,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'تۆ',
       teacherBadge: 'بەڕێوەبەر / مامۆستا',
       restrictedUserTag: 'سنووردارکراو',
+      filterAllPeers: 'هەموو هاوپۆلەکان',
+      filterOnlinePeers: 'لە هێڵدا',
+      filterOfflinePeers: 'دەرەوەی هێڵ',
+      communityDisabledNotice: 'کۆمەڵگەی قوتابیان لە ئێستادا لەلایەن بەڕێوەبەرەوە ناچالاک کراوە.',
+      postingPausedNotice: 'بڵاوکردنەوە و ناردنی نامە لە ئێستادا وەستێنراوە (تەنها خوێندنەوە).',
     },
     competition: {
       title: 'پێشبڕکێ و ڕیزبەندی قوتابیان',
@@ -2952,6 +3081,20 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       confirmDeleteAccountBtn: 'تأكيد حذف الحساب نهائياً',
       deletingAccount: 'جاري حذف الحساب...',
       protectedAdminDeleteNote: 'لا يمكن حذف حساب المسؤول الرئيسي حفاظاً على استقرار النظام.',
+      refreshAccountsBtn: 'تحديث',
+      searchAccountsPlaceholder: 'ابحث عن الحسابات بالاسم أو البريد أو الصف...',
+      filterAllAccounts: 'الكل',
+      filterStudentsOnly: 'الطلاب',
+      filterAdminsOnly: 'المسؤولون / المعلمون',
+      filterOnlineOnly: 'متصل',
+      filterRestrictedOnly: 'مقيّد',
+      inspectEditBtn: 'فحص / تعديل',
+      inspectModalTitle: 'فحص وتعديل الحساب',
+      accountUpdatedMsg: 'تم تحديث ملف حساب {name}.',
+      roleLabel: 'دور الحساب',
+      sourceLabel: 'مصدر السجل',
+      joinedLabel: 'تاريخ الانضمام',
+      loadAccountsError: 'تعذر تحميل الحسابات المسجّلة.',
     },
     settings: {
       title: 'إعدادات النظام والدراسة',
@@ -3177,6 +3320,30 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'تم إنشاء نسخة احتياطية وتثبيتها على القرص بنجاح.',
       backupRestoredMsg: 'تمت استعادة النسخة الاحتياطية بنجاح مع الحفاظ على صلاحيات المسؤول.',
       backupConfirmReplace: 'سيتم استبدال السجلات الحالية بهذه النسخة بعد إنشاء نسخة أمان تلقائية. هل تريد المتابعة؟',
+      aiDisabledNotice: 'تم إيقاف ستوديو الذكاء الاصطناعي مؤقتاً من قِبل المسؤول.',
+      tabAccounts: 'الحسابات المسجّلة',
+      tabContentControl: 'المحتوى والمنهج',
+      tabAppSettings: 'إعدادات التطبيق',
+      registeredAccountsSub: 'فحص جميع حسابات الطلاب والمعلمين، وتعديل الملفات الشخصية، وإدارة الصلاحيات، وتقييد الحسابات أو حذفها بأمان.',
+      editProfileBtn: 'تعديل الملف',
+      saveProfileBtn: 'حفظ التغييرات',
+      contentControlTitle: 'التحكم بالمنهج والاختبارات والإعلانات',
+      contentControlSub: 'انتقل مباشرة إلى تعديل أي فصل من علوم الصف التاسع أو الاختبارات أو الأسئلة العامة أو إعلانات الصف.',
+      openQuizzesBtn: 'تعديل اختبارات الفصول',
+      openGeneralQaBtn: 'تعديل الأسئلة العامة',
+      openTextbooksQaBtn: 'تعديل الكتب والأسئلة الدراسية',
+      openHomeAnnouncementsBtn: 'إدارة الإعلانات',
+      appSettingsTitle: 'إعدادات التطبيق العامة والتحكم بالوصول',
+      appSettingsSub: 'إعداد تسجيل الطلاب، ووصول مجتمع الطلاب، وستوديو الذكاء الاصطناعي، واللغة الافتراضية، وشريط التنبيهات.',
+      settingAllowReg: 'السماح بتسجيل الطلاب الجدد',
+      settingCommunityEnabled: 'تفعيل مجتمع الطلاب للطلاب',
+      settingCommunityPosting: 'السماح بنشر المنشورات والتعليقات والرسائل',
+      settingAiTutor: 'تفعيل ستوديو الذكاء الاصطناعي للطلاب',
+      settingDefaultLang: 'اللغة الافتراضية',
+      settingMaintenanceMsg: 'رسالة تنبيه عامة في التطبيق (اختياري)',
+      settingMaintenancePlaceholder: 'اتركه فارغاً لإخفاء الشريط أو اكتب تنبيهاً لجميع المستخدمين...',
+      saveSettingsBtn: 'حفظ إعدادات التطبيق',
+      settingsSavedMsg: 'تم حفظ إعدادات التطبيق وتطبيقها فوراً.',
     },
     community: {
       title: 'مجتمع الطلاب',
@@ -3259,6 +3426,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'أنت',
       teacherBadge: 'المسؤول / المعلم',
       restrictedUserTag: 'مقيّد',
+      filterAllPeers: 'جميع الزملاء',
+      filterOnlinePeers: 'متصلون',
+      filterOfflinePeers: 'غير متصلين',
+      communityDisabledNotice: 'تم تعطيل مجتمع الطلاب حالياً من قِبل مسؤول المدرسة.',
+      postingPausedNotice: 'النشر والمراسلة متوقفان مؤقتاً في المجتمع (وضع القراءة فقط).',
     },
     competition: {
       title: 'مسابقة الطلاب ولوحة المتصدرين',

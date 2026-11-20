@@ -1,7 +1,18 @@
 import curriculumData from '../data/curriculumSnapshot.json';
 import {
+  AdminStudentPerformance,
+  AdminUserRecord,
   Announcement,
+  AppSettings,
   Chapter,
+  CommunityDirectMessage,
+  CommunityDmThread,
+  CommunityGroup,
+  CommunityGroupMember,
+  CommunityGroupMessage,
+  CommunityPeer,
+  CommunityPost,
+  CommunityReactionType,
   CompetitionLeaderboardResponse,
   CompetitionMedal,
   CompetitionPointEvent,
@@ -20,11 +31,18 @@ import {
 import { auth } from './firebase';
 import {
   CloudUserProfile,
+  deleteCloudUserAsAdmin,
+  fetchCloudAppSettings,
+  fetchCloudRegisteredUsersAsAdmin,
   fetchFirestoreLeaderboard,
   MAIN_ADMIN_EMAIL,
+  pullAllPeerPresence,
   pullCloudUserProfile,
   recordQuizAttemptToCloud,
+  saveCloudAppSettings,
+  syncCloudPeerPresence,
   syncCurrentUserToFirestore,
+  updateCloudUserAsAdmin,
 } from './cloudAccounts';
 import { decryptAdminVaultWithPassword } from './recoveryVault';
 
@@ -34,6 +52,19 @@ const REMEMBER_ME_KEY = 'grade9hub_remember_me';
 const STATIC_MODE_KEY = 'grade9hub_static_backend_mode';
 const STATIC_PROFILES_KEY = 'grade9hub_static_profiles_v1';
 const STATIC_STATS_KEY = 'grade9hub_static_stats_v1';
+const STATIC_PRESENCE_KEY = 'grade9hub_static_presence_v1';
+const STATIC_SETTINGS_KEY = 'grade9hub_static_settings_v1';
+const STATIC_COMMUNITY_KEY = 'grade9hub_static_community_v1';
+const PRESENCE_TTL_MS = 90_000;
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  allowStudentRegistration: true,
+  communityEnabled: true,
+  communityPostingEnabled: true,
+  aiTutorEnabled: true,
+  defaultLanguage: 'en',
+  maintenanceMessage: '',
+};
 
 type SupportedLang = 'en' | 'ku' | 'ar';
 
@@ -418,6 +449,15 @@ function buildFirebaseAppUser(
   const prevProfile = profiles[email];
   const nowIso = new Date().toISOString();
 
+  const resolvedRole: 'student' | 'teacher' = isMainAdmin
+    ? 'teacher'
+    : cloudProfile?.role === 'teacher' || prevProfile?.role === 'teacher'
+    ? 'teacher'
+    : 'student';
+  const resolvedAdmin = isMainAdmin
+    ? true
+    : Boolean(cloudProfile?.isAdmin ?? prevProfile?.isAdmin ?? false);
+
   const name =
     (cloudProfile?.name || prevProfile?.name || fbName || (isMainAdmin ? 'Mr. Kasrawan' : formatDisplayNameFromEmail(email)))
       .trim()
@@ -430,8 +470,8 @@ function buildFirebaseAppUser(
     id: prevProfile?.id || stableNumericId(uid),
     name,
     email,
-    role: isMainAdmin ? 'teacher' : 'student',
-    isAdmin: isMainAdmin,
+    role: resolvedRole,
+    isAdmin: resolvedAdmin,
     grade: cloudProfile?.grade || prevProfile?.grade || 'Grade 9',
     bio:
       cloudProfile?.bio ||
@@ -447,11 +487,374 @@ function buildFirebaseAppUser(
       cloudProfile?.notificationsEnabled !== undefined
         ? cloudProfile.notificationsEnabled
         : prevProfile?.notifications_enabled !== false,
-    isRestricted: false,
-    restrictionReason: '',
+    isRestricted: isMainAdmin
+      ? false
+      : Boolean(cloudProfile?.isRestricted ?? prevProfile?.isRestricted ?? false),
+    restrictionReason: isMainAdmin
+      ? ''
+      : cloudProfile?.restrictionReason ?? prevProfile?.restrictionReason ?? '',
     lastLoginAt: nowIso,
     created_at: prevProfile?.created_at || nowIso,
   };
+}
+
+interface StaticPresenceEntry {
+  online: boolean;
+  section: string;
+  updatedAt: number;
+}
+
+function updateStaticPresence(userId: number, online: boolean, section = 'home'): void {
+  const all = readLocalJson<Record<string, StaticPresenceEntry>>(STATIC_PRESENCE_KEY, {});
+  all[String(userId)] = {
+    online,
+    section: online ? section : '',
+    updatedAt: Date.now(),
+  };
+  writeLocalJson(STATIC_PRESENCE_KEY, all);
+}
+
+function getLocalAppSettings(): AppSettings {
+  const stored = readLocalJson<Partial<AppSettings>>(STATIC_SETTINGS_KEY, {});
+  return {
+    allowStudentRegistration:
+      typeof stored.allowStudentRegistration === 'boolean'
+        ? stored.allowStudentRegistration
+        : DEFAULT_APP_SETTINGS.allowStudentRegistration,
+    communityEnabled:
+      typeof stored.communityEnabled === 'boolean'
+        ? stored.communityEnabled
+        : DEFAULT_APP_SETTINGS.communityEnabled,
+    communityPostingEnabled:
+      typeof stored.communityPostingEnabled === 'boolean'
+        ? stored.communityPostingEnabled
+        : DEFAULT_APP_SETTINGS.communityPostingEnabled,
+    aiTutorEnabled:
+      typeof stored.aiTutorEnabled === 'boolean'
+        ? stored.aiTutorEnabled
+        : DEFAULT_APP_SETTINGS.aiTutorEnabled,
+    defaultLanguage:
+      stored.defaultLanguage === 'ku' || stored.defaultLanguage === 'ar'
+        ? stored.defaultLanguage
+        : DEFAULT_APP_SETTINGS.defaultLanguage,
+    maintenanceMessage:
+      typeof stored.maintenanceMessage === 'string' ? stored.maintenanceMessage.slice(0, 300) : '',
+    updatedAt: stored.updatedAt,
+  };
+}
+
+function saveLocalAppSettings(patch: Partial<AppSettings>): AppSettings {
+  const cur = getLocalAppSettings();
+  const next: AppSettings = {
+    allowStudentRegistration:
+      typeof patch.allowStudentRegistration === 'boolean'
+        ? patch.allowStudentRegistration
+        : cur.allowStudentRegistration,
+    communityEnabled:
+      typeof patch.communityEnabled === 'boolean'
+        ? patch.communityEnabled
+        : cur.communityEnabled,
+    communityPostingEnabled:
+      typeof patch.communityPostingEnabled === 'boolean'
+        ? patch.communityPostingEnabled
+        : cur.communityPostingEnabled,
+    aiTutorEnabled:
+      typeof patch.aiTutorEnabled === 'boolean' ? patch.aiTutorEnabled : cur.aiTutorEnabled,
+    defaultLanguage:
+      patch.defaultLanguage === 'ku' || patch.defaultLanguage === 'ar' || patch.defaultLanguage === 'en'
+        ? patch.defaultLanguage
+        : cur.defaultLanguage,
+    maintenanceMessage:
+      typeof patch.maintenanceMessage === 'string'
+        ? patch.maintenanceMessage.trim().slice(0, 300)
+        : cur.maintenanceMessage,
+    updatedAt: new Date().toISOString(),
+  };
+  writeLocalJson(STATIC_SETTINGS_KEY, next);
+  return next;
+}
+
+interface StaticCommunityStore {
+  posts: CommunityPost[];
+  dms: CommunityDirectMessage[];
+  groups: CommunityGroup[];
+  groupMembers: Record<string, CommunityGroupMember[]>;
+  groupMessages: Record<string, CommunityGroupMessage[]>;
+}
+
+function getStaticCommunityStore(): StaticCommunityStore {
+  const raw = readLocalJson<Partial<StaticCommunityStore>>(STATIC_COMMUNITY_KEY, {});
+  return {
+    posts: Array.isArray(raw.posts) ? raw.posts : [],
+    dms: Array.isArray(raw.dms) ? raw.dms : [],
+    groups: Array.isArray(raw.groups) ? raw.groups : [],
+    groupMembers: raw.groupMembers && typeof raw.groupMembers === 'object' ? raw.groupMembers : {},
+    groupMessages: raw.groupMessages && typeof raw.groupMessages === 'object' ? raw.groupMessages : {},
+  };
+}
+
+function saveStaticCommunityStore(store: StaticCommunityStore): void {
+  writeLocalJson(STATIC_COMMUNITY_KEY, {
+    posts: store.posts.slice(0, 100),
+    dms: store.dms.slice(-300),
+    groups: store.groups.slice(0, 40),
+    groupMembers: store.groupMembers,
+    groupMessages: store.groupMessages,
+  });
+}
+
+async function buildMergedAccountsRegistry(): Promise<{
+  users: Array<AdminUserRecord & { cloudUid?: string }>;
+  peers: CommunityPeer[];
+}> {
+  const cached = getCachedUserLocal();
+  const localProfiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+  const allStats = readLocalJson<Record<string, StoredStaticStats>>(STATIC_STATS_KEY, {});
+  const localPresence = readLocalJson<Record<string, StaticPresenceEntry>>(STATIC_PRESENCE_KEY, {});
+  const isPrivileged = Boolean(cached && (cached.role === 'teacher' || cached.isAdmin));
+
+  const [cloudUsers, cloudPeers, cloudLeaderboard] = await Promise.all([
+    isPrivileged ? fetchCloudRegisteredUsersAsAdmin().catch(() => []) : Promise.resolve([]),
+    pullAllPeerPresence().catch(() => []),
+    fetchFirestoreLeaderboard().catch(() => []),
+  ]);
+
+  const byId = new Map<number, AdminUserRecord & { cloudUid?: string }>();
+  const emailToId = new Map<string, number>();
+  const uidToId = new Map<string, number>();
+
+  const upsertProfile = (entry: {
+    id?: number;
+    cloudUid?: string;
+    name: string;
+    email: string;
+    role: 'student' | 'teacher';
+    isAdmin: boolean;
+    grade?: string;
+    bio?: string;
+    birthday?: string;
+    avatar_url?: string;
+    online?: boolean;
+    currentSection?: string;
+    isRestricted?: boolean;
+    restrictionReason?: string;
+    lastLoginAt?: string;
+    lastActiveAt?: string;
+    quizzesCompleted?: number;
+    questionsAnswered?: number;
+    correctAnswers?: number;
+    avgScorePercent?: number;
+    source?: 'local' | 'cloud';
+    created_at?: string;
+  }) => {
+    const normEmail = (entry.email || '').trim().toLowerCase();
+    const existingId =
+      (normEmail && emailToId.get(normEmail)) ||
+      (entry.cloudUid && uidToId.get(entry.cloudUid)) ||
+      entry.id;
+    const id =
+      existingId ||
+      stableNumericId(normEmail || entry.cloudUid || entry.name || String(Math.random()));
+    if (normEmail) emailToId.set(normEmail, id);
+    if (entry.cloudUid) uidToId.set(entry.cloudUid, id);
+
+    const prev = byId.get(id);
+    const stats = allStats[String(id)];
+    const locPres = localPresence[String(id)];
+    const locPresOnline =
+      Boolean(locPres && locPres.online && Date.now() - locPres.updatedAt <= PRESENCE_TTL_MS);
+
+    const quizzes = Math.max(
+      Number(entry.quizzesCompleted || 0),
+      Number(prev?.quizzesCompleted || 0),
+      Number(stats?.quizzesCompleted || 0)
+    );
+    const correct = Math.max(
+      Number(entry.correctAnswers || 0),
+      Number(prev?.correctAnswers || 0),
+      Number(stats?.correctAnswers || 0)
+    );
+    const answered = Math.max(
+      Number(entry.questionsAnswered || 0),
+      Number(prev?.questionsAnswered || 0),
+      Number(stats?.questionsAnswered || 0),
+      correct
+    );
+    const avgScore =
+      answered > 0
+        ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10
+        : Number(entry.avgScorePercent || prev?.avgScorePercent || 0);
+
+    const isMain = normEmail === MAIN_ADMIN_EMAIL;
+    const isMe = Boolean(cached && (cached.id === id || (normEmail && cached.email.toLowerCase() === normEmail)));
+    const resolvedOnline = Boolean(entry.online || prev?.online || locPresOnline || isMe);
+
+    byId.set(id, {
+      id,
+      cloudUid: entry.cloudUid || prev?.cloudUid,
+      name: entry.name || prev?.name || 'Grade 9 Student',
+      email: normEmail || prev?.email || '',
+      role: isMain ? 'teacher' : entry.role || prev?.role || 'student',
+      isAdmin: isMain || Boolean(entry.isAdmin || prev?.isAdmin),
+      grade: entry.grade || prev?.grade || 'Grade 9',
+      bio: entry.bio ?? prev?.bio ?? '',
+      birthday: entry.birthday ?? prev?.birthday ?? '',
+      avatar_url: entry.avatar_url || prev?.avatar_url || '',
+      online: resolvedOnline,
+      currentSection: resolvedOnline
+        ? entry.currentSection || prev?.currentSection || locPres?.section || 'home'
+        : '',
+      isRestricted: isMain ? false : Boolean(entry.isRestricted ?? prev?.isRestricted ?? false),
+      restrictionReason: isMain
+        ? ''
+        : entry.restrictionReason ?? prev?.restrictionReason ?? '',
+      lastLoginAt: entry.lastLoginAt || prev?.lastLoginAt || '',
+      lastActiveAt:
+        entry.lastActiveAt ||
+        prev?.lastActiveAt ||
+        (locPres ? new Date(locPres.updatedAt).toISOString() : ''),
+      quizzesCompleted: quizzes,
+      questionsAnswered: answered,
+      correctAnswers: correct,
+      avgScorePercent: avgScore,
+      aiTutorTurns: prev?.aiTutorTurns || 0,
+      source: entry.source || prev?.source || 'local',
+      created_at: entry.created_at || prev?.created_at || new Date().toISOString(),
+    });
+  };
+
+  for (const cu of cloudUsers) {
+    upsertProfile({
+      id: cu.uid ? stableNumericId(cu.uid) : stableNumericId(cu.email),
+      cloudUid: cu.uid,
+      name: cu.name,
+      email: cu.email,
+      role: cu.role,
+      isAdmin: cu.isAdmin,
+      grade: cu.grade,
+      bio: cu.bio,
+      birthday: cu.birthday,
+      avatar_url: cu.avatarUrl,
+      isRestricted: cu.isRestricted,
+      restrictionReason: cu.restrictionReason,
+      lastLoginAt: cu.lastLoginAt,
+      lastActiveAt: cu.lastActiveAt,
+      quizzesCompleted: cu.quizzesCompleted,
+      questionsAnswered: cu.correctAnswers,
+      correctAnswers: cu.correctAnswers,
+      source: 'cloud',
+      created_at: cu.createdAtIso,
+    });
+  }
+
+  for (const cp of cloudPeers) {
+    const matchedByUid = uidToId.get(cp.uid);
+    const targetId = matchedByUid || cp.numericId || stableNumericId(cp.uid);
+    const existing = byId.get(targetId);
+    upsertProfile({
+      id: targetId,
+      cloudUid: cp.uid,
+      name: existing?.name || cp.name,
+      email: existing?.email || '',
+      role: existing?.role || cp.role,
+      isAdmin: existing?.isAdmin ?? cp.isAdmin,
+      grade: existing?.grade || cp.grade,
+      bio: existing?.bio || cp.bio,
+      avatar_url: existing?.avatar_url || cp.avatarUrl,
+      online: cp.online,
+      currentSection: cp.currentSection,
+      isRestricted: existing?.isRestricted ?? cp.isRestricted,
+      lastActiveAt: cp.lastActiveAtIso,
+      source: 'cloud',
+    });
+  }
+
+  for (const lb of cloudLeaderboard) {
+    const targetId = uidToId.get(lb.uid) || stableNumericId(lb.uid);
+    const existing = byId.get(targetId);
+    upsertProfile({
+      id: targetId,
+      cloudUid: lb.uid,
+      name: existing?.name || lb.name,
+      email: existing?.email || '',
+      role: 'student',
+      isAdmin: false,
+      grade: existing?.grade || lb.grade,
+      avatar_url: existing?.avatar_url || lb.avatarUrl,
+      quizzesCompleted: lb.quizzesCompleted,
+      correctAnswers: lb.correctAnswers,
+      questionsAnswered: lb.correctAnswers,
+      source: 'cloud',
+    });
+  }
+
+  for (const lp of Object.values(localProfiles)) {
+    if (!lp?.email) continue;
+    upsertProfile({
+      id: lp.id,
+      name: lp.name,
+      email: lp.email,
+      role: lp.role,
+      isAdmin: Boolean(lp.isAdmin),
+      grade: lp.grade,
+      bio: lp.bio,
+      birthday: lp.birthday,
+      avatar_url: lp.avatar_url,
+      isRestricted: lp.isRestricted,
+      restrictionReason: lp.restrictionReason,
+      lastLoginAt: lp.lastLoginAt,
+      source: 'local',
+      created_at: lp.created_at,
+    });
+  }
+
+  if (cached) {
+    upsertProfile({
+      id: cached.id,
+      cloudUid: auth.currentUser?.uid,
+      name: cached.name,
+      email: cached.email,
+      role: cached.role,
+      isAdmin: Boolean(cached.isAdmin),
+      grade: cached.grade,
+      bio: cached.bio,
+      birthday: cached.birthday,
+      avatar_url: cached.avatar_url,
+      online: true,
+      currentSection: localPresence[String(cached.id)]?.section || 'home',
+      isRestricted: cached.isRestricted,
+      restrictionReason: cached.restrictionReason,
+      lastLoginAt: cached.lastLoginAt,
+      lastActiveAt: new Date().toISOString(),
+      source: auth.currentUser ? 'cloud' : 'local',
+      created_at: cached.created_at,
+    });
+  }
+
+  const users = Array.from(byId.values()).sort((a, b) => {
+    if (Boolean(a.isAdmin) !== Boolean(b.isAdmin)) return a.isAdmin ? -1 : 1;
+    if (a.role !== b.role) return a.role === 'teacher' ? -1 : 1;
+    if (Boolean(a.online) !== Boolean(b.online)) return a.online ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const peers: CommunityPeer[] = users.map((u) => ({
+    id: u.id,
+    name: u.name,
+    ...(isPrivileged && u.email ? { email: u.email } : {}),
+    role: u.role,
+    isAdmin: u.isAdmin,
+    grade: u.grade,
+    bio: u.bio || '',
+    avatar_url: u.avatar_url || '',
+    online: Boolean(u.online),
+    currentSection: u.currentSection || '',
+    lastActiveAt: u.lastActiveAt || '',
+    lastLoginAt: u.lastLoginAt || '',
+    isRestricted: Boolean(u.isRestricted),
+  }));
+
+  return { users, peers };
 }
 
 function computeMedal(rank: number): CompetitionMedal {
@@ -749,7 +1152,64 @@ export async function handleStaticApiFallback(
 
   // 5. Logout
   if (pathname === '/api/auth/logout' && method === 'POST') {
+    const cached = getCachedUserLocal();
+    if (cached) {
+      updateStaticPresence(cached.id, false, '');
+      void syncCloudPeerPresence(cached, false, '').catch(() => {});
+    }
     return { ok: true };
+  }
+
+  // 5b. Local/Static Registration
+  if (pathname === '/api/auth/register' && method === 'POST') {
+    const settings = getLocalAppSettings();
+    const email = String(body.email || '').trim().toLowerCase();
+    const name = String(body.name || '').trim();
+    const password = String(body.password || '');
+    const birthday = String(body.birthday || '').trim();
+    const grade = String(body.grade || 'Grade 9').trim();
+    const isMainAdmin = email === MAIN_ADMIN_EMAIL;
+    if (!isMainAdmin && !settings.allowStudentRegistration) {
+      throw new StaticFallbackHttpError(
+        'New student registration is currently paused by the administrator.',
+        403
+      );
+    }
+    if (name.length < 2) {
+      throw new StaticFallbackHttpError('Please enter your full name (at least 2 characters).', 400);
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new StaticFallbackHttpError('Please enter a valid email address.', 400);
+    }
+    if (password.length < 6) {
+      throw new StaticFallbackHttpError('Password must be at least 6 characters long.', 400);
+    }
+    const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+    if (profiles[email] && !isMainAdmin) {
+      throw new StaticFallbackHttpError('An account with this email already exists. Please log in.', 409);
+    }
+    const nowIso = new Date().toISOString();
+    const newUser: User = {
+      id: profiles[email]?.id || stableNumericId(email),
+      name,
+      email,
+      role: isMainAdmin ? 'teacher' : 'student',
+      isAdmin: isMainAdmin,
+      grade,
+      bio: '',
+      birthday,
+      avatar_url: '',
+      notif_prompt_status: '',
+      notifications_enabled: true,
+      isRestricted: false,
+      restrictionReason: '',
+      lastLoginAt: nowIso,
+      created_at: profiles[email]?.created_at || nowIso,
+    };
+    const token = `local_${newUser.id}`;
+    saveSessionAndCachedUser(newUser, token, true);
+    updateStaticPresence(newUser.id, true, 'home');
+    return { user: newUser, sessionToken: token };
   }
 
   // 6. Forgot password on static host
@@ -1249,8 +1709,23 @@ export async function handleStaticApiFallback(
     return { ok: true };
   }
 
-  if ((pathname === '/api/presence/heartbeat' || pathname === '/api/presence/offline') && method === 'POST') {
-    return { ok: true, online: pathname.endsWith('/heartbeat') };
+  if (pathname === '/api/presence/heartbeat' && method === 'POST') {
+    const cached = getCachedUserLocal();
+    const section = String(body.section || 'home').trim() || 'home';
+    if (cached) {
+      updateStaticPresence(cached.id, true, section);
+      void syncCloudPeerPresence(cached, true, section).catch(() => {});
+    }
+    return { ok: true, online: true };
+  }
+
+  if (pathname === '/api/presence/offline' && method === 'POST') {
+    const cached = getCachedUserLocal();
+    if (cached) {
+      updateStaticPresence(cached.id, false, '');
+      void syncCloudPeerPresence(cached, false, '').catch(() => {});
+    }
+    return { ok: true, online: false };
   }
 
   if (pathname === '/api/notifications/permission-choice' && method === 'POST') {
@@ -1268,7 +1743,36 @@ export async function handleStaticApiFallback(
     return { user: updated };
   }
 
-  // 15. Clean Read Fallbacks for Announcements / Notifications / Messages / Community / Admin
+  // 14b. App Settings (/api/settings/public, /api/admin/settings)
+  if (pathname === '/api/settings/public' && method === 'GET') {
+    const cloud = await fetchCloudAppSettings().catch(() => null);
+    if (cloud) {
+      writeLocalJson(STATIC_SETTINGS_KEY, cloud);
+      return { settings: cloud };
+    }
+    return { settings: getLocalAppSettings() };
+  }
+  if (pathname === '/api/admin/settings' && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const cloud = await fetchCloudAppSettings().catch(() => null);
+    if (cloud) {
+      writeLocalJson(STATIC_SETTINGS_KEY, cloud);
+      return { settings: cloud };
+    }
+    return { settings: getLocalAppSettings() };
+  }
+  if (pathname === '/api/admin/settings' && method === 'PUT') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const updated = saveLocalAppSettings(body as Partial<AppSettings>);
+    await saveCloudAppSettings(updated).catch(() => false);
+    return { ok: true, settings: updated };
+  }
+
+  // 15. Clean Read & Cloud-Backed Fallbacks for Announcements / Notifications / Messages / Community / Admin
   if (pathname === '/api/announcements' && method === 'GET') {
     return { announcements: [] };
   }
@@ -1290,34 +1794,776 @@ export async function handleStaticApiFallback(
   if (pathname.startsWith('/api/messages/') && method === 'GET') {
     return { messages: [] };
   }
-  if (pathname === '/api/community/feed' || pathname === '/api/community/posts') {
-    return { posts: [] };
+
+  // 15a. Community Fallbacks with Live Online/Offline Status
+  if (pathname === '/api/community/peers' && method === 'GET') {
+    const viewer = getCachedUserLocal();
+    const settings = getLocalAppSettings();
+    if (viewer && viewer.role !== 'teacher' && !viewer.isAdmin && !settings.communityEnabled) {
+      throw new StaticFallbackHttpError(
+        'Student Community is currently disabled by the administrator.',
+        403
+      );
+    }
+    const { peers } = await buildMergedAccountsRegistry();
+    return { peers };
   }
-  if (pathname === '/api/community/peers') {
-    return { peers: [] };
+
+  if ((pathname === '/api/community/feed' || pathname === '/api/community/posts') && method === 'GET') {
+    const viewer = getCachedUserLocal();
+    const settings = getLocalAppSettings();
+    if (viewer && viewer.role !== 'teacher' && !viewer.isAdmin && !settings.communityEnabled) {
+      throw new StaticFallbackHttpError(
+        'Student Community is currently disabled by the administrator.',
+        403
+      );
+    }
+    const q = String(search.get('q') || '').trim().toLowerCase();
+    const chParam = search.get('chapter') ? Number(search.get('chapter')) : null;
+    const store = getStaticCommunityStore();
+    const { peers } = await buildMergedAccountsRegistry();
+    const peerMap = new Map(peers.map((p) => [p.id, p]));
+
+    const posts = store.posts
+      .filter((p) => {
+        if (chParam && p.chapter_number !== chParam) return false;
+        if (q && !`${p.content} ${p.author_name}`.toLowerCase().includes(q)) return false;
+        return true;
+      })
+      .map((p) => ({
+        ...p,
+        author_online: Boolean(peerMap.get(p.author_id)?.online),
+        comments: (p.comments || []).map((c) => ({
+          ...c,
+          author_online: Boolean(peerMap.get(c.author_id)?.online),
+        })),
+      }));
+    return { posts };
   }
-  if (pathname === '/api/community/dm/threads') {
-    return { threads: [] };
+
+  if (pathname === '/api/community/posts' && method === 'POST') {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const settings = getLocalAppSettings();
+    if (user.role !== 'teacher' && !user.isAdmin && (!settings.communityEnabled || !settings.communityPostingEnabled)) {
+      throw new StaticFallbackHttpError('Community posting is currently paused by the administrator.', 403);
+    }
+    const formData = options.body instanceof FormData ? options.body : null;
+    const content = formData
+      ? String(formData.get('content') || '').trim()
+      : String(body.content || '').trim();
+    const rawCh = formData ? formData.get('chapterNumber') : body.chapterNumber;
+    const chapterNumber = rawCh !== undefined && rawCh !== null && rawCh !== '' ? Number(rawCh) : null;
+    if (!content) {
+      throw new StaticFallbackHttpError('Please write an educational post.', 400);
+    }
+    const store = getStaticCommunityStore();
+    const created: CommunityPost = {
+      id: Date.now(),
+      author_id: user.id,
+      author_name: user.name,
+      author_avatar_url: user.avatar_url || '',
+      author_role: user.role,
+      author_is_admin: Boolean(user.isAdmin),
+      author_online: true,
+      author_grade: user.grade || '',
+      author_is_restricted: Boolean(user.isRestricted),
+      chapter_number: chapterNumber,
+      content,
+      attachment_name: null,
+      attachment_url: null,
+      attachment_mime: null,
+      created_at: new Date().toISOString(),
+      reactionCounts: { like: 0, helpful: 0, celebrate: 0, insightful: 0 },
+      totalReactions: 0,
+      myReaction: null,
+      comments: [],
+    };
+    store.posts.unshift(created);
+    saveStaticCommunityStore(store);
+    return { post: created };
   }
-  if (pathname === '/api/community/groups') {
-    return { groups: [] };
-  }
-  if (pathname === '/api/admin/users' && method === 'GET') {
-    return { users: [] };
-  }
-  if (/^\/api\/admin\/users\/\d+$/.test(pathname) && method === 'DELETE') {
+
+  const staticPostDeleteMatch = pathname.match(/^\/api\/community\/posts\/(\d+)$/);
+  if (staticPostDeleteMatch && method === 'DELETE') {
+    const postId = Number(staticPostDeleteMatch[1]);
+    const store = getStaticCommunityStore();
+    store.posts = store.posts.filter((p) => p.id !== postId);
+    saveStaticCommunityStore(store);
     return { ok: true };
   }
-  if (pathname === '/api/admin/dashboard' && method === 'GET') {
+
+  const staticCommentMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/comments$/);
+  if (staticCommentMatch && method === 'POST') {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const postId = Number(staticCommentMatch[1]);
+    const content = String(body.content || '').trim();
+    if (!content) throw new StaticFallbackHttpError('Comment text is required.', 400);
+    const store = getStaticCommunityStore();
+    const post = store.posts.find((p) => p.id === postId);
+    if (!post) throw new StaticFallbackHttpError('Post not found.', 404);
+    const comment = {
+      id: Date.now(),
+      post_id: postId,
+      author_id: user.id,
+      author_name: user.name,
+      author_avatar_url: user.avatar_url || '',
+      author_role: user.role,
+      author_is_admin: Boolean(user.isAdmin),
+      author_online: true,
+      content,
+      created_at: new Date().toISOString(),
+    };
+    post.comments.push(comment);
+    saveStaticCommunityStore(store);
+    return { comment };
+  }
+
+  const staticReactMatch = pathname.match(/^\/api\/community\/posts\/(\d+)\/react$/);
+  if (staticReactMatch && method === 'POST') {
+    const postId = Number(staticReactMatch[1]);
+    const reaction = String(body.reaction || 'like') as CommunityReactionType;
+    const store = getStaticCommunityStore();
+    const post = store.posts.find((p) => p.id === postId);
+    if (!post) throw new StaticFallbackHttpError('Post not found.', 404);
+    if (post.myReaction === reaction) {
+      post.reactionCounts[reaction] = Math.max(0, (post.reactionCounts[reaction] || 1) - 1);
+      post.myReaction = null;
+    } else {
+      if (post.myReaction) {
+        post.reactionCounts[post.myReaction] = Math.max(0, (post.reactionCounts[post.myReaction] || 1) - 1);
+      }
+      post.reactionCounts[reaction] = (post.reactionCounts[reaction] || 0) + 1;
+      post.myReaction = reaction;
+    }
+    post.totalReactions = Object.values(post.reactionCounts).reduce((a, b) => a + b, 0);
+    saveStaticCommunityStore(store);
     return {
-      totalStudents: 0,
-      activeCount: 0,
-      activeStudents: [],
-      topStudent: null,
-      mostActiveStudent: null,
-      students: [],
+      reactionCounts: post.reactionCounts,
+      totalReactions: post.totalReactions,
+      myReaction: post.myReaction,
+    };
+  }
+
+  if (pathname === '/api/community/dm/threads' && method === 'GET') {
+    const viewer = getCachedUserLocal();
+    const store = getStaticCommunityStore();
+    const { peers } = await buildMergedAccountsRegistry();
+    const threads: CommunityDmThread[] = peers
+      .filter((p) => !viewer || p.id !== viewer.id)
+      .map((p) => {
+        const convo = viewer
+          ? store.dms.filter(
+              (m) =>
+                (m.sender_id === viewer.id && m.recipient_id === p.id) ||
+                (m.sender_id === p.id && m.recipient_id === viewer.id)
+            )
+          : [];
+        const last = convo[convo.length - 1];
+        return {
+          peer_id: p.id,
+          peer_name: p.name,
+          peer_avatar_url: p.avatar_url,
+          peer_role: p.role,
+          peer_is_admin: p.isAdmin,
+          peer_grade: p.grade,
+          peer_online: p.online,
+          peer_is_restricted: p.isRestricted,
+          last_message_at: last?.created_at || null,
+          last_message_text: last?.message_text || '',
+          last_attachment_name: last?.attachment_name || null,
+          unread_count: 0,
+        };
+      });
+    return { threads };
+  }
+
+  const staticDmPeerMatch = pathname.match(/^\/api\/community\/dm\/(\d+)$/);
+  if (staticDmPeerMatch) {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const peerId = Number(staticDmPeerMatch[1]);
+    const store = getStaticCommunityStore();
+    const { peers } = await buildMergedAccountsRegistry();
+    const peerMap = new Map(peers.map((p) => [p.id, p]));
+    if (method === 'GET') {
+      const messages = store.dms
+        .filter(
+          (m) =>
+            (m.sender_id === user.id && m.recipient_id === peerId) ||
+            (m.sender_id === peerId && m.recipient_id === user.id)
+        )
+        .map((m) => ({
+          ...m,
+          sender_online: Boolean(peerMap.get(m.sender_id)?.online),
+        }));
+      return { messages };
+    }
+    if (method === 'POST') {
+      const formData = options.body instanceof FormData ? options.body : null;
+      const messageText = formData
+        ? String(formData.get('messageText') || '').trim()
+        : String(body.messageText || '').trim();
+      if (!messageText) throw new StaticFallbackHttpError('Please write a message.', 400);
+      const targetPeer = peerMap.get(peerId);
+      const msg: CommunityDirectMessage = {
+        id: Date.now(),
+        sender_id: user.id,
+        recipient_id: peerId,
+        sender_name: user.name,
+        sender_avatar_url: user.avatar_url || '',
+        sender_role: user.role,
+        sender_online: true,
+        recipient_name: targetPeer?.name || 'Classmate',
+        message_text: messageText,
+        attachment_name: null,
+        attachment_url: null,
+        attachment_mime: null,
+        is_read: 1,
+        created_at: new Date().toISOString(),
+      };
+      store.dms.push(msg);
+      saveStaticCommunityStore(store);
+      return { message: msg };
+    }
+  }
+
+  if (pathname === '/api/community/groups' && method === 'GET') {
+    const store = getStaticCommunityStore();
+    return { groups: store.groups };
+  }
+
+  if (pathname === '/api/community/groups' && method === 'POST') {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const name = String(body.name || '').trim();
+    if (name.length < 2) throw new StaticFallbackHttpError('Group name must be at least 2 characters.', 400);
+    const store = getStaticCommunityStore();
+    const groupId = Date.now();
+    const group: CommunityGroup = {
+      id: groupId,
+      name,
+      description: String(body.description || '').trim(),
+      is_public: body.isPublic !== false,
+      created_by: user.id,
+      creator_name: user.name,
+      created_at: new Date().toISOString(),
+      member_count: 1,
+      message_count: 0,
+      last_message_text: null,
+      last_message_at: null,
+      is_member: true,
+    };
+    store.groups.unshift(group);
+    store.groupMembers[String(groupId)] = [
+      {
+        id: user.id,
+        name: user.name,
+        avatar_url: user.avatar_url || '',
+        role: user.role,
+        is_admin: Boolean(user.isAdmin),
+        grade: user.grade || 'Grade 9',
+        group_role: 'owner',
+        online: true,
+      },
+    ];
+    saveStaticCommunityStore(store);
+    return { groupId };
+  }
+
+  const staticGroupMsgsMatch = pathname.match(/^\/api\/community\/groups\/(\d+)\/messages$/);
+  if (staticGroupMsgsMatch) {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const groupId = Number(staticGroupMsgsMatch[1]);
+    const store = getStaticCommunityStore();
+    const group = store.groups.find((g) => g.id === groupId);
+    if (!group) throw new StaticFallbackHttpError('Group not found.', 404);
+    const { peers } = await buildMergedAccountsRegistry();
+    const peerMap = new Map(peers.map((p) => [p.id, p]));
+    if (method === 'GET') {
+      const members = (store.groupMembers[String(groupId)] || []).map((m) => ({
+        ...m,
+        online: Boolean(peerMap.get(m.id)?.online),
+      }));
+      const messages = (store.groupMessages[String(groupId)] || []).map((m) => ({
+        ...m,
+        sender_online: Boolean(peerMap.get(m.sender_id)?.online),
+      }));
+      return { group, members, messages };
+    }
+    if (method === 'POST') {
+      const formData = options.body instanceof FormData ? options.body : null;
+      const messageText = formData
+        ? String(formData.get('messageText') || '').trim()
+        : String(body.messageText || '').trim();
+      if (!messageText) throw new StaticFallbackHttpError('Please write a message.', 400);
+      const msg: CommunityGroupMessage = {
+        id: Date.now(),
+        group_id: groupId,
+        sender_id: user.id,
+        sender_name: user.name,
+        sender_avatar_url: user.avatar_url || '',
+        sender_role: user.role,
+        sender_is_admin: Boolean(user.isAdmin),
+        sender_online: true,
+        message_text: messageText,
+        attachment_name: null,
+        attachment_url: null,
+        attachment_mime: null,
+        created_at: new Date().toISOString(),
+      };
+      if (!store.groupMessages[String(groupId)]) store.groupMessages[String(groupId)] = [];
+      store.groupMessages[String(groupId)].push(msg);
+      group.message_count += 1;
+      group.last_message_text = messageText;
+      group.last_message_at = msg.created_at;
+      saveStaticCommunityStore(store);
+      return { message: msg };
+    }
+  }
+
+  // 15b. Admin Registered Accounts, Profile Inspection/Editing, Role, Restrict, Delete, Dashboard
+  if (pathname === '/api/admin/users' && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const q = String(search.get('q') || '').trim().toLowerCase();
+    const roleFilter = String(search.get('role') || 'all').toLowerCase();
+    const statusFilter = String(search.get('status') || 'all').toLowerCase();
+    const { users } = await buildMergedAccountsRegistry();
+    const filtered = users.filter((u) => {
+      if (roleFilter === 'student' && (u.role !== 'student' || u.isAdmin)) return false;
+      if (roleFilter === 'teacher' && u.role !== 'teacher' && !u.isAdmin) return false;
+      if (statusFilter === 'online' && !u.online) return false;
+      if (statusFilter === 'offline' && u.online) return false;
+      if (statusFilter === 'restricted' && !u.isRestricted) return false;
+      if (q && !`${u.name} ${u.email} ${u.grade} ${u.bio || ''}`.toLowerCase().includes(q)) {
+        return false;
+      }
+      return true;
+    });
+    return { users: filtered };
+  }
+
+  const adminUserDetailMatch = pathname.match(/^\/api\/admin\/users\/(\d+)$/);
+  if (adminUserDetailMatch && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminUserDetailMatch[1]);
+    const { users } = await buildMergedAccountsRegistry();
+    const target = users.find((u) => u.id === targetId);
+    if (!target) {
+      throw new StaticFallbackHttpError('User account not found.', 404);
+    }
+    const stats = getUserStats(target.id);
+    const chapterMap = getChapterTitleMap('en');
+    return {
+      user: target,
+      attempts: stats.attempts.slice(0, 20).map((a) => ({
+        id: a.id,
+        mode: a.mode,
+        chapter_number: a.chapter_number,
+        chapter_title: a.chapter_number ? chapterMap.get(a.chapter_number) || `Chapter ${a.chapter_number}` : null,
+        total_questions: a.total_questions,
+        correct_count: a.correct_count,
+        score_percent: a.score_percent,
+        created_at: a.created_at,
+      })),
+      recentActivity: [],
+    };
+  }
+
+  if (adminUserDetailMatch && method === 'PUT') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminUserDetailMatch[1]);
+    const acting = getCachedUserLocal();
+    const { users } = await buildMergedAccountsRegistry();
+    const target = users.find((u) => u.id === targetId);
+    if (!target) {
+      throw new StaticFallbackHttpError('User account not found.', 404);
+    }
+    const isMain = target.email.toLowerCase() === MAIN_ADMIN_EMAIL;
+    const nextName =
+      body.name !== undefined ? String(body.name || '').trim().slice(0, 120) : target.name;
+    if (nextName.length < 2) {
+      throw new StaticFallbackHttpError('Name must be at least 2 characters.', 400);
+    }
+    const requestedRole =
+      body.role === 'teacher' ? 'teacher' : body.role === 'student' ? 'student' : target.role;
+    if (isMain && requestedRole !== 'teacher') {
+      throw new StaticFallbackHttpError(
+        'The main administrator account (mohamdm791@gmail.com) cannot be demoted.',
+        400
+      );
+    }
+    if (acting && acting.id === targetId && requestedRole !== 'teacher') {
+      throw new StaticFallbackHttpError('You cannot demote your own administrator account.', 400);
+    }
+    const nextAdmin = isMain
+      ? true
+      : body.isAdmin !== undefined
+      ? Boolean(body.isAdmin) && requestedRole === 'teacher'
+      : requestedRole === 'teacher';
+    const nextGrade =
+      body.grade !== undefined ? String(body.grade || '').trim().slice(0, 40) : target.grade;
+    const nextBio =
+      body.bio !== undefined ? String(body.bio || '').trim().slice(0, 500) : target.bio || '';
+    const nextBirthday =
+      body.birthday !== undefined ? String(body.birthday || '').trim() : target.birthday || '';
+    const nextRestricted = isMain
+      ? false
+      : body.restricted !== undefined
+      ? Boolean(body.restricted)
+      : Boolean(target.isRestricted);
+    const nextReason = nextRestricted
+      ? String(body.reason ?? target.restrictionReason ?? '').trim().slice(0, 300)
+      : '';
+
+    const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+    if (target.email) {
+      const existingLocal = profiles[target.email];
+      profiles[target.email] = {
+        id: target.id,
+        name: nextName,
+        email: target.email,
+        role: isMain ? 'teacher' : requestedRole,
+        isAdmin: nextAdmin,
+        grade: nextGrade,
+        bio: nextBio,
+        birthday: nextBirthday,
+        avatar_url: existingLocal?.avatar_url || target.avatar_url || '',
+        notif_prompt_status: existingLocal?.notif_prompt_status || '',
+        notifications_enabled: existingLocal?.notifications_enabled !== false,
+        isRestricted: nextRestricted,
+        restrictionReason: nextReason,
+        lastLoginAt: target.lastLoginAt || '',
+        created_at: target.created_at,
+      };
+      writeLocalJson(STATIC_PROFILES_KEY, profiles);
+    }
+
+    if (target.email || target.cloudUid) {
+      await updateCloudUserAsAdmin({
+        email: target.email,
+        uid: target.cloudUid,
+        name: nextName,
+        grade: nextGrade,
+        bio: nextBio,
+        birthday: nextBirthday,
+        role: isMain ? 'teacher' : requestedRole,
+        isAdmin: nextAdmin,
+        isRestricted: nextRestricted,
+        restrictionReason: nextReason,
+      }).catch(() => {});
+    }
+
+    return {
+      ok: true,
+      user: {
+        ...target,
+        name: nextName,
+        grade: nextGrade,
+        bio: nextBio,
+        birthday: nextBirthday,
+        role: isMain ? 'teacher' : requestedRole,
+        isAdmin: nextAdmin,
+        isRestricted: nextRestricted,
+        restrictionReason: nextReason,
+      },
+    };
+  }
+
+  const adminRoleMatch = pathname.match(/^\/api\/admin\/users\/(\d+)\/role$/);
+  if (adminRoleMatch && method === 'PUT') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminRoleMatch[1]);
+    const acting = getCachedUserLocal();
+    const { users } = await buildMergedAccountsRegistry();
+    const target = users.find((u) => u.id === targetId);
+    if (!target) throw new StaticFallbackHttpError('User account not found.', 404);
+    if (target.email.toLowerCase() === MAIN_ADMIN_EMAIL) {
+      throw new StaticFallbackHttpError(
+        'The main administrator account (mohamdm791@gmail.com) cannot be demoted.',
+        400
+      );
+    }
+    const nextRole = body.role === 'teacher' ? 'teacher' : 'student';
+    if (acting && acting.id === targetId && nextRole !== 'teacher') {
+      throw new StaticFallbackHttpError('You cannot demote your own administrator account.', 400);
+    }
+    const nextAdmin = nextRole === 'teacher' && body.isAdmin !== false;
+    const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+    if (target.email && profiles[target.email]) {
+      profiles[target.email] = { ...profiles[target.email], role: nextRole, isAdmin: nextAdmin };
+      writeLocalJson(STATIC_PROFILES_KEY, profiles);
+    }
+    await updateCloudUserAsAdmin({
+      email: target.email,
+      uid: target.cloudUid,
+      role: nextRole,
+      isAdmin: nextAdmin,
+    }).catch(() => {});
+    return { ok: true, role: nextRole, isAdmin: nextAdmin };
+  }
+
+  const adminRestrictMatch = pathname.match(/^\/api\/admin\/users\/(\d+)\/restrict$/);
+  if (adminRestrictMatch && method === 'PUT') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminRestrictMatch[1]);
+    const { users } = await buildMergedAccountsRegistry();
+    const target = users.find((u) => u.id === targetId);
+    if (!target) throw new StaticFallbackHttpError('User account not found.', 404);
+    if (target.email.toLowerCase() === MAIN_ADMIN_EMAIL) {
+      throw new StaticFallbackHttpError('The main administrator account cannot be restricted.', 400);
+    }
+    const restricted = Boolean(body.restricted);
+    const reason = restricted ? String(body.reason || '').trim().slice(0, 300) : '';
+    const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+    if (target.email && profiles[target.email]) {
+      profiles[target.email] = {
+        ...profiles[target.email],
+        isRestricted: restricted,
+        restrictionReason: reason,
+      };
+      writeLocalJson(STATIC_PROFILES_KEY, profiles);
+    }
+    await updateCloudUserAsAdmin({
+      email: target.email,
+      uid: target.cloudUid,
+      isRestricted: restricted,
+      restrictionReason: reason,
+    }).catch(() => {});
+    return { ok: true, restricted, reason };
+  }
+
+  if (adminUserDetailMatch && method === 'DELETE') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminUserDetailMatch[1]);
+    const acting = getCachedUserLocal();
+    if (acting && acting.id === targetId) {
+      throw new StaticFallbackHttpError('You cannot delete your own active account.', 400);
+    }
+    const { users } = await buildMergedAccountsRegistry();
+    const target = users.find((u) => u.id === targetId);
+    if (target && target.email.toLowerCase() === MAIN_ADMIN_EMAIL) {
+      throw new StaticFallbackHttpError(
+        'The main administrator account (mohamdm791@gmail.com) cannot be deleted.',
+        403
+      );
+    }
+    if (target?.email) {
+      const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+      delete profiles[target.email.toLowerCase()];
+      writeLocalJson(STATIC_PROFILES_KEY, profiles);
+    }
+    const allStats = readLocalJson<Record<string, StoredStaticStats>>(STATIC_STATS_KEY, {});
+    delete allStats[String(targetId)];
+    writeLocalJson(STATIC_STATS_KEY, allStats);
+    const presence = readLocalJson<Record<string, StaticPresenceEntry>>(STATIC_PRESENCE_KEY, {});
+    delete presence[String(targetId)];
+    writeLocalJson(STATIC_PRESENCE_KEY, presence);
+    if (target?.email) {
+      await deleteCloudUserAsAdmin(target.email, target.cloudUid).catch(() => {});
+    }
+    return { ok: true, deletedUserId: targetId };
+  }
+
+  if (pathname === '/api/admin/dashboard' && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const { users } = await buildMergedAccountsRegistry();
+    const studentUsers = users.filter((u) => u.role === 'student' && !u.isAdmin);
+    const students: AdminStudentPerformance[] = studentUsers.map((u) => {
+      const quizzes = Number(u.quizzesCompleted || 0);
+      const answered = Number(u.questionsAnswered || 0);
+      const correct = Number(u.correctAnswers || 0);
+      const accuracy =
+        answered > 0 ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10 : 0;
+      const avgScore = Number(u.avgScorePercent || accuracy);
+      const performanceScore =
+        answered > 0 || quizzes > 0
+          ? Math.round((avgScore * 0.55 + accuracy * 0.3 + Math.min(correct, 100) * 0.15) * 10) / 10
+          : 0;
+      const activityScore = quizzes * 10 + answered * 2 + Number(u.aiTutorTurns || 0) * 2;
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        grade: u.grade,
+        avatar_url: u.avatar_url || '',
+        online: Boolean(u.online),
+        currentSection: u.currentSection || '',
+        lastActiveAt: u.lastActiveAt || '',
+        lastLoginAt: u.lastLoginAt || '',
+        isRestricted: Boolean(u.isRestricted),
+        restrictionReason: u.restrictionReason || '',
+        quizzesCompleted: quizzes,
+        questionsAnswered: answered,
+        correctAnswers: correct,
+        accuracyPercent: accuracy,
+        avgScorePercent: avgScore,
+        bestScorePercent: avgScore,
+        teacherMessagesCount: 0,
+        aiTutorTurns: Number(u.aiTutorTurns || 0),
+        performanceScore,
+        activityScore,
+      };
+    });
+    const activeStudents = students.filter((s) => s.online);
+    const topSorted = [...students]
+      .filter((s) => s.questionsAnswered > 0 || s.quizzesCompleted > 0)
+      .sort((a, b) => b.performanceScore - a.performanceScore || b.correctAnswers - a.correctAnswers);
+    const activeSorted = [...students]
+      .filter((s) => s.activityScore > 0)
+      .sort((a, b) => b.activityScore - a.activityScore);
+    return {
+      totalStudents: students.length,
+      activeCount: activeStudents.length,
+      activeStudents,
+      topStudent: topSorted[0] || null,
+      mostActiveStudent: activeSorted[0] || null,
+      students,
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  const adminStudentStatsMatch = pathname.match(/^\/api\/admin\/students\/(\d+)\/stats$/);
+  if (adminStudentStatsMatch && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const targetId = Number(adminStudentStatsMatch[1]);
+    const { users } = await buildMergedAccountsRegistry();
+    const u = users.find((row) => row.id === targetId);
+    if (!u) throw new StaticFallbackHttpError('Student not found.', 404);
+    const stats = getUserStats(u.id);
+    const chapterMap = getChapterTitleMap(normalizeLang(search.get('lang')));
+    const quizzes = Math.max(Number(u.quizzesCompleted || 0), stats.quizzesCompleted);
+    const answered = Math.max(Number(u.questionsAnswered || 0), stats.questionsAnswered);
+    const correct = Math.max(Number(u.correctAnswers || 0), stats.correctAnswers);
+    const accuracy = answered > 0 ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10 : 0;
+    return {
+      student: {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        grade: u.grade,
+        avatar_url: u.avatar_url || '',
+        online: Boolean(u.online),
+        currentSection: u.currentSection || '',
+        lastActiveAt: u.lastActiveAt || '',
+        lastLoginAt: u.lastLoginAt || '',
+        isRestricted: Boolean(u.isRestricted),
+        restrictionReason: u.restrictionReason || '',
+        quizzesCompleted: quizzes,
+        questionsAnswered: answered,
+        correctAnswers: correct,
+        accuracyPercent: accuracy,
+        avgScorePercent: Number(u.avgScorePercent || accuracy),
+        bestScorePercent: Number(u.avgScorePercent || accuracy),
+        teacherMessagesCount: 0,
+        aiTutorTurns: Number(u.aiTutorTurns || 0),
+        performanceScore: accuracy,
+        activityScore: quizzes * 10 + answered * 2,
+      },
+      attempts: stats.attempts.slice(0, 25).map((a) => ({
+        id: a.id,
+        mode: a.mode,
+        chapter_number: a.chapter_number,
+        chapter_title: a.chapter_number ? chapterMap.get(a.chapter_number) || `Chapter ${a.chapter_number}` : null,
+        total_questions: a.total_questions,
+        correct_count: a.correct_count,
+        score_percent: a.score_percent,
+        created_at: a.created_at,
+      })),
+    };
+  }
+
+  if (pathname === '/api/admin/search' && method === 'GET') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator privileges required.', 403);
+    }
+    const q = String(search.get('q') || '').trim().toLowerCase();
+    const lang = normalizeLang(search.get('lang'));
+    const chapterMap = getChapterTitleMap(lang);
+    const { users } = await buildMergedAccountsRegistry();
+    const students = users
+      .filter((u) => u.role === 'student' && !u.isAdmin)
+      .filter((u) => !q || `${u.name} ${u.email} ${u.grade}`.toLowerCase().includes(q))
+      .slice(0, 20)
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        grade: u.grade,
+        avatar_url: u.avatar_url || '',
+        online: Boolean(u.online),
+        currentSection: u.currentSection || '',
+        lastActiveAt: u.lastActiveAt || '',
+        quizzesCompleted: Number(u.quizzesCompleted || 0),
+        questionsAnswered: Number(u.questionsAnswered || 0),
+        correctAnswers: Number(u.correctAnswers || 0),
+        accuracyPercent: Number(u.avgScorePercent || 0),
+        avgScorePercent: Number(u.avgScorePercent || 0),
+        bestScorePercent: Number(u.avgScorePercent || 0),
+        teacherMessagesCount: 0,
+        aiTutorTurns: 0,
+        performanceScore: 0,
+        activityScore: 0,
+      }));
+    const chapters = snapshot.chapters
+      .map((c) => localizeChapter(c, lang, 0))
+      .filter((c) => !q || `${c.title} ${c.description}`.toLowerCase().includes(q));
+    const questions = snapshot.questions
+      .filter((item) => !q || `${item.question_text} ${item.question_text_ku || ''} ${item.question_text_ar || ''}`.toLowerCase().includes(q))
+      .slice(0, 20)
+      .map((item) => ({
+        id: item.id,
+        scope: item.scope,
+        chapter_number: item.chapter_number,
+        chapter_title: item.chapter_number ? chapterMap.get(item.chapter_number) || `Chapter ${item.chapter_number}` : null,
+        question_text: localizeQuestionFields(item, lang, chapterMap).questionText,
+        correct_option: item.correct_option,
+      }));
+    return { students, questions, chapters, messages: [] };
+  }
+
+  if (pathname === '/api/admin/community/overview' && method === 'GET') {
+    const store = getStaticCommunityStore();
+    const { users } = await buildMergedAccountsRegistry();
+    return {
+      overview: {
+        postsCount: store.posts.length,
+        commentsCount: store.posts.reduce((sum, p) => sum + (p.comments?.length || 0), 0),
+        reactionsCount: store.posts.reduce((sum, p) => sum + (p.totalReactions || 0), 0),
+        dmCount: store.dms.length,
+        groupCount: store.groups.length,
+        groupMsgCount: Object.values(store.groupMessages).reduce((sum, arr) => sum + arr.length, 0),
+        openReportsCount: 0,
+        restrictedCount: users.filter((u) => u.isRestricted).length,
+      },
+    };
+  }
+  if (pathname === '/api/admin/community/reports' && method === 'GET') {
+    return { reports: [] };
+  }
+  if (pathname === '/api/admin/community/dms' && method === 'GET') {
+    return { conversations: [] };
+  }
+  if (pathname === '/api/admin/activity' && method === 'GET') {
+    return { logs: [] };
   }
 
   // 15b. Offline/Static Curriculum Study Assistant Fallback for /api/ai/chat

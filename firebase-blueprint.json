@@ -75,6 +75,25 @@
           "type": "number",
           "description": "Total correct answers count."
         },
+        "isRestricted": {
+          "type": "boolean",
+          "description": "Whether the account is restricted by an administrator."
+        },
+        "restrictionReason": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Optional reason for account restriction."
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp string of the latest sign-in."
+        },
+        "lastActiveAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp string of the latest activity."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -294,6 +313,139 @@
         }
       },
       "required": ["accountKey", "email", "name", "role", "isAdmin", "passwordHash", "updatedAt"]
+    },
+    "PeerPresence": {
+      "title": "PeerPresence",
+      "description": "PII-free live online/offline presence and community peer profile document.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID."
+        },
+        "numericId": {
+          "type": "number",
+          "description": "Deterministic numeric ID mapped for community views."
+        },
+        "name": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120,
+          "description": "Display name."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["student", "teacher"],
+          "description": "Account role."
+        },
+        "isAdmin": {
+          "type": "boolean",
+          "description": "Whether the user has admin privileges."
+        },
+        "grade": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Grade label."
+        },
+        "avatarUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Compacted avatar URI or empty string."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Short biography."
+        },
+        "online": {
+          "type": "boolean",
+          "description": "Live online status flag."
+        },
+        "currentSection": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Current active section name."
+        },
+        "isRestricted": {
+          "type": "boolean",
+          "description": "Whether account is restricted."
+        },
+        "lastActiveAtIso": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO string of last heartbeat."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest heartbeat."
+        }
+      },
+      "required": ["uid", "name", "role", "isAdmin", "online", "updatedAt"]
+    },
+    "AppSettingsDoc": {
+      "title": "AppSettingsDoc",
+      "description": "Global application settings controlled by administrators.",
+      "type": "object",
+      "properties": {
+        "settingId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Fixed document ID 'global'."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Visibility scope tag."
+        },
+        "allowStudentRegistration": {
+          "type": "boolean",
+          "description": "Whether new student self-registration is allowed."
+        },
+        "communityEnabled": {
+          "type": "boolean",
+          "description": "Whether Student Community is enabled for students."
+        },
+        "communityPostingEnabled": {
+          "type": "boolean",
+          "description": "Whether students can create posts, comments, or messages."
+        },
+        "aiTutorEnabled": {
+          "type": "boolean",
+          "description": "Whether AI Studio is enabled for students."
+        },
+        "defaultLanguage": {
+          "type": "string",
+          "enum": ["en", "ku", "ar"],
+          "description": "Default UI language code."
+        },
+        "maintenanceMessage": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Optional notice banner displayed across the app."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of settings update."
+        }
+      },
+      "required": [
+        "settingId",
+        "scope",
+        "allowStudentRegistration",
+        "communityEnabled",
+        "communityPostingEnabled",
+        "aiTutorEnabled",
+        "defaultLanguage",
+        "maintenanceMessage",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -326,6 +478,18 @@
         "$ref": "#/entities/SchoolAccountSyncRecord"
       },
       "description": "Admin-only cloud mirror of school user accounts."
+    },
+    "/peer_presence/{userId}": {
+      "schema": {
+        "$ref": "#/entities/PeerPresence"
+      },
+      "description": "PII-free live online/offline presence and community peer roster."
+    },
+    "/app_settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/AppSettingsDoc"
+      },
+      "description": "Global application settings managed by administrators."
     }
   }
 }
