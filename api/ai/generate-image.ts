@@ -137,9 +137,24 @@ Requirements:
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Diagram generation failed.';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+    const raw = err instanceof Error ? err.message : 'Diagram generation failed.';
+    let status = 500;
+    let error = raw;
+    if (raw.includes('GEMINI_API_KEY')) {
+      status = 503;
+      error = 'GEMINI_API_KEY is not configured in server secrets.';
+    } else if (raw.includes('404') || raw.includes('NOT_FOUND')) {
+      status = 404;
+      error = 'The selected AI model is temporarily unavailable. Please try again.';
+    } else if (raw.includes('403') || raw.includes('PERMISSION_DENIED') || raw.includes('API_KEY_INVALID')) {
+      status = 403;
+      error = 'The configured Gemini API key lacks permission for this model.';
+    } else if (raw.includes('429') || raw.includes('RESOURCE_EXHAUSTED') || raw.includes('quota')) {
+      status = 429;
+      error = 'Gemini API rate limit reached. Please wait a moment and try again.';
+    }
+    return new Response(JSON.stringify({ error }), {
+      status,
       headers: { 'Content-Type': 'application/json' },
     });
   }

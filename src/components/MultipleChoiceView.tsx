@@ -95,6 +95,21 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
 
   const questionCardRef = useRef<HTMLDivElement | null>(null);
   const explanationRef = useRef<HTMLDivElement | null>(null);
+  const checkedResultsRef = useRef(checkedResults);
+  const answersRef = useRef(answers);
+  const submissionRef = useRef(submission);
+
+  useEffect(() => {
+    checkedResultsRef.current = checkedResults;
+  }, [checkedResults]);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    submissionRef.current = submission;
+  }, [submission]);
 
   useEffect(() => {
     if (initialSelection !== null) {
@@ -163,37 +178,46 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
 
     void loadQuestionsForTarget(selectedTarget, true, language);
 
-    const checkedEntries = Object.entries(checkedResults);
-    if (checkedEntries.length > 0) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    const currentChecked = checkedResultsRef.current;
+    const onlineCheckedEntries = Object.entries(currentChecked).filter(
+      ([, res]) => !res.offlineQueued
+    );
+    if (onlineCheckedEntries.length > 0) {
       Promise.all(
-        checkedEntries.map(([qIdStr, res]) =>
+        onlineCheckedEntries.map(([qIdStr, res]) =>
           apiFetch<QuizAnswerCheckResult>('/api/quizzes/check-answer', {
             method: 'POST',
             body: JSON.stringify({
               questionId: Number(qIdStr),
               selectedOption: res.selectedOption,
               lang: language,
+              skipSave: true,
             }),
           })
         )
       )
         .then((updated) => {
-          const map: Record<number, QuizAnswerCheckResult> = {};
-          for (const item of updated) {
-            map[item.questionId] = item;
-          }
-          setCheckedResults(map);
+          setCheckedResults((prev) => {
+            const next = { ...prev };
+            for (const item of updated) {
+              next[item.questionId] = item;
+            }
+            return next;
+          });
         })
         .catch(() => {});
     }
 
-    if (submission) {
+    const currentSub = submissionRef.current;
+    if (currentSub && !currentSub.offlineQueued) {
       apiFetch<QuizSubmissionResponse>('/api/quizzes/submit', {
         method: 'POST',
         body: JSON.stringify({
           mode: selectedTarget === 'all' ? 'all_chapters' : 'chapter',
           chapterNumber: selectedTarget === 'all' ? null : selectedTarget,
-          answers,
+          answers: answersRef.current,
           lang: language,
           skipSave: true,
         }),
@@ -201,7 +225,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
         .then((data) => setSubmission(data))
         .catch(() => {});
     }
-  }, [language]);
+  }, [language, selectedTarget]);
 
   const handleSelectAnswer = async (questionId: number, optionKey: 'A' | 'B' | 'C' | 'D') => {
     if (checkedResults[questionId] || checkingQuestionId === questionId) return;
@@ -236,6 +260,14 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
           offlineQueued: true,
         },
       }));
+      if (settings.autoScrollFeedback) {
+        setTimeout(() => {
+          explanationRef.current?.scrollIntoView({
+            behavior: settings.reduceMotion ? 'auto' : 'smooth',
+            block: 'nearest',
+          });
+        }, 50);
+      }
     };
 
     try {
@@ -431,6 +463,8 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
   const handleSaveChapterTitle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingChapter) return;
+    setManagerError(null);
+    setManagerMsg(null);
     try {
       await apiFetch(`/api/chapters/${editingChapter.chapter_number}`, {
         method: 'PUT',
@@ -826,7 +860,10 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditingChapter(null)}
+                        onClick={() => {
+                          setEditingChapter(null);
+                          setManagerError(null);
+                        }}
                         className="rounded-lg border border-[#E6DFD5] px-3 py-1.5 text-xs font-semibold text-[#57534E] cursor-pointer"
                       >
                         {t.quiz.cancel}
@@ -884,8 +921,9 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
   const safeIndex = questions.length > 0 ? Math.min(currentIndex, questions.length - 1) : 0;
   const currentQ = questions[safeIndex];
   const currentCheck = currentQ ? checkedResults[currentQ.id] : undefined;
-  const answeredCount = Object.keys(checkedResults).length;
-  const correctSoFar = Object.values(checkedResults).filter((r) => r.isCorrect).length;
+  const gradedResults = Object.values(checkedResults).filter((r) => !r.offlineQueued);
+  const answeredCount = gradedResults.length;
+  const correctSoFar = gradedResults.filter((r) => r.isCorrect).length;
   const progressPercent =
     questions.length > 0 ? Math.round(((safeIndex + (currentCheck ? 1 : 0)) / questions.length) * 100) : 0;
 

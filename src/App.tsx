@@ -1187,7 +1187,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setMobileMenuOpen(false)}
-                  aria-label="Close navigation menu"
+                  aria-label={t.nav.collapseSidebar}
                   className="p-2 text-[#57534E] cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -1275,7 +1275,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              aria-label="Open menu"
+              aria-label={t.nav.expandSidebar}
               className="p-2 -ms-1.5 text-[#1C1917] cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
             >
               <Menu className="w-5 h-5" />
@@ -1324,7 +1324,7 @@ export default function App() {
         <header className="hidden lg:flex sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-sm border-b border-[#E6DFD5] px-10 items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-base font-bold tracking-tight text-[#6B1118] whitespace-nowrap">
-              Science AI Studio
+              {t.brand.scienceStudio}
             </span>
             <span className="text-[#E6DFD5]" aria-hidden="true">|</span>
             <span className="text-xs font-medium text-[#57534E] truncate">

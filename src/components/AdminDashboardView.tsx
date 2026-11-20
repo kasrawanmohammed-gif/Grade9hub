@@ -33,6 +33,7 @@ import { syncAdminVaultWithStoredKey, syncSessionBoundVault } from '../lib/recov
 import { useLanguage } from '../contexts/LanguageContext';
 import { ScientificText } from './ScientificText';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDateTime } from '../utils/dateFormat';
 import {
   AdminBackupsResponse,
   AdminCommunityOverview,
@@ -114,6 +115,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [restrictTarget, setRestrictTarget] = useState<{ id: number; name: string } | null>(null);
   const [restrictReason, setRestrictReason] = useState('');
   const [restrictBusy, setRestrictBusy] = useState(false);
+  const [moderationError, setModerationError] = useState<string | null>(null);
 
   // Database Backup & Recovery State
   const [dbStats, setDbStats] = useState<DatabaseHealthStats | null>(null);
@@ -335,6 +337,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   const handleToggleRestrict = async (targetId: number, restricted: boolean, reason = '') => {
     setRestrictBusy(true);
+    setModerationError(null);
     try {
       await apiFetch(`/api/admin/users/${targetId}/restrict`, {
         method: 'PUT',
@@ -354,63 +357,90 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         ).catch(() => null);
         if (detail) setStudentDetail(detail);
       }
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to update restriction status.');
     } finally {
       setRestrictBusy(false);
     }
   };
 
   const handleDeleteAdminDm = async (messageId: number) => {
-    await apiFetch(`/api/community/dm/message/${messageId}`, { method: 'DELETE' });
-    setDmThreadMessages((prev) => prev.filter((m) => m.id !== messageId));
-    void fetchCommunityOverview();
-    void fetchDmConversations(dmQuery);
+    setModerationError(null);
+    try {
+      await apiFetch(`/api/community/dm/message/${messageId}`, { method: 'DELETE' });
+      setDmThreadMessages((prev) => prev.filter((m) => m.id !== messageId));
+      void fetchCommunityOverview();
+      void fetchDmConversations(dmQuery);
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to delete direct message.');
+    }
   };
 
   const handleDeleteAdminGroupMessage = async (messageId: number) => {
-    await apiFetch(`/api/community/groups/message/${messageId}`, { method: 'DELETE' });
-    setAdminGroupMessages((prev) => prev.filter((m) => m.id !== messageId));
-    void fetchCommunityOverview();
-    void fetchAdminGroups();
+    setModerationError(null);
+    try {
+      await apiFetch(`/api/community/groups/message/${messageId}`, { method: 'DELETE' });
+      setAdminGroupMessages((prev) => prev.filter((m) => m.id !== messageId));
+      void fetchCommunityOverview();
+      void fetchAdminGroups();
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to delete group message.');
+    }
   };
 
   const handleDeleteAdminGroup = async (groupId: number) => {
-    await apiFetch(`/api/community/groups/${groupId}`, { method: 'DELETE' });
-    setAdminGroups((prev) => prev.filter((g) => g.id !== groupId));
-    if (selectedAdminGroupId === groupId) {
-      setSelectedAdminGroupId(null);
-      setAdminGroupMembers([]);
-      setAdminGroupMessages([]);
+    setModerationError(null);
+    try {
+      await apiFetch(`/api/community/groups/${groupId}`, { method: 'DELETE' });
+      setAdminGroups((prev) => prev.filter((g) => g.id !== groupId));
+      if (selectedAdminGroupId === groupId) {
+        setSelectedAdminGroupId(null);
+        setAdminGroupMembers([]);
+        setAdminGroupMessages([]);
+      }
+      void fetchCommunityOverview();
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to delete group.');
     }
-    void fetchCommunityOverview();
   };
 
   const handleDeleteReportedTarget = async (report: CommunityReport) => {
-    if (report.target_type === 'post') {
-      await apiFetch(`/api/community/posts/${report.target_id}`, { method: 'DELETE' }).catch(() => {});
-    } else if (report.target_type === 'comment') {
-      await apiFetch(`/api/community/comments/${report.target_id}`, { method: 'DELETE' }).catch(() => {});
-    } else if (report.target_type === 'dm') {
-      await apiFetch(`/api/community/dm/message/${report.target_id}`, { method: 'DELETE' }).catch(() => {});
-    } else if (report.target_type === 'group_message') {
-      await apiFetch(`/api/community/groups/message/${report.target_id}`, { method: 'DELETE' }).catch(() => {});
+    setModerationError(null);
+    try {
+      if (report.target_type === 'post') {
+        await apiFetch(`/api/community/posts/${report.target_id}`, { method: 'DELETE' });
+      } else if (report.target_type === 'comment') {
+        await apiFetch(`/api/community/comments/${report.target_id}`, { method: 'DELETE' });
+      } else if (report.target_type === 'dm') {
+        await apiFetch(`/api/community/dm/message/${report.target_id}`, { method: 'DELETE' });
+      } else if (report.target_type === 'group_message') {
+        await apiFetch(`/api/community/groups/message/${report.target_id}`, { method: 'DELETE' });
+      }
+      await apiFetch(`/api/admin/moderation/reports/${report.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: 'resolved' }),
+      });
+      void Promise.all([
+        fetchReports(reportStatusFilter),
+        fetchCommunityOverview(),
+        fetchActivityLogs(logQuery, logActionFilter),
+      ]);
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to process reported content.');
     }
-    await apiFetch(`/api/admin/moderation/reports/${report.id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: 'resolved' }),
-    });
-    void Promise.all([
-      fetchReports(reportStatusFilter),
-      fetchCommunityOverview(),
-      fetchActivityLogs(logQuery, logActionFilter),
-    ]);
   };
 
   const handleUpdateReportStatus = async (reportId: number, status: 'resolved' | 'dismissed') => {
-    await apiFetch(`/api/admin/moderation/reports/${reportId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status }),
-    });
-    void Promise.all([fetchReports(reportStatusFilter), fetchCommunityOverview()]);
+    setModerationError(null);
+    try {
+      await apiFetch(`/api/admin/moderation/reports/${reportId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status }),
+      });
+      void Promise.all([fetchReports(reportStatusFilter), fetchCommunityOverview()]);
+    } catch (err) {
+      setModerationError(err instanceof Error ? err.message : 'Failed to update report status.');
+    }
   };
 
   const handleCreateManualBackup = async () => {
@@ -1320,6 +1350,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           })}
         </div>
 
+        {moderationError && (
+          <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-2.5 text-xs sm:text-sm text-[#991B1B] flex items-center justify-between gap-2">
+            <span>{moderationError}</span>
+            <button
+              type="button"
+              onClick={() => setModerationError(null)}
+              className="p-1 rounded hover:bg-black/5 cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Sub-Tab 1: Community Overview KPIs */}
         {monitoringTab === 'overview' && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
@@ -1436,7 +1479,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                               </span>
                               <div className="flex items-center gap-2 text-[#57534E]">
                                 <span className="tabular-nums">
-                                  {new Date(msg.created_at + 'Z').toLocaleString()}
+                                  {formatUtcDateTime(msg.created_at)}
                                 </span>
                                 <button
                                   type="button"
@@ -1551,7 +1594,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                 <span className="font-bold text-[#6B1118]">{msg.sender_name}</span>
                                 <div className="flex items-center gap-2 text-[#57534E]">
                                   <span className="tabular-nums">
-                                    {new Date(msg.created_at + 'Z').toLocaleString()}
+                                    {formatUtcDateTime(msg.created_at)}
                                   </span>
                                   <button
                                     type="button"
@@ -1633,7 +1676,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                       )}
                     </div>
                     <span className="text-xs text-[#57534E] tabular-nums shrink-0">
-                      {new Date(log.created_at + 'Z').toLocaleString()}
+                      {formatUtcDateTime(log.created_at)}
                     </span>
                   </div>
                 ))}
@@ -1706,7 +1749,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                         )}
                       </div>
                       <span className="text-[#57534E] tabular-nums">
-                        {new Date(rep.created_at + 'Z').toLocaleString()}
+                        {formatUtcDateTime(rep.created_at)}
                       </span>
                     </div>
 
@@ -2181,7 +2224,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                                   }`}
                             </p>
                             <p className="text-xs text-[#57534E] tabular-nums">
-                              {new Date(a.created_at + 'Z').toLocaleString()}
+                              {formatUtcDateTime(a.created_at)}
                             </p>
                           </div>
                           <div className="text-end tabular-nums flex items-center gap-2">
@@ -2209,7 +2252,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          onClick={() => setRestrictTarget(null)}
+          onClick={() => {
+            setRestrictTarget(null);
+            setModerationError(null);
+          }}
           className="fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4"
         >
           <form
@@ -2229,7 +2275,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => setRestrictTarget(null)}
+                onClick={() => {
+                  setRestrictTarget(null);
+                  setModerationError(null);
+                }}
                 className="p-1 text-[#57534E] cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -2237,6 +2286,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             </div>
 
             <p className="text-sm font-semibold text-[#1C1917]">{restrictTarget.name}</p>
+
+            {moderationError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
+                {moderationError}
+              </div>
+            )}
 
             <textarea
               rows={3}
@@ -2249,7 +2304,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setRestrictTarget(null)}
+                onClick={() => {
+                  setRestrictTarget(null);
+                  setModerationError(null);
+                }}
                 className="rounded-xl border border-[#E6DFD5] px-4 py-2 text-xs font-semibold text-[#57534E] cursor-pointer"
               >
                 {t.admin.closeBtn}

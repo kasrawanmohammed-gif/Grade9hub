@@ -16,6 +16,8 @@ import { apiFetch } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { TeacherMessage, TeacherThread, User } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDateTime } from '../utils/dateFormat';
+import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
 
 interface AskTeacherViewProps {
   user: User;
@@ -292,7 +294,6 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
               messages.map((msg) => {
                 const isOwn = msg.sender_id === user.id;
                 const isImage = msg.attachment_mime?.startsWith('image/');
-                const fileBasename = msg.attachment_url?.split('/').pop() || '';
                 return (
                   <div
                     key={msg.id}
@@ -309,7 +310,7 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                       )}
                       <span className="text-[11px] text-[#57534E]">
                         {msg.sender_name} ·{' '}
-                        {new Date(msg.created_at + 'Z').toLocaleString([], {
+                        {formatUtcDateTime(msg.created_at, undefined, {
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
@@ -360,9 +361,10 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                                 />
                               </button>
                               <a
-                                href={`/api/uploads/download/${fileBasename}?name=${encodeURIComponent(
+                                href={getAttachmentDownloadHref(
+                                  msg.attachment_url,
                                   msg.attachment_name
-                                )}`}
+                                )}
                                 className={`inline-flex items-center gap-1.5 text-xs font-semibold hover:underline ${
                                   isOwn ? 'text-[#E5B742]' : 'text-[#6B1118]'
                                 }`}
@@ -375,9 +377,10 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                             </div>
                           ) : (
                             <a
-                              href={`/api/uploads/download/${fileBasename}?name=${encodeURIComponent(
+                              href={getAttachmentDownloadHref(
+                                msg.attachment_url,
                                 msg.attachment_name
-                              )}`}
+                              )}
                               className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold border ${
                                 isOwn
                                   ? 'border-white/25 bg-white/10 text-white hover:bg-white/20'

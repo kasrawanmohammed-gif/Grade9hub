@@ -60,6 +60,21 @@ function formatGeminiError(err: unknown): Error {
   return new Error(extracted);
 }
 
+export function getGeminiErrorStatus(err: unknown): number {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  if (msg.includes('GEMINI_API_KEY')) return 503;
+  if (msg.includes('permission') || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('API_KEY_INVALID')) {
+    return 403;
+  }
+  if (msg.includes('rate limit') || msg.includes('quota') || msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED')) {
+    return 429;
+  }
+  if (msg.includes('temporarily unavailable') || msg.includes('404') || msg.includes('NOT_FOUND')) {
+    return 404;
+  }
+  return 500;
+}
+
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();

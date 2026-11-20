@@ -837,13 +837,14 @@ export async function handleStaticApiFallback(
     const loc = localizeQuestionFields(q, lang, chapterMap);
     const isCorrect = selectedOption === q.correct_option;
 
+    const skipSave = Boolean(body.skipSave);
     const currentUser = getCachedUserLocal();
     let pointsAwarded = 0;
     let totalPoints = 0;
 
     if (currentUser && currentUser.role === 'student' && !currentUser.isAdmin) {
       const stats = getUserStats(currentUser.id);
-      if (!stats.answeredQuestionIds.includes(questionId)) {
+      if (!skipSave && !stats.answeredQuestionIds.includes(questionId)) {
         stats.answeredQuestionIds.push(questionId);
         stats.questionsAnswered += 1;
         if (isCorrect) {

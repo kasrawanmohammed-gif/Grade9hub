@@ -54,7 +54,12 @@ import {
 import { buildWrongOptionExplanation, SupportedLang } from './server/wrongOptionExplainer.ts';
 import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
 import { getPublicVapidKey, sendPushToAllStudents, sendPushToUser } from './server/push.ts';
-import { runTutorChat, runTutorChatStream, generateStudyImage } from './server/gemini.ts';
+import {
+  generateStudyImage,
+  getGeminiErrorStatus,
+  runTutorChat,
+  runTutorChatStream,
+} from './server/gemini.ts';
 import { registerCommunityRoutes, logStudentActivity } from './server/communityRoutes.ts';
 import { normalizeScientificUnits } from './server/unitSanitizer.ts';
 import { seedTextbooksIfNeeded } from './server/seedTextbooks.ts';
@@ -3242,6 +3247,7 @@ async function startServer() {
     const questionId = Number(req.body?.questionId);
     const selectedOption = String(req.body?.selectedOption || '').trim().toUpperCase();
     const lang = normalizeLang(req.body?.lang);
+    const skipSave = Boolean(req.body?.skipSave);
 
     if (!Number.isInteger(questionId) || !['A', 'B', 'C', 'D'].includes(selectedOption)) {
       res.status(400).json({ error: 'Valid question ID and answer choice (A, B, C, or D) are required.' });
@@ -3299,36 +3305,39 @@ async function startServer() {
         });
 
     const actingUser = req.user!;
-    const ansRes = db
-      .prepare('INSERT INTO student_question_answers (user_id, question_id, is_correct) VALUES (?, ?, ?)')
-      .run(actingUser.id, q.id, isCorrect ? 1 : 0);
-
     let pointsAwarded = 0;
     let totalPoints = getUserCompetitionTotal(actingUser.id);
-    if (isCorrect) {
-      const pts = awardCompetitionPoints({
-        userId: actingUser.id,
-        eventKey: `sqa-${ansRes.lastInsertRowid}`,
-        eventType: 'correct_answer',
-        points: COMPETITION_RULES.correctAnswer,
-        chapterNumber: q.chapter_number,
-        details: `Question #${q.id}`,
-      });
-      pointsAwarded = pts.awarded;
-      totalPoints = pts.totalPoints;
-    }
 
-    touchUserActivity(actingUser.id);
-    logStudentActivity(
-      actingUser.id,
-      'question_answered',
-      `Question #${q.id} (${isCorrect ? 'Correct' : 'Incorrect'})`,
-      'question',
-      q.id
-    );
-    broadcastAdminDashboard();
-    checkpointDatabase();
-    writeRecoverySnapshotSync('question-answered');
+    if (!skipSave) {
+      const ansRes = db
+        .prepare('INSERT INTO student_question_answers (user_id, question_id, is_correct) VALUES (?, ?, ?)')
+        .run(actingUser.id, q.id, isCorrect ? 1 : 0);
+
+      if (isCorrect) {
+        const pts = awardCompetitionPoints({
+          userId: actingUser.id,
+          eventKey: `sqa-${ansRes.lastInsertRowid}`,
+          eventType: 'correct_answer',
+          points: COMPETITION_RULES.correctAnswer,
+          chapterNumber: q.chapter_number,
+          details: `Question #${q.id}`,
+        });
+        pointsAwarded = pts.awarded;
+        totalPoints = pts.totalPoints;
+      }
+
+      touchUserActivity(actingUser.id);
+      logStudentActivity(
+        actingUser.id,
+        'question_answered',
+        `Question #${q.id} (${isCorrect ? 'Correct' : 'Incorrect'})`,
+        'question',
+        q.id
+      );
+      broadcastAdminDashboard();
+      checkpointDatabase();
+      writeRecoverySnapshotSync('question-answered');
+    }
 
     res.json({
       questionId: q.id,
@@ -3341,7 +3350,7 @@ async function startServer() {
       wrongReason,
       pointsAwarded,
       totalPoints,
-      accountPassport: buildAccountPassportForUser(actingUser.id),
+      accountPassport: skipSave ? undefined : buildAccountPassportForUser(actingUser.id),
     });
   });
 
@@ -4370,8 +4379,9 @@ async function startServer() {
         recordAiTurn();
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
+        const status = getGeminiErrorStatus(err);
         if (!headersSent) {
-          res.status(500).json({ error: msg });
+          res.status(status).json({ error: msg });
         } else {
           res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
           res.end();
@@ -4386,7 +4396,7 @@ async function startServer() {
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
-      res.status(500).json({ error: msg });
+      res.status(getGeminiErrorStatus(err)).json({ error: msg });
     }
   });
 
@@ -4405,7 +4415,7 @@ async function startServer() {
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Image generation failed.';
-      res.status(500).json({ error: msg });
+      res.status(getGeminiErrorStatus(err)).json({ error: msg });
     }
   });
 

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Award,
   BookOpen,
   CheckCircle2,
@@ -42,6 +43,8 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDateTime } from '../utils/dateFormat';
+import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
 
 export interface LiveCommunityEvent {
   seq: number;
@@ -66,10 +69,7 @@ interface ReportDraft {
 
 function formatUtcTimestamp(ts: string | null | undefined): string {
   if (!ts) return '';
-  const iso = ts.includes('T') || ts.endsWith('Z') ? ts : `${ts.replace(' ', 'T')}Z`;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return ts;
-  return d.toLocaleString(undefined, {
+  return formatUtcDateTime(ts, undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -78,11 +78,7 @@ function formatUtcTimestamp(ts: string | null | undefined): string {
 }
 
 function getDownloadHref(url: string, name: string | null): string {
-  const filename = url.split('/').pop() || '';
-  if (!filename) return url;
-  return `/api/uploads/download/${encodeURIComponent(filename)}?name=${encodeURIComponent(
-    name || filename
-  )}`;
+  return getAttachmentDownloadHref(url, name);
 }
 
 export const CommunityView: React.FC<CommunityViewProps> = ({
@@ -90,7 +86,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   chapters,
   liveEvent,
 }) => {
-  const { t } = useLanguage();
+  const { t, dir } = useLanguage();
+  const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft;
   const isPrivileged = user.role === 'teacher' || Boolean(user.isAdmin);
   const isRestricted = Boolean(user.isRestricted && !isPrivileged);
 
@@ -1459,7 +1456,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       className="md:hidden p-1.5 rounded-lg text-[#6B1118] hover:bg-[#FAF8F5] cursor-pointer"
                       aria-label={t.community.backToList}
                     >
-                      <ArrowLeft className="w-4 h-4" />
+                      <BackIcon className="w-4 h-4" />
                     </button>
                     {renderAvatar(
                       selectedDmThread.peer_name,
@@ -1718,7 +1715,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       className="md:hidden p-1.5 rounded-lg text-[#6B1118] hover:bg-[#FAF8F5] cursor-pointer"
                       aria-label={t.community.backToList}
                     >
-                      <ArrowLeft className="w-4 h-4" />
+                      <BackIcon className="w-4 h-4" />
                     </button>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">

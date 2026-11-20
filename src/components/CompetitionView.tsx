@@ -30,6 +30,7 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDate } from '../utils/dateFormat';
 
 interface CompetitionViewProps {
   user: User;
@@ -186,14 +187,37 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       return base;
     }
 
-    const withPending = base.map((entry) =>
-      entry.userId === user.id || entry.isCurrentUser
-        ? {
-            ...entry,
-            totalPoints: entry.totalPoints + pending.totalPendingPoints,
-          }
-        : entry
-    );
+    let foundMe = false;
+    const withPending = base.map((entry) => {
+      if (entry.userId === user.id || entry.isCurrentUser) {
+        foundMe = true;
+        return {
+          ...entry,
+          totalPoints: entry.totalPoints + pending.totalPendingPoints,
+        };
+      }
+      return entry;
+    });
+
+    if (!foundMe) {
+      withPending.push({
+        rank: withPending.length + 1,
+        userId: user.id,
+        name: user.name,
+        grade: user.grade || '',
+        avatar_url: user.avatar_url || '',
+        online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+        totalPoints: (data?.myStats?.totalPoints ?? 0) + pending.totalPendingPoints,
+        quizPoints: data?.myStats?.quizPoints ?? 0,
+        activityPoints: data?.myStats?.activityPoints ?? 0,
+        quizzesCompleted: data?.myStats?.quizzesCompleted ?? 0,
+        correctAnswers: data?.myStats?.correctAnswers ?? 0,
+        questionsAnswered: data?.myStats?.correctAnswers ?? 0,
+        accuracyPercent: data?.myStats?.accuracyPercent ?? 0,
+        badge: null,
+        isCurrentUser: true,
+      });
+    }
 
     withPending.sort((a, b) => {
       if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
@@ -206,7 +230,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       rank: idx + 1,
       badge: idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : null,
     }));
-  }, [data?.leaderboard, isPrivileged, pending.totalPendingPoints, user.id]);
+  }, [data?.leaderboard, data?.myStats, isPrivileged, pending.totalPendingPoints, user.avatar_url, user.grade, user.id, user.name]);
 
   const topThree = useMemo(() => displayedLeaderboard.slice(0, 3), [displayedLeaderboard]);
 
@@ -726,9 +750,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                     <p className="text-xs text-[#57534E] truncate">
                       {ev.details} ·{' '}
                       <span className="tabular-nums">
-                        {new Date(
-                          ev.created_at.endsWith('Z') ? ev.created_at : `${ev.created_at}Z`
-                        ).toLocaleDateString()}
+                        {formatUtcDate(ev.created_at)}
                       </span>
                     </p>
                   </div>

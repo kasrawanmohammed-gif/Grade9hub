@@ -10,6 +10,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
 import { AdminUserRecord, QuizAttempt, User } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDate } from '../utils/dateFormat';
 
 interface ProfileViewProps {
   user: User;
@@ -65,13 +66,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   useEffect(() => {
+    setName(user.name);
+    setBirthday(user.birthday || '');
+    setGrade(user.grade);
+    setBio(user.bio);
+  }, [user.name, user.birthday, user.grade, user.bio]);
+
+  useEffect(() => {
     apiFetch<{ attempts: QuizAttempt[] }>(`/api/quizzes/history?lang=${language}`)
       .then((d) => setAttempts(d.attempts))
       .catch(() => {});
     if (isPrivileged) {
       void loadAdminUsers();
     }
-  }, [isPrivileged, language]);
+  }, [isPrivileged, language, user.id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -436,7 +444,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                             }`}
                       </p>
                       <p className="text-xs text-[#57534E] tabular-nums">
-                        {new Date(a.created_at + 'Z').toLocaleDateString()}
+                        {formatUtcDate(a.created_at)}
                       </p>
                     </div>
                     <div className="text-end tabular-nums">

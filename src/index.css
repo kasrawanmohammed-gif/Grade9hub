@@ -158,6 +158,9 @@
   .bg-\[\#F9EFF0\]\/60 {
     background-color: rgb(var(--accent-soft-rgb) / 0.6);
   }
+  .bg-\[\#F9EFF0\]\/65 {
+    background-color: rgb(var(--accent-soft-rgb) / 0.65);
+  }
   .hover\:bg-\[\#F9EFF0\]:hover {
     background-color: var(--accent-soft);
   }
@@ -177,11 +180,17 @@
   .border-\[\#6B1118\]\/30 {
     border-color: rgb(var(--accent-rgb) / 0.3);
   }
+  .border-\[\#6B1118\]\/50 {
+    border-color: rgb(var(--accent-rgb) / 0.5);
+  }
   .hover\:border-\[\#6B1118\]:hover {
     border-color: rgb(var(--accent-rgb));
   }
   .hover\:border-\[\#6B1118\]\/40:hover {
     border-color: rgb(var(--accent-rgb) / 0.4);
+  }
+  .hover\:border-\[\#6B1118\]\/45:hover {
+    border-color: rgb(var(--accent-rgb) / 0.45);
   }
   .hover\:border-\[\#6B1118\]\/50:hover {
     border-color: rgb(var(--accent-rgb) / 0.5);
@@ -236,7 +245,8 @@ html.dark .bg-\[\#F4EFE8\] {
 }
 
 html.dark .bg-\[\#F9EFF0\],
-html.dark .bg-\[\#F9EFF0\]\/60 {
+html.dark .bg-\[\#F9EFF0\]\/60,
+html.dark .bg-\[\#F9EFF0\]\/65 {
   background-color: var(--accent-soft-dark) !important;
 }
 
@@ -246,8 +256,14 @@ html.dark .bg-\[\#6B1118\]\/10 {
 
 html.dark .bg-\[\#FBF4DF\],
 html.dark .bg-\[\#FBF4DF\]\/60,
-html.dark .bg-\[\#FBF4DF\]\/70 {
+html.dark .bg-\[\#FBF4DF\]\/65,
+html.dark .bg-\[\#FBF4DF\]\/70,
+html.dark .bg-\[\#FEFCE8\] {
   background-color: #2B2314 !important;
+}
+
+html.dark .text-\[\#92400E\] {
+  color: #FCD34D !important;
 }
 
 html.dark .bg-\[\#ECFDF5\] {
@@ -272,6 +288,7 @@ html.dark .focus\:border-\[\#6B1118\]:focus {
 }
 
 html.dark .hover\:border-\[\#6B1118\]\/40:hover,
+html.dark .hover\:border-\[\#6B1118\]\/45:hover,
 html.dark .hover\:border-\[\#6B1118\]\/50:hover {
   border-color: rgb(var(--accent-text-dark-rgb) / 0.55) !important;
 }
@@ -316,11 +333,14 @@ html.dark .bg-\[\#DC2626\] .bg-white {
   color: #DC2626 !important;
 }
 
-html.dark .text-\[\#065F46\] {
+html.dark .text-\[\#065F46\],
+html.dark .text-\[\#065F46\]\/80,
+html.dark .text-\[\#065F46\]\/90 {
   color: #6EE7B7 !important;
 }
 
 html.dark .text-\[\#991B1B\],
+html.dark .text-\[\#991B1B\]\/70,
 html.dark .text-\[\#7F1D1D\] {
   color: #FCA5A5 !important;
 }
