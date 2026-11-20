@@ -16,7 +16,7 @@ function loadFirebaseProjectId(): string {
   } catch {
     // ignore read error
   }
-  return 'smurfy-keel-kc62s';
+  return 'gen-lang-client-0277416465';
 }
 
 const FIREBASE_PROJECT_ID = loadFirebaseProjectId();
@@ -55,22 +55,14 @@ export async function verifyFirebaseIdToken(idToken: string): Promise<VerifiedFi
       ? firebaseClaim.sign_in_provider.trim()
       : '';
 
-  const isFacebook = provider === 'facebook.com';
-
-  if (!uid) {
-    throw new Error('Verified social account identity is required.');
+  if (!uid || !rawEmail || !emailVerified) {
+    throw new Error('Verified email identity is required.');
   }
-
-  if (!isFacebook && (!rawEmail || !emailVerified)) {
-    throw new Error('Verified Google email identity is required.');
-  }
-
-  const email = rawEmail || `fb-${uid}@facebook.grade9hub.local`;
 
   return {
     uid,
-    email,
-    emailVerified,
+    email: rawEmail,
+    emailVerified: true,
     name,
     picture,
     provider,

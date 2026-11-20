@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  ApiError,
   apiFetch,
   clearStoredCachedUser,
   clearStoredSessionToken,
@@ -35,6 +36,7 @@ import {
   setStoredSessionToken,
   tryRestoreActiveSessionPassport,
 } from './lib/api';
+import { isStaticHostMode } from './lib/staticFallback';
 import {
   clearActiveVaultKey,
   decryptAdminVaultForAutoResume,
@@ -49,6 +51,7 @@ import {
 import {
   AdminDashboardSnapshot,
   Announcement,
+  AppSettings,
   Chapter,
   NotificationItem,
   TabId,
@@ -76,8 +79,9 @@ import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
 import { UserAvatar } from './components/UserAvatar';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
+import { useStudentGreeting } from './utils/greeting';
 import {
   MAIN_ADMIN_EMAIL,
   pullAllSchoolAccountsAsAdmin,
@@ -90,6 +94,7 @@ import {
 
 export default function App() {
   const { language, t, dir } = useLanguage();
+  const studentGreeting = useStudentGreeting(t);
   const [showSplash, setShowSplash] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<User | null>(null);
@@ -110,6 +115,7 @@ export default function App() {
   const [showNotifBanner, setShowNotifBanner] = useState(false);
 
   const [adminSnapshot, setAdminSnapshot] = useState<AdminDashboardSnapshot | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [liveCommunityEvent, setLiveCommunityEvent] = useState<LiveCommunityEvent | null>(null);
   const [leaderboardVersion, setLeaderboardVersion] = useState(0);
@@ -118,12 +124,34 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const wsEventSeqRef = useRef(0);
   const promptedFirstLoginUserIdsRef = useRef<Set<number>>(new Set());
+  const userRef = useRef<User | null>(null);
+  const explicitSignOutRef = useRef(false);
+  const firebaseResumeInFlightRef = useRef<Promise<User | null> | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const push = usePushNotifications(
     Boolean(user),
     user ? user.notifications_enabled !== false : true
   );
   const isPrivileged = Boolean(user && (user.role === 'teacher' || user.isAdmin));
+
+  const fetchPublicSettings = useCallback(async () => {
+    try {
+      const data = await apiFetch<{ settings: AppSettings }>('/api/settings/public');
+      if (data?.settings) {
+        setAppSettings(data.settings);
+      }
+    } catch {
+      // ignore transient settings fetch errors
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchPublicSettings();
+  }, [fetchPublicSettings]);
 
   const fetchAdminDashboard = useCallback(async () => {
     if (!isPrivileged) return;
@@ -134,6 +162,15 @@ export default function App() {
       // ignore transient errors
     }
   }, [isPrivileged]);
+
+  useEffect(() => {
+    if (!isPrivileged || wsConnected) return;
+    void fetchAdminDashboard();
+    const timer = setInterval(() => {
+      void fetchAdminDashboard();
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [isPrivileged, wsConnected, fetchAdminDashboard]);
 
   const fetchChapters = useCallback(async () => {
     const data = await apiFetch<{ chapters: Chapter[]; generalCount: number }>(
@@ -252,11 +289,66 @@ export default function App() {
 
   const vaultDirtyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initial auth check + silent restart retry + automatic session recovery across container updates
+  const resumeFirebaseSignedInUser = useCallback(async (fbUser: FirebaseUser): Promise<User | null> => {
+    if (!fbUser || !fbUser.emailVerified || explicitSignOutRef.current) {
+      return null;
+    }
+    if (firebaseResumeInFlightRef.current) {
+      return firebaseResumeInFlightRef.current;
+    }
+
+    const promise = (async (): Promise<User | null> => {
+      try {
+        const idToken = await fbUser.getIdToken();
+        const { profile, attempts } = await pullCloudUserProfile(fbUser.uid).catch(() => ({
+          profile: null,
+          attempts: [],
+        }));
+        const fbLogin = await apiFetch<{
+          user: User;
+          sessionToken?: string;
+        }>('/api/auth/firebase-login', {
+          method: 'POST',
+          body: JSON.stringify({
+            idToken,
+            cloudProfile: profile,
+            cloudAttempts: attempts,
+          }),
+        });
+        if (fbLogin.user && !explicitSignOutRef.current) {
+          if (fbLogin.sessionToken) setStoredSessionToken(fbLogin.sessionToken);
+          setStoredCachedUser(fbLogin.user);
+          return fbLogin.user;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        firebaseResumeInFlightRef.current = null;
+      }
+    })();
+
+    firebaseResumeInFlightRef.current = promise;
+    return promise;
+  }, []);
+
+  // Initial auth check + silent restart retry + automatic session recovery + Firebase onAuthStateChanged persistence
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const splashTimer = setTimeout(() => setShowSplash(false), 750);
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
+      if (cancelled || explicitSignOutRef.current) return;
+      if (fbUser && fbUser.emailVerified && !userRef.current) {
+        void resumeFirebaseSignedInUser(fbUser).then((restoredUser) => {
+          if (!cancelled && restoredUser && !explicitSignOutRef.current) {
+            setUser(restoredUser);
+            setAuthChecked(true);
+          }
+        });
+      }
+    });
 
     const checkAuth = async (attempt = 0) => {
       try {
@@ -345,34 +437,15 @@ export default function App() {
           return;
         }
 
-        // 3. If Firebase Google session is active on this browser, silently resume/restore from Firestore
+        // 3. If Firebase Google session is active on this browser, silently resume/restore
+        await auth.authStateReady().catch(() => {});
         const currentFbUser = auth.currentUser;
-        if (currentFbUser && currentFbUser.emailVerified && currentFbUser.email && !cancelled) {
-          try {
-            const idToken = await currentFbUser.getIdToken();
-            const { profile, attempts } = await pullCloudUserProfile(currentFbUser.uid).catch(
-              () => ({ profile: null, attempts: [] })
-            );
-            const fbLogin = await apiFetch<{
-              user: User;
-              sessionToken?: string;
-            }>('/api/auth/firebase-login', {
-              method: 'POST',
-              body: JSON.stringify({
-                idToken,
-                cloudProfile: profile,
-                cloudAttempts: attempts,
-              }),
-            });
-            if (!cancelled && fbLogin.user) {
-              if (fbLogin.sessionToken) setStoredSessionToken(fbLogin.sessionToken);
-              setStoredCachedUser(fbLogin.user);
-              setUser(fbLogin.user);
-              setAuthChecked(true);
-              return;
-            }
-          } catch {
-            // fall through to login screen
+        if (currentFbUser && currentFbUser.emailVerified && !cancelled) {
+          const restoredFbUser = await resumeFirebaseSignedInUser(currentFbUser);
+          if (!cancelled && restoredFbUser) {
+            setUser(restoredFbUser);
+            setAuthChecked(true);
+            return;
           }
         }
 
@@ -384,16 +457,15 @@ export default function App() {
           setUser(null);
           setAuthChecked(true);
         }
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        // Transient network / 502 / 503 while dev server restarts during app edit:
-        // keep logged-in user active and retry quietly in background.
+        const isNotFound = err instanceof ApiError && err.status === 404;
         const cachedUser = getStoredCachedUser<User>();
         const storedToken = getStoredSessionToken();
         if (cachedUser && storedToken) {
           setUser(cachedUser);
           setAuthChecked(true);
-          if (attempt < 5) {
+          if (!isNotFound && !isStaticHostMode() && attempt < 5) {
             const delayMs = Math.min(2500 * (attempt + 1), 12000);
             retryTimer = setTimeout(() => {
               void checkAuth(attempt + 1);
@@ -410,10 +482,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      unsubscribeAuth();
       if (retryTimer) clearTimeout(retryTimer);
       clearTimeout(splashTimer);
     };
-  }, [syncAdminVaultsNow]);
+  }, [syncAdminVaultsNow, resumeFirebaseSignedInUser]);
 
   useEffect(() => {
     if (!user) return;
@@ -514,7 +587,7 @@ export default function App() {
 
   // Real-time WebSocket for student presence & live Admin Dashboard rankings
   useEffect(() => {
-    if (!user) {
+    if (!user || isStaticHostMode()) {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -527,7 +600,7 @@ export default function App() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connect = () => {
-      if (cancelled) return;
+      if (cancelled || isStaticHostMode()) return;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const token = getStoredSessionToken();
       const wsUrl = `${protocol}//${window.location.host}/ws${
@@ -552,7 +625,9 @@ export default function App() {
             type?: string;
             payload?: unknown;
           };
-          if (msg.type === 'admin:dashboard' && msg.payload) {
+          if (msg.type === 'auth:force_logout') {
+            void resetClientAuthState(false);
+          } else if (msg.type === 'admin:dashboard' && msg.payload) {
             setAdminSnapshot(msg.payload as AdminDashboardSnapshot);
           } else if (msg.type === 'admin:vault_dirty' && isPrivileged && user?.email) {
             if (vaultDirtyTimerRef.current) {
@@ -587,6 +662,8 @@ export default function App() {
             });
           } else if (msg.type === 'leaderboard:update') {
             setLeaderboardVersion((v) => v + 1);
+          } else if (msg.type === 'app:settings' && msg.payload) {
+            setAppSettings(msg.payload as AppSettings);
           }
         } catch {
           // ignore malformed messages
@@ -628,6 +705,70 @@ export default function App() {
       ws.send(JSON.stringify({ type: 'presence:section', section: activeTab }));
     }
   }, [activeTab]);
+
+  // Keep student live online presence active via WS heartbeat + HTTP heartbeat fallback & offline beacon
+  useEffect(() => {
+    if (!user) return;
+    const currentSection = activeTab;
+
+    const sendPresenceHeartbeat = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'presence:heartbeat', section: currentSection }));
+        return;
+      }
+      void apiFetch('/api/presence/heartbeat', {
+        method: 'POST',
+        body: JSON.stringify({ section: currentSection }),
+      }).catch(() => {});
+    };
+
+    const sendOfflineSignal = () => {
+      try {
+        const token = getStoredSessionToken();
+        if (
+          !isStaticHostMode() &&
+          typeof navigator !== 'undefined' &&
+          typeof navigator.sendBeacon === 'function'
+        ) {
+          const blob = new Blob([JSON.stringify({ token: token || undefined })], {
+            type: 'application/json',
+          });
+          navigator.sendBeacon('/api/presence/offline', blob);
+        } else {
+          void apiFetch('/api/presence/offline', {
+            method: 'POST',
+            keepalive: true,
+            body: JSON.stringify({ token: token || undefined }),
+          }).catch(() => {});
+        }
+      } catch {
+        // ignore unload errors
+      }
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        sendPresenceHeartbeat();
+      }
+    };
+
+    sendPresenceHeartbeat();
+    const timer = setInterval(sendPresenceHeartbeat, 20000);
+    window.addEventListener('online', sendPresenceHeartbeat);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', sendOfflineSignal);
+    window.addEventListener('pagehide', sendOfflineSignal);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', sendPresenceHeartbeat);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', sendOfflineSignal);
+      window.removeEventListener('pagehide', sendOfflineSignal);
+    };
+  }, [user?.id, activeTab]);
 
   const saveNotificationChoice = useCallback(
     async (targetUserId: number, choice: 'allowed' | 'denied') => {
@@ -858,27 +999,37 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
+  const resetClientAuthState = useCallback(async (callServerLogout: boolean) => {
+    explicitSignOutRef.current = true;
+    try {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      if (callServerLogout) {
+        await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
+      await signOutFirebaseCloud();
+      clearStoredSessionToken();
+      clearStoredCachedUser();
+      await clearActiveVaultKey();
+      setShowNotifPrompt(false);
+      setShowNotifBanner(false);
+      setAdminSnapshot(null);
+      setNotifications([]);
+      setUnreadCount(0);
+      setAnnouncements([]);
+      setInitialChapterSelection(null);
+      setInitialStudentChatId(null);
+      setUser(null);
+      setActiveTab('home');
+    } finally {
+      explicitSignOutRef.current = false;
     }
-    await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-    await signOutFirebaseCloud();
-    clearStoredSessionToken();
-    clearStoredCachedUser();
-    await clearActiveVaultKey();
-    setShowNotifPrompt(false);
-    setShowNotifBanner(false);
-    setAdminSnapshot(null);
-    setNotifications([]);
-    setUnreadCount(0);
-    setAnnouncements([]);
-    setInitialChapterSelection(null);
-    setInitialStudentChatId(null);
-    setUser(null);
-    setActiveTab('home');
-  };
+  }, []);
+
+  const handleLogout = () => resetClientAuthState(true);
+  const handleAccountDeleted = () => resetClientAuthState(false);
 
   const navigateTo = (tab: TabId) => {
     setActiveTab(tab);
@@ -1135,7 +1286,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setMobileMenuOpen(false)}
-                  aria-label="Close navigation menu"
+                  aria-label={t.nav.collapseSidebar}
                   className="p-2 text-[#57534E] cursor-pointer"
                 >
                   <X className="w-5 h-5" />
@@ -1223,7 +1374,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setMobileMenuOpen(true)}
-              aria-label="Open menu"
+              aria-label={t.nav.expandSidebar}
               className="p-2 -ms-1.5 text-[#1C1917] cursor-pointer min-w-[40px] min-h-[40px] flex items-center justify-center shrink-0"
             >
               <Menu className="w-5 h-5" />
@@ -1272,7 +1423,7 @@ export default function App() {
         <header className="hidden lg:flex sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-sm border-b border-[#E6DFD5] px-10 items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-base font-bold tracking-tight text-[#6B1118] whitespace-nowrap">
-              Science AI Studio
+              {t.brand.scienceStudio}
             </span>
             <span className="text-[#E6DFD5]" aria-hidden="true">|</span>
             <span className="text-xs font-medium text-[#57534E] truncate">
@@ -1325,7 +1476,28 @@ export default function App() {
         </header>
 
         {/* Scrollable Workspace Content */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-6 sm:py-8 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-5 sm:py-7 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
+          <div
+            role="status"
+            className="mb-5 rounded-xl border border-[#E6DFD5] bg-[#FBF4DF]/65 px-4 py-2.5 flex items-center gap-2.5 text-xs sm:text-sm text-[#1C1917]"
+          >
+            <Sparkles className="w-4 h-4 text-[#6B1118] shrink-0" aria-hidden="true" />
+            <span>
+              <strong className="font-semibold text-[#6B1118]">{studentGreeting}</strong>
+              <span className="text-[#57534E]"> — {t.brand.heroJourneySubtitle}</span>
+            </span>
+          </div>
+
+          {appSettings?.maintenanceMessage?.trim() && (
+            <div
+              role="alert"
+              className="mb-5 rounded-xl border border-[#F3D8A8] bg-[#FFFBEB] px-4 py-2.5 text-xs sm:text-sm text-[#92400E] flex items-center gap-2.5"
+            >
+              <ShieldCheck className="w-4 h-4 text-[#B45309] shrink-0" />
+              <span className="font-medium">{appSettings.maintenanceMessage}</span>
+            </div>
+          )}
+
           {showNotifBanner && !showNotifPrompt && (
             <div
               role="region"
@@ -1382,6 +1554,8 @@ export default function App() {
                   user={user}
                   chapters={chapters}
                   liveEvent={liveCommunityEvent}
+                  wsConnected={wsConnected}
+                  appSettings={appSettings}
                 />
               )}
 
@@ -1389,16 +1563,20 @@ export default function App() {
                 <CompetitionView
                   user={user}
                   leaderboardVersion={leaderboardVersion}
+                  liveEvent={liveCommunityEvent}
                   onNavigate={navigateTo}
                 />
               )}
 
               {activeTab === 'admin-dashboard' && isPrivileged && (
                 <AdminDashboardView
+                  currentUser={user}
                   snapshot={adminSnapshot}
                   wsConnected={wsConnected}
                   focusSearchTrigger={focusAdminSearchTrigger}
                   liveEvent={liveCommunityEvent}
+                  appSettings={appSettings}
+                  onSettingsUpdated={(nextSettings) => setAppSettings(nextSettings)}
                   onRefreshDashboard={fetchAdminDashboard}
                   onNavigate={navigateTo}
                   onSelectChapter={(target) => setInitialChapterSelection(target)}
@@ -1438,6 +1616,7 @@ export default function App() {
                 <AskTeacherView
                   user={user}
                   initialStudentId={initialStudentChatId}
+                  liveEvent={liveCommunityEvent}
                   onClearInitialStudentId={() => setInitialStudentChatId(null)}
                   onRefreshNotifications={fetchNotifications}
                 />
@@ -1458,7 +1637,17 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'ai-studio' && <AIStudioView />}
+              {activeTab === 'ai-studio' &&
+                (!isPrivileged && appSettings && !appSettings.aiTutorEnabled ? (
+                  <div className="rounded-2xl border border-[#E6DFD5] bg-white p-8 text-center">
+                    <Sparkles className="w-8 h-8 text-[#6B1118] mx-auto mb-3" />
+                    <p className="text-sm font-semibold text-[#1C1917]">
+                      {t.admin.aiDisabledNotice}
+                    </p>
+                  </div>
+                ) : (
+                  <AIStudioView />
+                ))}
 
               {activeTab === 'profile' && (
                 <ProfileView
@@ -1471,6 +1660,7 @@ export default function App() {
                       void syncAdminVaultsNow(updated.email);
                     }
                   }}
+                  onAccountDeleted={handleAccountDeleted}
                   pushSupported={push.supported}
                   pushSubscribed={push.isSubscribed}
                   pushBusy={push.busy}

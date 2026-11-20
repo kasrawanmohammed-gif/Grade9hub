@@ -19,16 +19,23 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    function isSignedIn() {
+    function isEmailVerified() {
       return request.auth != null && request.auth.token.email_verified == true;
     }
 
+    function isSignedIn() {
+      return request.auth != null && (
+        request.auth.token.email_verified == true ||
+        request.auth.token.firebase.sign_in_provider == 'facebook.com'
+      );
+    }
+
     function isMainAdminEmail() {
-      return isSignedIn() && request.auth.token.email == 'mohamdm791@gmail.com';
+      return isEmailVerified() && request.auth.token.email == 'mohamdm791@gmail.com';
     }
 
     function isAdmin() {
-      return isSignedIn() && (
+      return isEmailVerified() && (
         isMainAdminEmail() ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
@@ -55,6 +62,10 @@ service cloud.firestore {
           'totalPoints',
           'quizzesCompleted',
           'correctAnswers',
+          'isRestricted',
+          'restrictionReason',
+          'lastLoginAt',
+          'lastActiveAt',
           'createdAt',
           'updatedAt'
         ]) &&
@@ -72,6 +83,10 @@ service cloud.firestore {
         (!data.keys().hasAny(['totalPoints']) || (data.totalPoints is number && data.totalPoints >= 0 && data.totalPoints <= 1000000)) &&
         (!data.keys().hasAny(['quizzesCompleted']) || (data.quizzesCompleted is number && data.quizzesCompleted >= 0 && data.quizzesCompleted <= 100000)) &&
         (!data.keys().hasAny(['correctAnswers']) || (data.correctAnswers is number && data.correctAnswers >= 0 && data.correctAnswers <= 1000000)) &&
+        (!data.keys().hasAny(['isRestricted']) || data.isRestricted is bool) &&
+        (!data.keys().hasAny(['restrictionReason']) || (data.restrictionReason is string && data.restrictionReason.size() <= 300)) &&
+        (!data.keys().hasAny(['lastLoginAt']) || (data.lastLoginAt is string && data.lastLoginAt.size() <= 64)) &&
+        (!data.keys().hasAny(['lastActiveAt']) || (data.lastActiveAt is string && data.lastActiveAt.size() <= 64)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -189,10 +204,76 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidPeerPresence(data, userId) {
+      return data.keys().hasAll(['uid', 'name', 'role', 'isAdmin', 'online', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'uid',
+          'numericId',
+          'name',
+          'role',
+          'isAdmin',
+          'grade',
+          'avatarUrl',
+          'bio',
+          'online',
+          'currentSection',
+          'isRestricted',
+          'lastActiveAtIso',
+          'updatedAt'
+        ]) &&
+        data.uid is string && data.uid == userId && isValidId(data.uid) &&
+        (!data.keys().hasAny(['numericId']) || data.numericId is number) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 120 &&
+        data.role in ['student', 'teacher'] &&
+        data.isAdmin is bool &&
+        (!data.keys().hasAny(['grade']) || (data.grade is string && data.grade.size() <= 40)) &&
+        (!data.keys().hasAny(['avatarUrl']) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000)) &&
+        (!data.keys().hasAny(['bio']) || (data.bio is string && data.bio.size() <= 500)) &&
+        data.online is bool &&
+        (!data.keys().hasAny(['currentSection']) || (data.currentSection is string && data.currentSection.size() <= 40)) &&
+        (!data.keys().hasAny(['isRestricted']) || data.isRestricted is bool) &&
+        (!data.keys().hasAny(['lastActiveAtIso']) || (data.lastActiveAtIso is string && data.lastActiveAtIso.size() <= 64)) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAppSettings(data, settingId) {
+      return data.keys().hasAll([
+          'settingId',
+          'scope',
+          'allowStudentRegistration',
+          'communityEnabled',
+          'communityPostingEnabled',
+          'aiTutorEnabled',
+          'defaultLanguage',
+          'maintenanceMessage',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'settingId',
+          'scope',
+          'allowStudentRegistration',
+          'communityEnabled',
+          'communityPostingEnabled',
+          'aiTutorEnabled',
+          'defaultLanguage',
+          'maintenanceMessage',
+          'updatedAt'
+        ]) &&
+        data.settingId is string && data.settingId == settingId && isValidId(data.settingId) &&
+        data.scope == 'public' &&
+        data.allowStudentRegistration is bool &&
+        data.communityEnabled is bool &&
+        data.communityPostingEnabled is bool &&
+        data.aiTutorEnabled is bool &&
+        data.defaultLanguage in ['en', 'ku', 'ar'] &&
+        data.maintenanceMessage is string && data.maintenanceMessage.size() <= 300 &&
+        data.updatedAt is timestamp;
+    }
+
     // 1. Private User Accounts (/users/{userId}) - PII isolated to Owner or Admin
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isMainAdminEmail() && resource.data.role in ['student', 'teacher'];
+      allow list: if isAdmin() && resource.data.role in ['student', 'teacher'];
 
       allow create: if isValidId(userId) &&
         isValidUserAccount(incoming(), userId) &&
@@ -201,6 +282,7 @@ service cloud.firestore {
         (
           (
             isOwner(userId) &&
+            request.auth.token.email is string &&
             incoming().email == request.auth.token.email &&
             (
               isMainAdminEmail()
@@ -218,11 +300,23 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
-          isAdmin() ||
+          (
+            isAdmin() &&
+            (
+              existing().email != 'mohamdm791@gmail.com' ||
+              (
+                incoming().role == 'teacher' &&
+                incoming().isAdmin == true &&
+                (!incoming().keys().hasAny(['isRestricted']) || incoming().isRestricted == false)
+              )
+            )
+          ) ||
           (
             isOwner(userId) &&
             incoming().role == existing().role &&
             incoming().isAdmin == existing().isAdmin &&
+            (!incoming().keys().hasAny(['isRestricted']) || (existing().keys().hasAny(['isRestricted']) && incoming().isRestricted == existing().isRestricted) || incoming().isRestricted == false) &&
+            (!incoming().keys().hasAny(['restrictionReason']) || (existing().keys().hasAny(['restrictionReason']) && incoming().restrictionReason == existing().restrictionReason) || incoming().restrictionReason == '') &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'name',
               'grade',
@@ -234,19 +328,23 @@ service cloud.firestore {
               'totalPoints',
               'quizzesCompleted',
               'correctAnswers',
+              'lastLoginAt',
+              'lastActiveAt',
               'updatedAt'
             ])
           )
         );
 
-      allow delete: if isValidId(userId) && isAdmin();
+      allow delete: if isValidId(userId) &&
+        existing().email != 'mohamdm791@gmail.com' &&
+        (isOwner(userId) || isAdmin());
 
       // Master Gate Subcollection: Quiz Attempts (/users/{userId}/quiz_attempts/{attemptId})
       match /quiz_attempts/{attemptId} {
         allow get: if isValidId(userId) && isValidId(attemptId) && (isOwner(userId) || isAdmin()) &&
           get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
         allow list: if isSignedIn() && resource.data.userId is string &&
-          (resource.data.userId == request.auth.uid || isMainAdminEmail());
+          (resource.data.userId == request.auth.uid || isAdmin());
 
         allow create: if isValidId(userId) && isValidId(attemptId) &&
           (isOwner(userId) || isAdmin()) &&
@@ -255,7 +353,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
 
         allow update: if false;
-        allow delete: if isValidId(userId) && isValidId(attemptId) && isAdmin();
+        allow delete: if isValidId(userId) && isValidId(attemptId) && (isOwner(userId) || isAdmin());
       }
     }
 
@@ -285,27 +383,26 @@ service cloud.firestore {
           'updatedAt'
         ]);
 
-      allow delete: if isValidId(userId) && isAdmin();
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
     }
 
     // 3. Verified Admins Registry (/admins/{userId})
     match /admins/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isMainAdminEmail() && resource.data.email == 'mohamdm791@gmail.com';
-      allow create: if isValidId(userId) &&
+      allow list: if isAdmin() && resource.data.email is string;
+      allow create, update: if isValidId(userId) &&
         isMainAdminEmail() &&
-        isOwner(userId) &&
         isValidAdminEntry(incoming(), userId) &&
-        incoming().email == request.auth.token.email &&
         incoming().createdAt == request.time;
-      allow update: if false;
-      allow delete: if isValidId(userId) && isMainAdminEmail();
+      allow delete: if isValidId(userId) &&
+        isMainAdminEmail() &&
+        existing().email != 'mohamdm791@gmail.com';
     }
 
     // 4. Admin-Only School Account Mirror (/school_accounts/{accountKey})
     match /school_accounts/{accountKey} {
       allow get: if isValidId(accountKey) && isAdmin();
-      allow list: if isMainAdminEmail() && resource.data.role in ['student', 'teacher'];
+      allow list: if isAdmin() && resource.data.role in ['student', 'teacher'];
       allow create: if isValidId(accountKey) &&
         isAdmin() &&
         isValidSchoolAccountSync(incoming(), accountKey) &&
@@ -330,7 +427,69 @@ service cloud.firestore {
           'createdAtIso',
           'updatedAt'
         ]);
-      allow delete: if isValidId(accountKey) && isAdmin();
+      allow delete: if isValidId(accountKey) &&
+        isAdmin() &&
+        existing().email != 'mohamdm791@gmail.com';
+    }
+
+    // 5. PII-Free Live Online/Offline Presence & Community Peers (/peer_presence/{userId})
+    match /peer_presence/{userId} {
+      allow get: if isValidId(userId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.role in ['student', 'teacher'];
+
+      allow create: if isValidId(userId) &&
+        isValidPeerPresence(incoming(), userId) &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isOwner(userId) &&
+            (
+              isMainAdminEmail()
+                ? true
+                : (incoming().role == 'student' && incoming().isAdmin == false && (!incoming().keys().hasAny(['isRestricted']) || incoming().isRestricted == false))
+            )
+          ) ||
+          isAdmin()
+        );
+
+      allow update: if isValidId(userId) &&
+        isValidPeerPresence(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().updatedAt == request.time &&
+        (
+          isAdmin() ||
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().isAdmin == existing().isAdmin &&
+            (!incoming().keys().hasAny(['isRestricted']) || (existing().keys().hasAny(['isRestricted']) && incoming().isRestricted == existing().isRestricted) || incoming().isRestricted == false) &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'numericId',
+              'name',
+              'grade',
+              'avatarUrl',
+              'bio',
+              'online',
+              'currentSection',
+              'lastActiveAtIso',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // 6. Global App Settings (/app_settings/{settingId})
+    match /app_settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == 'global';
+      allow list: if isSignedIn() && resource.data.scope == 'public';
+      allow create, update: if isValidId(settingId) &&
+        settingId == 'global' &&
+        isAdmin() &&
+        isValidAppSettings(incoming(), settingId) &&
+        incoming().updatedAt == request.time;
+      allow delete: if false;
     }
   }
 }

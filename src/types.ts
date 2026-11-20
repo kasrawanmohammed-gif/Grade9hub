@@ -25,6 +25,21 @@ export interface AdminUserRecord {
   role: UserRole;
   isAdmin: boolean;
   grade: string;
+  bio?: string;
+  birthday?: string;
+  avatar_url?: string;
+  online?: boolean;
+  currentSection?: string;
+  isRestricted?: boolean;
+  restrictionReason?: string;
+  lastLoginAt?: string;
+  lastActiveAt?: string;
+  quizzesCompleted?: number;
+  questionsAnswered?: number;
+  correctAnswers?: number;
+  avgScorePercent?: number;
+  aiTutorTurns?: number;
+  source?: 'local' | 'cloud';
   created_at: string;
 }
 
@@ -127,6 +142,8 @@ export interface TeacherThread {
   student_email: string;
   student_grade: string;
   student_avatar_url?: string;
+  student_online?: boolean;
+  student_last_active_at?: string;
   last_message_at?: string;
   last_message_text?: string;
   last_attachment_name?: string | null;
@@ -253,6 +270,7 @@ export interface CommunityComment {
   author_avatar_url: string;
   author_role: UserRole;
   author_is_admin: boolean;
+  author_online?: boolean;
   content: string;
   created_at: string;
 }
@@ -264,6 +282,7 @@ export interface CommunityPost {
   author_avatar_url: string;
   author_role: UserRole;
   author_is_admin: boolean;
+  author_online?: boolean;
   author_grade: string;
   author_is_restricted: boolean;
   chapter_number: number | null;
@@ -300,6 +319,7 @@ export interface CommunityDirectMessage {
   sender_name: string;
   sender_avatar_url: string;
   sender_role: UserRole;
+  sender_online?: boolean;
   recipient_name: string;
   message_text: string;
   attachment_name: string | null;
@@ -343,6 +363,7 @@ export interface CommunityGroupMessage {
   sender_avatar_url: string;
   sender_role: UserRole;
   sender_is_admin: boolean;
+  sender_online?: boolean;
   message_text: string;
   attachment_name: string | null;
   attachment_url: string | null;
@@ -582,6 +603,16 @@ export interface TextbooksQAResponse {
   studyQa: TextbookStudyQA[];
   curriculumQa: CurriculumStudyQA[];
   materials: Announcement[];
+}
+
+export interface AppSettings {
+  allowStudentRegistration: boolean;
+  communityEnabled: boolean;
+  communityPostingEnabled: boolean;
+  aiTutorEnabled: boolean;
+  defaultLanguage: 'en' | 'ku' | 'ar';
+  maintenanceMessage: string;
+  updatedAt?: string;
 }
 
 export type TabId =

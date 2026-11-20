@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   Award,
   BookOpen,
   CheckCircle2,
@@ -29,6 +30,7 @@ import {
 import { apiFetch } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import {
+  AppSettings,
   Chapter,
   CommunityComment,
   CommunityDirectMessage,
@@ -42,6 +44,8 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDateTime } from '../utils/dateFormat';
+import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
 
 export interface LiveCommunityEvent {
   seq: number;
@@ -53,6 +57,8 @@ interface CommunityViewProps {
   user: User;
   chapters: Chapter[];
   liveEvent: LiveCommunityEvent | null;
+  wsConnected?: boolean;
+  appSettings?: AppSettings | null;
   onUserUpdated?: (patch: Partial<User>) => void;
 }
 
@@ -66,10 +72,7 @@ interface ReportDraft {
 
 function formatUtcTimestamp(ts: string | null | undefined): string {
   if (!ts) return '';
-  const iso = ts.includes('T') || ts.endsWith('Z') ? ts : `${ts.replace(' ', 'T')}Z`;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return ts;
-  return d.toLocaleString(undefined, {
+  return formatUtcDateTime(ts, undefined, {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -78,21 +81,23 @@ function formatUtcTimestamp(ts: string | null | undefined): string {
 }
 
 function getDownloadHref(url: string, name: string | null): string {
-  const filename = url.split('/').pop() || '';
-  if (!filename) return url;
-  return `/api/uploads/download/${encodeURIComponent(filename)}?name=${encodeURIComponent(
-    name || filename
-  )}`;
+  return getAttachmentDownloadHref(url, name);
 }
 
 export const CommunityView: React.FC<CommunityViewProps> = ({
   user,
   chapters,
   liveEvent,
+  wsConnected = false,
+  appSettings,
 }) => {
-  const { t } = useLanguage();
+  const { t, dir } = useLanguage();
+  const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft;
   const isPrivileged = user.role === 'teacher' || Boolean(user.isAdmin);
   const isRestricted = Boolean(user.isRestricted && !isPrivileged);
+  const communityDisabled = Boolean(!isPrivileged && appSettings && !appSettings.communityEnabled);
+  const postingPaused = Boolean(!isPrivileged && appSettings && !appSettings.communityPostingEnabled);
+  const isReadOnly = isRestricted || postingPaused;
 
   const [tab, setTab] = useState<CommunityTab>('feed');
   const [statusBanner, setStatusBanner] = useState<{ kind: 'ok' | 'err'; text: string } | null>(
@@ -102,6 +107,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   // Peers & Presence
   const [peers, setPeers] = useState<CommunityPeer[]>([]);
   const [peerSearch, setPeerSearch] = useState('');
+  const [peerStatusFilter, setPeerStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
 
   // Feed State
   const [posts, setPosts] = useState<CommunityPost[]>([]);
@@ -246,6 +252,33 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   useEffect(() => {
     void Promise.all([fetchPeers(), fetchPosts(), fetchDmThreads(), fetchGroups()]);
   }, [fetchPeers, fetchPosts, fetchDmThreads, fetchGroups]);
+
+  // 15s polling fallback for live presence & messages when WebSockets are inactive (e.g., Vercel static host)
+  useEffect(() => {
+    if (wsConnected) return;
+    const interval = setInterval(() => {
+      void fetchPeers();
+      void fetchDmThreads();
+      if (tab === 'feed') void fetchPosts();
+      if (tab === 'dm' && selectedPeerId !== null) void fetchDmConversation(selectedPeerId);
+      if (tab === 'groups') {
+        void fetchGroups();
+        if (selectedGroupId !== null) void fetchGroupMessages(selectedGroupId);
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [
+    wsConnected,
+    tab,
+    selectedPeerId,
+    selectedGroupId,
+    fetchPeers,
+    fetchDmThreads,
+    fetchPosts,
+    fetchDmConversation,
+    fetchGroups,
+    fetchGroupMessages,
+  ]);
 
   // Refetch filtered posts when search/chapter changes
   useEffect(() => {
@@ -456,7 +489,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   // ---------------- FEED ACTIONS ----------------
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isRestricted) return;
+    if (isReadOnly) return;
     if (!postContent.trim() && !postFile) return;
 
     setPublishingPost(true);
@@ -494,7 +527,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   };
 
   const handleAddComment = async (postId: number) => {
-    if (isRestricted) return;
+    if (isReadOnly) return;
     const text = (commentDrafts[postId] || '').trim();
     if (!text) return;
 
@@ -576,7 +609,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
   const handleSendDm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isRestricted || !selectedPeerId) return;
+    if (isReadOnly || !selectedPeerId) return;
     if (!dmText.trim() && !dmFile) return;
 
     setSendingDm(true);
@@ -616,7 +649,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   // ---------------- GROUP ACTIONS ----------------
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isRestricted || newGroupName.trim().length < 2) return;
+    if (isReadOnly || newGroupName.trim().length < 2) return;
     setCreatingGroup(true);
     try {
       const data = await apiFetch<{ groupId: number }>('/api/community/groups', {
@@ -692,7 +725,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
   const handleSendGroupMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isRestricted || !selectedGroupId) return;
+    if (isReadOnly || !selectedGroupId) return;
     if (!groupMsgText.trim() && !groupMsgFile) return;
 
     setSendingGroupMsg(true);
@@ -753,10 +786,23 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
     }
   };
 
+  const peerOnlineMap = useMemo(() => {
+    const map = new Map<number, boolean>();
+    map.set(user.id, true);
+    for (const p of peers) {
+      map.set(p.id, Boolean(p.online));
+    }
+    return map;
+  }, [peers, user.id]);
+
   const onlineStudentsCount = peers.filter((p) => p.online && p.role === 'student').length;
+  const totalOnlinePeersCount = peers.filter((p) => p.online).length;
+  const totalOfflinePeersCount = peers.filter((p) => !p.online).length;
   const totalUnreadDms = dmThreads.reduce((sum, th) => sum + (th.unread_count || 0), 0);
 
   const filteredPeers = peers.filter((p) => {
+    if (peerStatusFilter === 'online' && !p.online) return false;
+    if (peerStatusFilter === 'offline' && p.online) return false;
     const q = peerSearch.trim().toLowerCase();
     if (!q) return true;
     return p.name.toLowerCase().includes(q) || p.grade.toLowerCase().includes(q);
@@ -784,6 +830,18 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
     { type: 'insightful', label: t.community.reactions.insightful, icon: Lightbulb },
   ];
 
+  if (communityDisabled) {
+    return (
+      <div className="rounded-2xl border border-[#E6DFD5] bg-white p-8 text-center space-y-3">
+        <ShieldAlert className="w-9 h-9 text-[#6B1118] mx-auto" />
+        <h2 className="text-xl font-bold text-[#1C1917]">{t.community.title}</h2>
+        <p className="text-sm text-[#57534E] max-w-md mx-auto">
+          {t.community.communityDisabledNotice}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {/* Header & Online Counter */}
@@ -810,6 +868,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
           <p className="text-[#57534E] mt-0.5 leading-relaxed">{t.community.privacyBannerDesc}</p>
         </div>
       </div>
+
+      {/* Posting Paused Notice */}
+      {postingPaused && (
+        <div className="rounded-xl border border-[#D9A62E]/40 bg-[#FBF4DF] px-4 py-3 flex items-start gap-3 text-xs sm:text-sm text-[#6B1118]">
+          <AlertTriangle className="w-5 h-5 text-[#D9A62E] shrink-0 mt-0.5" />
+          <p className="font-medium">{t.community.postingPausedNotice}</p>
+        </div>
+      )}
 
       {/* Restricted Account Notice */}
       {isRestricted && (
@@ -915,7 +981,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
             <textarea
               value={postContent}
               onChange={(e) => setPostContent(e.target.value)}
-              disabled={isRestricted || publishingPost}
+              disabled={isReadOnly || publishingPost}
               placeholder={t.community.sharePlaceholder}
               rows={3}
               className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] focus:ring-2 focus:ring-[#6B1118]/15 disabled:opacity-60"
@@ -926,7 +992,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 <select
                   value={postChapter}
                   onChange={(e) => setPostChapter(e.target.value)}
-                  disabled={isRestricted}
+                  disabled={isReadOnly}
                   aria-label={t.community.chapterTagOptional}
                   className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-2 text-xs font-medium text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
                 >
@@ -946,7 +1012,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 />
                 <button
                   type="button"
-                  disabled={isRestricted}
+                  disabled={isReadOnly}
                   onClick={() => postFileInputRef.current?.click()}
                   className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-2 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] cursor-pointer min-h-[40px] disabled:opacity-50"
                 >
@@ -973,7 +1039,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
               <button
                 type="submit"
-                disabled={isRestricted || publishingPost || (!postContent.trim() && !postFile)}
+                disabled={isReadOnly || publishingPost || (!postContent.trim() && !postFile)}
                 className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 transition-colors cursor-pointer min-h-[42px]"
               >
                 <Send className="w-4 h-4 text-[#E5B742]" />
@@ -1026,6 +1092,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 const taggedChapter = post.chapter_number
                   ? chapters.find((c) => c.chapter_number === post.chapter_number)
                   : null;
+                const authorOnline = post.author_online ?? peerOnlineMap.get(post.author_id) ?? false;
 
                 return (
                   <article
@@ -1035,12 +1102,29 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                     {/* Post Author Header */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        {renderAvatar(post.author_name, post.author_avatar_url, 'w-11 h-11')}
+                        <div className="relative shrink-0">
+                          {renderAvatar(post.author_name, post.author_avatar_url, 'w-11 h-11')}
+                          <span
+                            aria-label={authorOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                            className={`absolute bottom-0 end-0 w-3 h-3 rounded-full ring-2 ring-white ${
+                              authorOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                            }`}
+                          />
+                        </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-bold text-sm sm:text-base text-[#1C1917] truncate">
                               {post.author_name}
                             </p>
+                            <span
+                              className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold ${
+                                authorOnline
+                                  ? 'bg-[#ECFDF5] text-[#065F46]'
+                                  : 'bg-[#FAF8F5] text-[#57534E]'
+                              }`}
+                            >
+                              {authorOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                            </span>
                             {(post.author_role === 'teacher' || post.author_is_admin) && (
                               <span className="rounded-md bg-[#FBF4DF] border border-[#D9A62E]/40 px-2 py-0.5 text-[11px] font-bold text-[#6B1118]">
                                 {t.community.teacherBadge}
@@ -1143,7 +1227,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                           <button
                             key={rb.type}
                             type="button"
-                            disabled={isRestricted}
+                            disabled={isReadOnly}
                             onClick={() => handleReaction(post.id, rb.type)}
                             className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer min-h-[36px] disabled:opacity-50 ${
                               active
@@ -1170,17 +1254,35 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                         <div className="space-y-2.5">
                           {post.comments.map((c) => {
                             const isOwnComment = c.author_id === user.id;
+                            const commentOnline =
+                              c.author_online ?? peerOnlineMap.get(c.author_id) ?? false;
                             return (
                               <div
                                 key={c.id}
                                 className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] px-3.5 py-2.5 flex items-start justify-between gap-2.5"
                               >
                                 <div className="flex items-start gap-2.5 min-w-0">
-                                  {renderAvatar(c.author_name, c.author_avatar_url, 'w-7 h-7')}
+                                  <div className="relative shrink-0">
+                                    {renderAvatar(c.author_name, c.author_avatar_url, 'w-7 h-7')}
+                                    <span
+                                      className={`absolute bottom-0 end-0 w-2 h-2 rounded-full ring-1 ring-white ${
+                                        commentOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                                      }`}
+                                    />
+                                  </div>
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-bold text-[#1C1917]">
                                         {c.author_name}
+                                      </span>
+                                      <span
+                                        className={`text-[10px] font-semibold ${
+                                          commentOnline ? 'text-[#065F46]' : 'text-[#57534E]'
+                                        }`}
+                                      >
+                                        {commentOnline
+                                          ? t.community.onlineStatus
+                                          : t.community.offlineStatus}
                                       </span>
                                       <span className="text-[11px] text-[#57534E] tabular-nums">
                                         {formatUtcTimestamp(c.created_at)}
@@ -1226,7 +1328,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                         </div>
                       )}
 
-                      {!isRestricted && (
+                      {!isReadOnly && (
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
@@ -1282,6 +1384,35 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] ps-9 pe-3 py-2 text-xs sm:text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118]"
               />
             </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { id: 'all', label: `${t.community.filterAllPeers} (${peers.length})` },
+                {
+                  id: 'online',
+                  label: `${t.community.filterOnlinePeers} (${totalOnlinePeersCount})`,
+                },
+                {
+                  id: 'offline',
+                  label: `${t.community.filterOfflinePeers} (${totalOfflinePeersCount})`,
+                },
+              ] as const
+            ).map((pf) => (
+              <button
+                key={pf.id}
+                type="button"
+                onClick={() => setPeerStatusFilter(pf.id)}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold cursor-pointer ${
+                  peerStatusFilter === pf.id
+                    ? 'bg-[#6B1118] text-white'
+                    : 'border border-[#E6DFD5] bg-[#FAF8F5] text-[#57534E] hover:text-[#1C1917]'
+                }`}
+              >
+                {pf.label}
+              </button>
+            ))}
           </div>
 
           {filteredPeers.length === 0 ? (
@@ -1395,6 +1526,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
             <div className="flex-1 overflow-y-auto divide-y divide-[#E6DFD5]">
               {filteredDmThreads.map((th) => {
                 const active = selectedPeerId === th.peer_id;
+                const threadOnline = th.peer_online || (peerOnlineMap.get(th.peer_id) ?? false);
                 return (
                   <button
                     key={th.peer_id}
@@ -1409,18 +1541,29 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                         {renderAvatar(th.peer_name, th.peer_avatar_url, 'w-10 h-10')}
                         <span
                           className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
-                            th.peer_online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                            threadOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
                           }`}
                         />
                       </div>
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-[#1C1917] truncate">
-                          {th.peer_name}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-semibold text-[#1C1917] truncate">
+                            {th.peer_name}
+                          </p>
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                              threadOnline
+                                ? 'bg-[#ECFDF5] text-[#065F46]'
+                                : 'bg-[#FAF8F5] text-[#57534E]'
+                            }`}
+                          >
+                            {threadOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                          </span>
+                        </div>
                         <p className="text-xs text-[#57534E] truncate">
                           {th.last_message_text ||
                             th.last_attachment_name ||
-                            (th.peer_online ? t.community.onlineStatus : t.community.offlineStatus)}
+                            (threadOnline ? t.community.onlineStatus : t.community.offlineStatus)}
                         </p>
                       </div>
                     </div>
@@ -1459,7 +1602,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       className="md:hidden p-1.5 rounded-lg text-[#6B1118] hover:bg-[#FAF8F5] cursor-pointer"
                       aria-label={t.community.backToList}
                     >
-                      <ArrowLeft className="w-4 h-4" />
+                      <BackIcon className="w-4 h-4" />
                     </button>
                     {renderAvatar(
                       selectedDmThread.peer_name,
@@ -1470,10 +1613,21 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       <p className="text-sm font-bold text-[#1C1917] truncate">
                         {selectedDmThread.peer_name}
                       </p>
-                      <p className="text-[11px] text-[#57534E]">
-                        {selectedDmThread.peer_online
-                          ? t.community.onlineStatus
-                          : t.community.offlineStatus}
+                      <p className="text-[11px] text-[#57534E] inline-flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            selectedDmThread.peer_online ||
+                            peerOnlineMap.get(selectedDmThread.peer_id)
+                              ? 'bg-[#059669]'
+                              : 'bg-[#A8A29E]'
+                          }`}
+                        />
+                        <span>
+                          {selectedDmThread.peer_online ||
+                          peerOnlineMap.get(selectedDmThread.peer_id)
+                            ? t.community.onlineStatus
+                            : t.community.offlineStatus}
+                        </span>
                       </p>
                     </div>
                   </div>
@@ -1492,6 +1646,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                     dmMessages.map((msg) => {
                       const isMine = msg.sender_id === user.id;
                       const isImg = msg.attachment_mime?.startsWith('image/');
+                      const senderOnline =
+                        msg.sender_online ?? peerOnlineMap.get(msg.sender_id) ?? false;
                       return (
                         <div
                           key={msg.id}
@@ -1505,7 +1661,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                             }`}
                           >
                             <div className="flex items-center justify-between gap-3 text-[11px] opacity-80">
-                              <span className="font-semibold">{msg.sender_name}</span>
+                              <span className="font-semibold inline-flex items-center gap-1.5">
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    senderOnline ? 'bg-[#10B981]' : 'bg-[#A8A29E]'
+                                  }`}
+                                />
+                                <span>{msg.sender_name}</span>
+                              </span>
                               <div className="flex items-center gap-1.5">
                                 <span className="tabular-nums">
                                   {formatUtcTimestamp(msg.created_at)}
@@ -1601,7 +1764,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                     />
                     <button
                       type="button"
-                      disabled={isRestricted}
+                      disabled={isReadOnly}
                       onClick={() => dmFileInputRef.current?.click()}
                       className="p-2.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] text-[#6B1118] hover:border-[#6B1118] cursor-pointer disabled:opacity-50"
                       aria-label={t.community.attachFileBtn}
@@ -1611,14 +1774,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                     <input
                       type="text"
                       value={dmText}
-                      disabled={isRestricted || sendingDm}
+                      disabled={isReadOnly || sendingDm}
                       onChange={(e) => setDmText(e.target.value)}
                       placeholder={t.community.writeDmPlaceholder}
                       className="flex-1 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] disabled:opacity-60"
                     />
                     <button
                       type="submit"
-                      disabled={isRestricted || sendingDm || (!dmText.trim() && !dmFile)}
+                      disabled={isReadOnly || sendingDm || (!dmText.trim() && !dmFile)}
                       className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] disabled:opacity-50 cursor-pointer min-h-[42px]"
                     >
                       <Send className="w-4 h-4 text-[#E5B742]" />
@@ -1645,7 +1808,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
           >
             <div className="p-4 border-b border-[#E6DFD5] flex items-center justify-between gap-2">
               <h3 className="text-sm font-bold text-[#1C1917]">{t.community.groupsTitle}</h3>
-              {!isRestricted && (
+              {!isReadOnly && (
                 <button
                   type="button"
                   onClick={() => setShowCreateGroupModal(true)}
@@ -1718,7 +1881,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       className="md:hidden p-1.5 rounded-lg text-[#6B1118] hover:bg-[#FAF8F5] cursor-pointer"
                       aria-label={t.community.backToList}
                     >
-                      <ArrowLeft className="w-4 h-4" />
+                      <BackIcon className="w-4 h-4" />
                     </button>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -1801,19 +1964,30 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
                 {/* Member Strip */}
                 <div className="px-4 py-2 border-b border-[#E6DFD5] bg-[#FAF8F5] flex items-center gap-2 overflow-x-auto text-xs">
-                  {groupMembers.map((m) => (
-                    <span
-                      key={m.id}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-[#E6DFD5] px-2 py-1 shrink-0"
-                    >
+                  {groupMembers.map((m) => {
+                    const memberOnline = m.online || (peerOnlineMap.get(m.id) ?? false);
+                    return (
                       <span
-                        className={`w-2 h-2 rounded-full ${
-                          m.online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
-                        }`}
-                      />
-                      <span className="font-medium text-[#1C1917]">{m.name}</span>
-                    </span>
-                  ))}
+                        key={m.id}
+                        title={memberOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white border border-[#E6DFD5] px-2 py-1 shrink-0"
+                      >
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            memberOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                          }`}
+                        />
+                        <span className="font-medium text-[#1C1917]">{m.name}</span>
+                        <span
+                          className={`text-[10px] font-semibold ${
+                            memberOnline ? 'text-[#065F46]' : 'text-[#57534E]'
+                          }`}
+                        >
+                          {memberOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                        </span>
+                      </span>
+                    );
+                  })}
                 </div>
 
                 {/* Group Messages */}
@@ -1826,6 +2000,8 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                     groupMessages.map((msg) => {
                       const isMine = msg.sender_id === user.id;
                       const isImg = msg.attachment_mime?.startsWith('image/');
+                      const senderOnline =
+                        msg.sender_online ?? peerOnlineMap.get(msg.sender_id) ?? false;
                       return (
                         <div
                           key={msg.id}
@@ -1839,7 +2015,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                             }`}
                           >
                             <div className="flex items-center justify-between gap-3 text-[11px] opacity-80">
-                              <span className="font-semibold">{msg.sender_name}</span>
+                              <span className="font-semibold inline-flex items-center gap-1.5">
+                                <span
+                                  className={`w-2 h-2 rounded-full ${
+                                    senderOnline ? 'bg-[#10B981]' : 'bg-[#A8A29E]'
+                                  }`}
+                                />
+                                <span>{msg.sender_name}</span>
+                              </span>
                               <div className="flex items-center gap-1.5">
                                 <span className="tabular-nums">
                                   {formatUtcTimestamp(msg.created_at)}
@@ -1910,7 +2093,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 {!activeGroupDetail.is_member && !isPrivileged ? (
                   <div className="p-3.5 border-t border-[#E6DFD5] bg-[#FAF8F5] flex items-center justify-between gap-3">
                     <span className="text-xs text-[#57534E]">{t.community.joinToChatPrompt}</span>
-                    {!isRestricted && (
+                    {!isReadOnly && (
                       <button
                         type="button"
                         onClick={() => handleJoinGroup(activeGroupDetail.id)}
@@ -1949,7 +2132,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       />
                       <button
                         type="button"
-                        disabled={isRestricted}
+                        disabled={isReadOnly}
                         onClick={() => groupFileInputRef.current?.click()}
                         className="p-2.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] text-[#6B1118] hover:border-[#6B1118] cursor-pointer disabled:opacity-50"
                         aria-label={t.community.attachFileBtn}
@@ -1959,7 +2142,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       <input
                         type="text"
                         value={groupMsgText}
-                        disabled={isRestricted || sendingGroupMsg}
+                        disabled={isReadOnly || sendingGroupMsg}
                         onChange={(e) => setGroupMsgText(e.target.value)}
                         placeholder={t.community.writeGroupMsgPlaceholder}
                         className="flex-1 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] disabled:opacity-60"
@@ -1967,7 +2150,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                       <button
                         type="submit"
                         disabled={
-                          isRestricted ||
+                          isReadOnly ||
                           sendingGroupMsg ||
                           (!groupMsgText.trim() && !groupMsgFile)
                         }

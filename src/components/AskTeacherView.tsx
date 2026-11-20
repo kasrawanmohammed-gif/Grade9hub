@@ -15,11 +15,15 @@ import {
 import { apiFetch } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { TeacherMessage, TeacherThread, User } from '../types';
+import type { LiveCommunityEvent } from './CommunityView';
 import { UserAvatar } from './UserAvatar';
+import { formatUtcDateTime } from '../utils/dateFormat';
+import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
 
 interface AskTeacherViewProps {
   user: User;
   initialStudentId?: number | null;
+  liveEvent?: LiveCommunityEvent | null;
   onClearInitialStudentId?: () => void;
   onRefreshNotifications: () => Promise<void>;
 }
@@ -27,6 +31,7 @@ interface AskTeacherViewProps {
 export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
   user,
   initialStudentId,
+  liveEvent,
   onClearInitialStudentId,
   onRefreshNotifications,
 }) => {
@@ -94,6 +99,27 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
   useEffect(() => {
     threadEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!liveEvent || liveEvent.type !== 'community:presence' || !liveEvent.payload) return;
+    const p = liveEvent.payload as {
+      userId?: number;
+      online?: boolean;
+      lastActiveAt?: string;
+    };
+    if (typeof p.userId !== 'number') return;
+    setThreads((prev) =>
+      prev.map((th) =>
+        th.student_id === p.userId
+          ? {
+              ...th,
+              student_online: Boolean(p.online),
+              student_last_active_at: p.lastActiveAt || th.student_last_active_at,
+            }
+          : th
+      )
+    );
+  }, [liveEvent]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,21 +214,36 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                         selected ? 'bg-[#F9EFF0]' : 'hover:bg-[#FAF8F5]'
                       }`}
                     >
-                      <UserAvatar
-                        name={th.student_name}
-                        avatarUrl={th.student_avatar_url}
-                        sizeClass="w-9 h-9"
-                        textClass="text-xs"
-                        fallbackClass="bg-[#6B1118]/10 text-[#6B1118]"
-                        className="mt-0.5"
-                      />
+                      <div className="relative shrink-0 mt-0.5">
+                        <UserAvatar
+                          name={th.student_name}
+                          avatarUrl={th.student_avatar_url}
+                          sizeClass="w-9 h-9"
+                          textClass="text-xs"
+                          fallbackClass="bg-[#6B1118]/10 text-[#6B1118]"
+                        />
+                        <span
+                          title={th.student_online ? t.askTeacher.onlineLabel : t.askTeacher.offlineLabel}
+                          aria-label={th.student_online ? t.askTeacher.onlineLabel : t.askTeacher.offlineLabel}
+                          className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-[#1E1A1A] ${
+                            th.student_online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                          }`}
+                        />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold text-sm text-[#1C1917] truncate">
-                            {th.student_name}
-                          </span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-sm text-[#1C1917] truncate">
+                              {th.student_name}
+                            </span>
+                            {th.student_online && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#ECFDF5] text-[#065F46] shrink-0">
+                                {t.askTeacher.onlineLabel}
+                              </span>
+                            )}
+                          </div>
                           {th.unread_count > 0 && (
-                            <span className="text-xs font-bold text-[#6B1118] tabular-nums">
+                            <span className="text-xs font-bold text-[#6B1118] tabular-nums shrink-0">
                               {th.unread_count} {t.askTeacher.newBadge}
                             </span>
                           )}
@@ -246,25 +287,52 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                 </button>
               )}
               {isPrivileged && activeThread ? (
-                <UserAvatar
-                  name={activeThread.student_name}
-                  avatarUrl={activeThread.student_avatar_url}
-                  sizeClass="w-10 h-10"
-                  textClass="text-sm"
-                />
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    name={activeThread.student_name}
+                    avatarUrl={activeThread.student_avatar_url}
+                    sizeClass="w-10 h-10"
+                    textClass="text-sm"
+                  />
+                  <span
+                    title={
+                      activeThread.student_online
+                        ? t.askTeacher.onlineLabel
+                        : t.askTeacher.offlineLabel
+                    }
+                    className={`absolute bottom-0 end-0 w-3 h-3 rounded-full ring-2 ring-[#FAF8F5] dark:ring-[#1E1A1A] ${
+                      activeThread.student_online ? 'bg-[#059669]' : 'bg-[#A8A29E]'
+                    }`}
+                  />
+                </div>
               ) : (
                 <div className="w-10 h-10 rounded-full bg-[#6B1118] text-white flex items-center justify-center shrink-0 overflow-hidden">
                   <UserIcon className="w-5 h-5 text-[#E5B742]" />
                 </div>
               )}
               <div className="min-w-0">
-                <h3 className="text-sm font-bold text-[#1C1917] truncate">
-                  {isPrivileged
-                    ? activeThread
-                      ? activeThread.student_name
-                      : t.askTeacher.selectStudent
-                    : t.about.name}
-                </h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-[#1C1917] truncate">
+                    {isPrivileged
+                      ? activeThread
+                        ? activeThread.student_name
+                        : t.askTeacher.selectStudent
+                      : t.about.name}
+                  </h3>
+                  {isPrivileged && activeThread && (
+                    <span
+                      className={`text-[11px] font-semibold px-2 py-0.5 rounded ${
+                        activeThread.student_online
+                          ? 'bg-[#ECFDF5] text-[#065F46]'
+                          : 'bg-white border border-[#E6DFD5] text-[#57534E]'
+                      }`}
+                    >
+                      {activeThread.student_online
+                        ? t.askTeacher.onlineLabel
+                        : t.askTeacher.offlineLabel}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-[#57534E] truncate">
                   {isPrivileged
                     ? activeThread
@@ -292,7 +360,6 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
               messages.map((msg) => {
                 const isOwn = msg.sender_id === user.id;
                 const isImage = msg.attachment_mime?.startsWith('image/');
-                const fileBasename = msg.attachment_url?.split('/').pop() || '';
                 return (
                   <div
                     key={msg.id}
@@ -309,7 +376,7 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                       )}
                       <span className="text-[11px] text-[#57534E]">
                         {msg.sender_name} ·{' '}
-                        {new Date(msg.created_at + 'Z').toLocaleString([], {
+                        {formatUtcDateTime(msg.created_at, undefined, {
                           month: 'short',
                           day: 'numeric',
                           hour: '2-digit',
@@ -360,9 +427,10 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                                 />
                               </button>
                               <a
-                                href={`/api/uploads/download/${fileBasename}?name=${encodeURIComponent(
+                                href={getAttachmentDownloadHref(
+                                  msg.attachment_url,
                                   msg.attachment_name
-                                )}`}
+                                )}
                                 className={`inline-flex items-center gap-1.5 text-xs font-semibold hover:underline ${
                                   isOwn ? 'text-[#E5B742]' : 'text-[#6B1118]'
                                 }`}
@@ -375,9 +443,10 @@ export const AskTeacherView: React.FC<AskTeacherViewProps> = ({
                             </div>
                           ) : (
                             <a
-                              href={`/api/uploads/download/${fileBasename}?name=${encodeURIComponent(
+                              href={getAttachmentDownloadHref(
+                                msg.attachment_url,
                                 msg.attachment_name
-                              )}`}
+                              )}
                               className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-semibold border ${
                                 isOwn
                                   ? 'border-white/25 bg-white/10 text-white hover:bg-white/20'

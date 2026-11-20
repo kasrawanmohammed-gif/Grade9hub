@@ -71,6 +71,21 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
 
   const cardRef = useRef<HTMLDivElement | null>(null);
   const explanationRef = useRef<HTMLDivElement | null>(null);
+  const checkedResultsRef = useRef(checkedResults);
+  const answersRef = useRef(answers);
+  const submissionRef = useRef(submission);
+
+  useEffect(() => {
+    checkedResultsRef.current = checkedResults;
+  }, [checkedResults]);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  useEffect(() => {
+    submissionRef.current = submission;
+  }, [submission]);
 
   const loadGeneral = async (langOverride = language) => {
     setLoading(true);
@@ -114,36 +129,44 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
 
     void loadGeneral(language);
 
-    const checkedEntries = Object.entries(checkedResults);
-    if (checkedEntries.length > 0) {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+
+    const onlineCheckedEntries = Object.entries(checkedResultsRef.current).filter(
+      ([, res]) => !res.offlineQueued
+    );
+    if (onlineCheckedEntries.length > 0) {
       Promise.all(
-        checkedEntries.map(([qIdStr, res]) =>
+        onlineCheckedEntries.map(([qIdStr, res]) =>
           apiFetch<QuizAnswerCheckResult>('/api/quizzes/check-answer', {
             method: 'POST',
             body: JSON.stringify({
               questionId: Number(qIdStr),
               selectedOption: res.selectedOption,
               lang: language,
+              skipSave: true,
             }),
           })
         )
       )
         .then((updated) => {
-          const map: Record<number, QuizAnswerCheckResult> = {};
-          for (const item of updated) {
-            map[item.questionId] = item;
-          }
-          setCheckedResults(map);
+          setCheckedResults((prev) => {
+            const next = { ...prev };
+            for (const item of updated) {
+              next[item.questionId] = item;
+            }
+            return next;
+          });
         })
         .catch(() => {});
     }
 
-    if (submission) {
+    const currentSub = submissionRef.current;
+    if (currentSub && !currentSub.offlineQueued) {
       apiFetch<QuizSubmissionResponse>('/api/quizzes/submit', {
         method: 'POST',
         body: JSON.stringify({
           mode: 'general',
-          answers,
+          answers: answersRef.current,
           lang: language,
           skipSave: true,
         }),
@@ -184,6 +207,14 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
           offlineQueued: true,
         },
       }));
+      if (settings.autoScrollFeedback) {
+        setTimeout(() => {
+          explanationRef.current?.scrollIntoView({
+            behavior: settings.reduceMotion ? 'auto' : 'smooth',
+            block: 'nearest',
+          });
+        }, 50);
+      }
     };
 
     try {
@@ -347,16 +378,22 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
   };
 
   const handleDelete = async (id: number) => {
-    await apiFetch(`/api/questions/${id}`, { method: 'DELETE' });
-    await loadGeneral();
-    await onRefreshChapters();
+    setError(null);
+    try {
+      await apiFetch(`/api/questions/${id}`, { method: 'DELETE' });
+      await loadGeneral();
+      await onRefreshChapters();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete question.');
+    }
   };
 
   const safeIndex = questions.length > 0 ? Math.min(currentIndex, questions.length - 1) : 0;
   const currentQ = questions[safeIndex];
   const currentCheck = currentQ ? checkedResults[currentQ.id] : undefined;
-  const answeredCount = Object.keys(checkedResults).length;
-  const correctSoFar = Object.values(checkedResults).filter((r) => r.isCorrect).length;
+  const gradedResults = Object.values(checkedResults).filter((r) => !r.offlineQueued);
+  const answeredCount = gradedResults.length;
+  const correctSoFar = gradedResults.filter((r) => r.isCorrect).length;
   const progressPercent =
     questions.length > 0
       ? Math.round(((safeIndex + (currentCheck ? 1 : 0)) / questions.length) * 100)

@@ -1,12 +1,12 @@
 {
-  "projectId": "smurfy-keel-kc62s",
-  "appId": "1:1084621050414:web:fb2285f7ace7d6037e85bf",
-  "apiKey": "AIzaSyAinS_RKiKiF16z821Hizy6EkRrxaEPA70",
-  "authDomain": "smurfy-keel-kc62s.firebaseapp.com",
+  "projectId": "gen-lang-client-0277416465",
+  "appId": "1:615496709790:web:1a95a608746a45784aed8f",
+  "apiKey": "AIzaSyCXsTYnQcPvsNh4dgSnIMEOJQlOCh5eklY",
+  "authDomain": "gen-lang-client-0277416465.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-majquizeducation-39a3c0fe-fb37-470b-8a7d-71bd2e4c3e73",
-  "storageBucket": "smurfy-keel-kc62s.firebasestorage.app",
-  "messagingSenderId": "1084621050414",
+  "storageBucket": "gen-lang-client-0277416465.firebasestorage.app",
+  "messagingSenderId": "615496709790",
   "measurementId": "",
-  "oAuthClientId": "1084621050414-495tkpbokgm64khvp2krkd4ne7ahaue8.apps.googleusercontent.com",
+  "oAuthClientId": "615496709790-1t3n2a1canp6bjvmee1nrddp0gbhqv0k.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }
