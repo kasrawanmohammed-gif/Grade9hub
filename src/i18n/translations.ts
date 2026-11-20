@@ -24,8 +24,6 @@ export interface Translations {
     appName: string;
     scienceStudio: string;
     schoolTag: string;
-    motivationalQuote: string;
-    motivationalQuotes: string[];
     poweredBy: string;
     splashSubtitle: string;
     offlineMode: string;
@@ -37,11 +35,6 @@ export interface Translations {
     installIOSStep2: string;
     installIOSStep3: string;
     gotIt: string;
-    greetingMorning: string;
-    greetingAfternoon: string;
-    greetingEvening: string;
-    studentGreetingTemplate: string;
-    heroJourneySubtitle: string;
   };
   nav: {
     home: string;
@@ -113,7 +106,6 @@ export interface Translations {
     returnLoginBtn: string;
     passwordsMismatch: string;
     verifiedMsg: string;
-    rememberMe: string;
     savedSessionNote: string;
     dbEmptyTitle: string;
     dbEmptyDesc: string;
@@ -122,10 +114,15 @@ export interface Translations {
     restoringFromVault: string;
     enterAdminCredentialsForRestore: string;
     continueWithGoogle: string;
+    continueWithFacebook: string;
     cloudSyncBadge: string;
     orEmailSeparator: string;
     googleSignInLoading: string;
     googleSignInFailed: string;
+    facebookSignInLoading: string;
+    facebookSignInFailed: string;
+    facebookProviderDisabled: string;
+    socialAccountExistsDiffCredential: string;
     adminClaimPrompt: string;
   };
   home: {
@@ -269,8 +266,6 @@ export interface Translations {
     sending: string;
     send: string;
     download: string;
-    onlineLabel: string;
-    offlineLabel: string;
   };
   notifications: {
     title: string;
@@ -315,8 +310,6 @@ export interface Translations {
     thinking: string;
     chatPlaceholder: string;
     send: string;
-    retry: string;
-    stop: string;
     diagramTitle: string;
     diagramSub: string;
     diagramPromptLabel: string;
@@ -390,38 +383,6 @@ export interface Translations {
     updatedMsg: string;
     roleUpdatedMsg: string;
     accountRemovedMsg: string;
-    cropModalTitle: string;
-    cropModalSub: string;
-    zoomLabel: string;
-    rotateBtn: string;
-    resetCropBtn: string;
-    applyCropUploadBtn: string;
-    invalidImageType: string;
-    imageTooLarge: string;
-    dangerZoneTitle: string;
-    dangerZoneDesc: string;
-    deleteAccountBtn: string;
-    deleteAccountModalTitle: string;
-    deleteAccountWarning: string;
-    deleteAccountTypeLabel: string;
-    deleteAccountPlaceholder: string;
-    confirmDeleteAccountBtn: string;
-    deletingAccount: string;
-    protectedAdminDeleteNote: string;
-    refreshAccountsBtn: string;
-    searchAccountsPlaceholder: string;
-    filterAllAccounts: string;
-    filterStudentsOnly: string;
-    filterAdminsOnly: string;
-    filterOnlineOnly: string;
-    filterRestrictedOnly: string;
-    inspectEditBtn: string;
-    inspectModalTitle: string;
-    accountUpdatedMsg: string;
-    roleLabel: string;
-    sourceLabel: string;
-    joinedLabel: string;
-    loadAccountsError: string;
   };
   settings: {
     title: string;
@@ -547,14 +508,6 @@ export interface Translations {
     restrictPromptTitle: string;
     restrictReasonPlaceholder: string;
     confirmRestrictBtn: string;
-    deleteUserBtn: string;
-    deleteUserModalTitle: string;
-    deleteUserModalWarning: string;
-    confirmDeleteUserBtn: string;
-    deletingUserBtn: string;
-    userDeletedSuccess: string;
-    cannotDeleteSelf: string;
-    cannotDeleteMainAdmin: string;
     monitoringTitle: string;
     monitoringSub: string;
     tabOverview: string;
@@ -645,30 +598,6 @@ export interface Translations {
     backupCreatedMsg: string;
     backupRestoredMsg: string;
     backupConfirmReplace: string;
-    aiDisabledNotice: string;
-    tabAccounts: string;
-    tabContentControl: string;
-    tabAppSettings: string;
-    registeredAccountsSub: string;
-    editProfileBtn: string;
-    saveProfileBtn: string;
-    contentControlTitle: string;
-    contentControlSub: string;
-    openQuizzesBtn: string;
-    openGeneralQaBtn: string;
-    openTextbooksQaBtn: string;
-    openHomeAnnouncementsBtn: string;
-    appSettingsTitle: string;
-    appSettingsSub: string;
-    settingAllowReg: string;
-    settingCommunityEnabled: string;
-    settingCommunityPosting: string;
-    settingAiTutor: string;
-    settingDefaultLang: string;
-    settingMaintenanceMsg: string;
-    settingMaintenancePlaceholder: string;
-    saveSettingsBtn: string;
-    settingsSavedMsg: string;
   };
   community: {
     title: string;
@@ -751,11 +680,6 @@ export interface Translations {
     youLabel: string;
     teacherBadge: string;
     restrictedUserTag: string;
-    filterAllPeers: string;
-    filterOnlinePeers: string;
-    filterOfflinePeers: string;
-    communityDisabledNotice: string;
-    postingPausedNotice: string;
   };
   competition: {
     title: string;
@@ -898,15 +822,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       appName: 'Grade 9 Hub',
       scienceStudio: 'Science AI Studio',
       schoolTag: 'Grade 9 Hub · Grade 9 Science',
-      motivationalQuote: 'Your effort today is the glory of your tomorrow.',
-      motivationalQuotes: [
-        'Your effort today is the glory of your tomorrow.',
-        'Curiosity is the spark that turns questions into discovery.',
-        'Every science problem solved today builds a sharper mind.',
-        'Small steps in study every day create extraordinary results.',
-        'Science rewards patience, practice, and a questioning mind.',
-        'Mistakes in practice are stepping stones to mastery.',
-      ],
       poweredBy: 'Powered by Mr. Kasrawan',
       splashSubtitle: 'Grade 9 Science Interactive Learning Platform',
       offlineMode: 'Offline Mode — Viewing cached content',
@@ -918,12 +833,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '2. Scroll down and select Add to Home Screen.',
       installIOSStep3: '3. Tap Add in the top-right corner to launch Grade 9 Hub as an app.',
       gotIt: 'Got It',
-      greetingMorning: 'Good morning',
-      greetingAfternoon: 'Good afternoon',
-      greetingEvening: 'Good evening',
-      studentGreetingTemplate: '{timeGreeting}, dear student! Welcome',
-      heroJourneySubtitle:
-        'Wishing you a bright, focused, and successful science learning journey.',
     },
     nav: {
       home: 'Home',
@@ -952,7 +861,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
     },
     auth: {
       heroBadge: 'Grade 9 Science · 11 Chapters',
-      heroTitle: 'The official science learning hub for Grade 9 students.',
+      heroTitle: 'Grade 9 Science Study Hub.',
       heroDesc:
         'Master all 11 chapters with instant quiz feedback, direct support from Mr. Kasrawan, and Science AI Studio.',
       statChaptersLabel: 'Grade 9 Chapters',
@@ -962,7 +871,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loginTab: 'Log In',
       registerTab: 'Create Account',
       welcomeBack: 'Welcome Back',
-      loginSubtitle: 'Sign in with your Grade 9 student or teacher email.',
+      loginSubtitle: 'Sign in with your registered Grade 9 student or teacher email.',
       emailLabel: 'Email Address',
       passwordLabel: 'Password',
       forgotPassword: 'Forgot Password?',
@@ -996,7 +905,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'Return to Log In',
       passwordsMismatch: 'Passwords do not match.',
       verifiedMsg: 'Verification code confirmed. Create your new password below.',
-      rememberMe: 'Remember me',
       savedSessionNote: 'Your login session stays saved securely until you manually log out.',
       dbEmptyTitle: 'Server Container Reset Detected (0 Accounts)',
       dbEmptyDesc:
@@ -1008,10 +916,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'Enter your administrator email and password in the form above first, then choose your backup .json file.',
       continueWithGoogle: 'Continue with Google',
+      continueWithFacebook: 'Continue with Facebook',
       cloudSyncBadge: 'Saved permanently in Cloud — survives all app updates & URL changes',
-      orEmailSeparator: 'OR',
+      orEmailSeparator: 'or continue with',
       googleSignInLoading: 'Connecting with Google...',
       googleSignInFailed: 'Google sign-in could not be completed. Please allow popups and try again.',
+      facebookSignInLoading: 'Connecting with Facebook...',
+      facebookSignInFailed: 'Facebook sign-in could not be completed. Please allow popups and try again.',
+      facebookProviderDisabled:
+        'Facebook sign-in is not enabled in Firebase Authentication yet. Please sign in with Google or Email.',
+      socialAccountExistsDiffCredential:
+        'An account already exists with this email using another sign-in method. Please sign in with Google or Email instead.',
       adminClaimPrompt:
         'This server database was reset after an update. Sign in with Google below or switch to Create Account to set your administrator password.',
     },
@@ -1157,8 +1072,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'Sending...',
       send: 'Send',
       download: 'Download',
-      onlineLabel: 'Online',
-      offlineLabel: 'Offline',
     },
     notifications: {
       title: 'Notifications',
@@ -1203,8 +1116,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'Thinking...',
       chatPlaceholder: 'Ask about work, power, kinetic energy, heat transfer...',
       send: 'Send',
-      retry: 'Retry',
-      stop: 'Stop',
       diagramTitle: 'High-Resolution Diagram Generator',
       diagramSub: 'Powered by Gemini 4 Hydrogen diagram engine with selectable 1K, 2K, and 4K PNG output.',
       diagramPromptLabel: 'Diagram or Visual Prompt',
@@ -1225,13 +1136,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'Science Concept Tutor',
         physicsTutorInstruction:
-          'You are a concise Grade 9 Science Tutor. Explain concepts clearly with key formulas, Latin SI units (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K), and a short real-world example.',
+          'You are an encouraging Grade 9 Science Concept Tutor for Grade 9 Hub. Break down scientific principles into clear intuition, equations with standard international Latin SI unit symbols (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K), and real-world examples.',
         stepSolverLabel: 'Step-by-Step Problem Solver',
         stepSolverInstruction:
-          'You are a Grade 9 Science Problem Solver. List given values, state the formula, show clear steps, and keep standard Latin SI units (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
+          'You are a rigorous Grade 9 Science Problem Solver. List known variables, state the governing law, show algebraic rearrangement step-by-step, and verify units using strict international Latin SI symbols (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K).',
         labCoachLabel: 'Lab & Experiment Coach',
         labCoachInstruction:
-          'You are a Grade 9 Lab Coach. Help design safe science experiments, identify variables, and explain measurements concisely.',
+          'You are a Laboratory Science Coach helping Grade 9 students design safe experiments, identify independent/dependent variables, and analyze measurement error.',
       },
     },
     profile: {
@@ -1281,38 +1192,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'Profile updated successfully.',
       roleUpdatedMsg: 'Updated {name} to {role}.',
       accountRemovedMsg: 'Account removed.',
-      cropModalTitle: 'Crop & Resize Profile Photo',
-      cropModalSub: 'Drag to position, zoom, or rotate before saving your 256×256 avatar.',
-      zoomLabel: 'Zoom',
-      rotateBtn: 'Rotate 90°',
-      resetCropBtn: 'Reset',
-      applyCropUploadBtn: 'Crop & Upload',
-      invalidImageType: 'Please choose a PNG, JPG, WebP, or GIF image (SVG is not supported).',
-      imageTooLarge: 'Image must be smaller than 15 MB.',
-      dangerZoneTitle: 'Danger Zone · Delete Account',
-      dangerZoneDesc: 'Permanently delete your account, quiz history, community posts, messages, and competition points. This cannot be undone.',
-      deleteAccountBtn: 'Delete My Account',
-      deleteAccountModalTitle: 'Permanently Delete Your Account?',
-      deleteAccountWarning: 'All of your quiz attempts, competition points, teacher conversations, and community messages will be permanently deleted and you will be signed out immediately.',
-      deleteAccountTypeLabel: 'Type DELETE to confirm permanent deletion',
-      deleteAccountPlaceholder: 'Type DELETE',
-      confirmDeleteAccountBtn: 'Permanently Delete Account',
-      deletingAccount: 'Deleting account...',
-      protectedAdminDeleteNote: 'The main administrator account cannot be deleted to protect system continuity.',
-      refreshAccountsBtn: 'Refresh',
-      searchAccountsPlaceholder: 'Search accounts by name, email, or grade...',
-      filterAllAccounts: 'All',
-      filterStudentsOnly: 'Students',
-      filterAdminsOnly: 'Admins / Teachers',
-      filterOnlineOnly: 'Online',
-      filterRestrictedOnly: 'Restricted',
-      inspectEditBtn: 'Inspect / Edit',
-      inspectModalTitle: 'Inspect & Edit Account',
-      accountUpdatedMsg: 'Account profile for {name} updated.',
-      roleLabel: 'Account Role',
-      sourceLabel: 'Registry Source',
-      joinedLabel: 'Joined',
-      loadAccountsError: 'Could not load registered accounts.',
     },
     settings: {
       title: 'System & Study Settings',
@@ -1440,14 +1319,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'Restrict Student Communication',
       restrictReasonPlaceholder: 'Reason for restricting community access (e.g. inappropriate language or spam)...',
       confirmRestrictBtn: 'Confirm Restriction',
-      deleteUserBtn: 'Delete Account',
-      deleteUserModalTitle: 'Delete User Account Permanently?',
-      deleteUserModalWarning: 'This will permanently delete this account, revoke all active sessions immediately, and erase their quiz attempts, points, messages, and posts.',
-      confirmDeleteUserBtn: 'Delete Account Permanently',
-      deletingUserBtn: 'Deleting...',
-      userDeletedSuccess: 'Account for {name} was permanently deleted and active sessions were revoked.',
-      cannotDeleteSelf: 'You cannot delete your own active account from the admin dashboard.',
-      cannotDeleteMainAdmin: 'The main administrator account cannot be deleted.',
       monitoringTitle: 'Community Monitoring, Activity Logs & Safety Moderation',
       monitoringSub: 'Inspect all private messages, group chats, detailed student activity timestamps, and moderation reports.',
       tabOverview: 'Overview',
@@ -1538,30 +1409,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'Backup snapshot created and verified on disk.',
       backupRestoredMsg: 'Backup restored successfully while preserving administrator permissions.',
       backupConfirmReplace: 'Full Replace will replace live records with this snapshot after creating a safety backup. Continue?',
-      aiDisabledNotice: 'AI Studio is currently paused by the administrator.',
-      tabAccounts: 'Registered Accounts',
-      tabContentControl: 'Content & Curriculum',
-      tabAppSettings: 'App Settings',
-      registeredAccountsSub: 'Inspect every student and teacher account, edit profile fields, manage admin permissions, restrict accounts, or safely remove accounts.',
-      editProfileBtn: 'Edit Profile',
-      saveProfileBtn: 'Save Account Changes',
-      contentControlTitle: 'Curriculum, Quizzes & Announcements Control',
-      contentControlSub: 'Jump directly into editing any Grade 9 Science chapter, quiz bank, general question, textbook Q&A, or classroom announcement.',
-      openQuizzesBtn: 'Edit Chapter Quizzes',
-      openGeneralQaBtn: 'Edit General Questions',
-      openTextbooksQaBtn: 'Edit Textbooks & Study Q&A',
-      openHomeAnnouncementsBtn: 'Manage Announcements',
-      appSettingsTitle: 'Global Application Settings & Access Control',
-      appSettingsSub: 'Configure platform registration, Student Community access, AI Studio availability, default language, and school-wide notice banners.',
-      settingAllowReg: 'Allow New Student Registration',
-      settingCommunityEnabled: 'Enable Student Community for Students',
-      settingCommunityPosting: 'Allow Student Posts, Comments & Messages',
-      settingAiTutor: 'Enable AI Studio for Students',
-      settingDefaultLang: 'Default Language',
-      settingMaintenanceMsg: 'School-Wide Notice Banner (Optional)',
-      settingMaintenancePlaceholder: 'Leave blank to hide banner, or write a notice for all users...',
-      saveSettingsBtn: 'Save App Settings',
-      settingsSavedMsg: 'Application settings saved and applied across Grade 9 Hub.',
     },
     community: {
       title: 'Student Community',
@@ -1644,11 +1491,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'You',
       teacherBadge: 'Admin / Teacher',
       restrictedUserTag: 'Restricted',
-      filterAllPeers: 'All Classmates',
-      filterOnlinePeers: 'Online',
-      filterOfflinePeers: 'Offline',
-      communityDisabledNotice: 'Student Community is currently disabled by the school administrator.',
-      postingPausedNotice: 'Posting and messaging are currently paused in the community (read-only mode).',
     },
     competition: {
       title: 'Student Competition & Leaderboard',
@@ -1790,15 +1632,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       appName: 'ناوەندی پۆلی ٩',
       scienceStudio: 'ستۆدیۆی زیرەکی زانست',
       schoolTag: 'ناوەندی پۆلی ٩ · زانستی پۆلی ٩',
-      motivationalQuote: 'هەوڵی ئەمڕۆت، شکۆی سبەینێتە.',
-      motivationalQuotes: [
-        'هەوڵی ئەمڕۆت، شکۆی سبەینێتە.',
-        'پرسیارکردن و کنەکردن سەرەتای هەموو دۆزینەوەیەکی زانستین.',
-        'هەر پرسیارێک ئەمڕۆ شیکاری بکەیت، مێشکت بەهێزتر دەکات.',
-        'هەنگاوی بچووکی ڕۆژانە لە خوێندندا ئەنجامی گەورە دەهێنێتە دی.',
-        'زانست پاداشتی ئارامگری، ڕاهێنان و بیری ورد دەداتەوە.',
-        'هەڵەکردن لە ڕاهێناندا پێشەکییە بۆ شارەزابوونی تەواو.',
-      ],
       poweredBy: 'ئامادەکراوە لەلایەن م. کەسرەوان',
       splashSubtitle: 'پلاتفۆرمی فێربوونی کارلێکەری زانست بۆ پۆلی ٩',
       offlineMode: 'دۆخی بێ ئینتەرنێت — بینینی ناوەڕۆکی پاشەکەوتکراو',
@@ -1810,11 +1643,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '٢. بڕۆ خوارەوە و Add to Home Screen هەڵبژێرە.',
       installIOSStep3: '٣. کرتە لە Add بکە بۆ کردنەوەی وەک ئەپڵیکەیشن.',
       gotIt: 'تێگەیشتم',
-      greetingMorning: 'بەیانیت باش',
-      greetingAfternoon: 'پاشنیوەڕۆت باش',
-      greetingEvening: 'ئێوارەت باش',
-      studentGreetingTemplate: '{timeGreeting}، قوتابی خۆشەویست! بەخێربێیت',
-      heroJourneySubtitle: 'هیوای گەشتێکی سەرکەوتوو و پڕ لە زانستت بۆ دەخوازین.',
     },
     nav: {
       home: 'سەرەکی',
@@ -1843,7 +1671,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
     },
     auth: {
       heroBadge: 'زانستی پۆلی ٩ · ١١ بەش',
-      heroTitle: 'ناوەندی فەرمی فێربوونی زانست بۆ قوتابیانی پۆلی ٩.',
+      heroTitle: 'ناوەندی زانستی پۆلی ٩.',
       heroDesc:
         'هەر ١١ بەشەکە بخوێنە بە تاقیکردنەوەی دەستبەجێ، پرسیاری ڕاستەوخۆ لە م. کەسرەوان، و ستۆدیۆی زیرەکی زانست.',
       statChaptersLabel: 'بەشی پۆلی ٩',
@@ -1853,7 +1681,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loginTab: 'چوونەژوورەوە',
       registerTab: 'دروستکردنی هەژمار',
       welcomeBack: 'بەخێربێیتەوە',
-      loginSubtitle: 'بە ئیمەیڵی قوتابی پۆلی ٩ یان مامۆستا بچۆ ژوورەوە.',
+      loginSubtitle: 'بە ئیمەیڵی تۆمارکراوی پۆلی ٩ یان مامۆستا بچۆ ژوورەوە.',
       emailLabel: 'ناونیشانی ئیمەیڵ',
       passwordLabel: 'وشەی نهێنی',
       forgotPassword: 'وشەی نهێنیت لەبیرچووە؟',
@@ -1887,7 +1715,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'گەڕانەوە بۆ چوونەژوورەوە',
       passwordsMismatch: 'وشە نهێنییەکان یەک ناگرنەوە.',
       verifiedMsg: 'کۆدەکە پشتڕاست کرایەوە. وشەی نهێنی نوێ بنووسە.',
-      rememberMe: 'لەبیرم مەکە',
       savedSessionNote: 'چوونەژوورەوەکەت بە پارێزراوی پاشەکەوت دەکرێت تا خۆت لێی دەرنەچیت.',
       dbEmptyTitle: 'سێرڤەرەکە سڕاوەتەوە یان نوێکراوەتەوە (٠ هەژمار)',
       dbEmptyDesc:
@@ -1899,10 +1726,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'سەرەتا ئیمەیڵ و وشەی نهێنی بەڕێوەبەر لە سەرەوە بنووسە، پاشان فایلی پاشەکەوتی .json هەڵبژێرە.',
       continueWithGoogle: 'بەردەوامبوون بە گووگڵ',
+      continueWithFacebook: 'بەردەوامبوون بە فەیسبووک',
       cloudSyncBadge: 'لە هەور پاشەکەوت دەکرێت — لە نوێکردنەوە و گۆڕینی بەستەردا ناسڕێتەوە',
-      orEmailSeparator: 'یان',
+      orEmailSeparator: 'یان بەردەوام بە لە ڕێگەی',
       googleSignInLoading: 'پەیوەندیکردن بە هەژماری گووگڵ...',
       googleSignInFailed: 'چوونەژوورەوە بە گووگڵ سەرکەوتوو نەبوو. تکایە ڕێگە بە پۆپئەپ بدە و دووبارە هەوڵبدە.',
+      facebookSignInLoading: 'پەیوەندیکردن بە هەژماری فەیسبووک...',
+      facebookSignInFailed: 'چوونەژوورەوە بە فەیسبووک سەرکەوتوو نەبوو. تکایە ڕێگە بە پۆپئەپ بدە و دووبارە هەوڵبدە.',
+      facebookProviderDisabled:
+        'چوونەژوورەوە بە فەیسبووک هێشتا لە Firebase کارا نەکراوە. تکایە بە گووگڵ یان ئیمەیڵ بچۆ ژوورەوە.',
+      socialAccountExistsDiffCredential:
+        'هەژمارێک بەم ئیمەیڵە پێشتر بە شێوازێکی تر تۆمارکراوە. تکایە بە گووگڵ یان ئیمەیڵ بچۆ ژوورەوە.',
       adminClaimPrompt:
         'داتابەیسی سێرڤەر دوای نوێکردنەوە سڕاوەتەوە. لە خوارەوە بە گووگڵ بچۆ ژوورەوە یان بچۆ بۆ دروستکردنی هەژمار بۆ دانانی وشەی نهێنی.',
     },
@@ -2048,8 +1882,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'ناردن...',
       send: 'ناردن',
       download: 'دابەزاندن',
-      onlineLabel: 'لە هێڵدایە',
-      offlineLabel: 'دەرەوەی هێڵ',
     },
     notifications: {
       title: 'ئاگادارکردنەوەکان',
@@ -2094,8 +1926,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'بیرکردنەوە...',
       chatPlaceholder: 'پرسیار بکە لەسەر ئیش، توانا، وزەی جووڵە، گەرمی...',
       send: 'ناردن',
-      retry: 'دووبارە هەوڵبدە',
-      stop: 'وەستاندن',
       diagramTitle: 'دروستکەری هێڵکاری بە کوالێتی بەرز',
       diagramSub: 'کار دەکات بە بزوێنەری هێڵکاری Gemini 4 Hydrogen بە کوالێتی هەڵبژاردراوی 1K، 2K، و 4K.',
       diagramPromptLabel: 'وەسفی هێڵکاری یان وێنەکە',
@@ -2116,13 +1946,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'مامۆستای چەمکە زانستییەکان',
         physicsTutorInstruction:
-          'تۆ مامۆستایەکی پوخت و ڕوونی زانستی پۆلی ٩یت. بە کوردی یاسا و نموونەیەکی کورت ڕوون بکەرەوە و هێمای یەکە زانستییەکان بە لاتینی بهێڵەرەوە (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
+          'تۆ مامۆستایەکی هاندەری زانستی پۆلی ٩یت لە ناوەندی پۆلی ٩. بنەما زانستییەکان بە سادەیی و ڕوونی ڕوون بکەرەوە لەگەڵ هاوکێشە و نموونەی ڕۆژانە بە زمانی کوردی، و هەمیشە هێمای یەکە زانستییە نێودەوڵەتییەکان بە پیتی لاتینی استاندارد (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) وەک خۆیان بهێڵەرەوە و مەیانگۆڕە بۆ پیتی کوردی.',
         stepSolverLabel: 'شیکارکەری هەنگاو بە هەنگاو',
         stepSolverInstruction:
-          'تۆ شیکارکەری پرسیارەکانی زانستی پۆلی ٩یت. دراوەکان و یاسا و هەنگاوەکان بە کوردی و کورتی بنووسە و یەکە لاتینییەکان بپارێزە (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
+          'تۆ شیکارکەرێکی وردی پرسیارەکانی زانستی پۆلی ٩یت. دراوەکان بنووسە، یاساکە دیاری بکە، هەنگاو بە هەنگاو هاوکێشەکە شیکار بکە بە زمانی کوردی، و هەمیشە یەکە پێوانەییە نێودەوڵەتییەکان بە پیتی لاتینی (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) بپارێزە.',
         labCoachLabel: 'ڕاهێنەری تاقیگە و تاقیکردنەوە',
         labCoachInstruction:
-          'تۆ ڕاهێنەری تاقیگەی زانستی پۆلی ٩یت. بە کوردی و کورتی یارمەتی دیزاینی تاقیکردنەوە و دیاریکردنی گۆڕاوەکان بدە.',
+          'تۆ ڕاهێنەری تاقیگەی زانستیت و یارمەتی قوتابیانی پۆلی ٩ دەدەیت بۆ دیزاینکردنی تاقیکردنەوەی سەلامەت و دیاریکردنی گۆڕاوەکان بە زمانی کوردی.',
       },
     },
     profile: {
@@ -2172,38 +2002,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'پڕۆفایلەکەت بە سەرکەوتوویی نوێکرایەوە.',
       roleUpdatedMsg: 'دەسەڵاتی {name} گۆڕدرا بۆ {role}.',
       accountRemovedMsg: 'هەژمارەکە سڕایەوە.',
-      cropModalTitle: 'بڕین و ڕێکخستنی وێنەی پڕۆفایل',
-      cropModalSub: 'پێش پاشەکەوتکردن وێنەکە بجوڵێنە، گەورەی بکە یان بیسووڕێنە (256×256).',
-      zoomLabel: 'گەورەکردن',
-      rotateBtn: 'سووڕاندن ٩٠°',
-      resetCropBtn: 'ڕێکخستنەوە',
-      applyCropUploadBtn: 'بڕین و بارکردن',
-      invalidImageType: 'تکایە وێنەیەکی PNG یان JPG یان WebP یان GIF هەڵبژێرە.',
-      imageTooLarge: 'قەبارەی وێنەکە دەبێت لە 15 MB کەمتر بێت.',
-      dangerZoneTitle: 'ناوچەی مەترسیدار · سڕینەوەی هەژمار',
-      dangerZoneDesc: 'هەژمارەکەت، مێژووی تاقیکردنەوەکان، پۆستەکان، نامەکان و خاڵەکانی پێشبڕکێ بە تەواوی بسڕەوە. ئەم کردارە گەڕانەوەی نییە.',
-      deleteAccountBtn: 'سڕینەوەی هەژمارەکەم',
-      deleteAccountModalTitle: 'دڵنیایت لە سڕینەوەی یەکجارەکی هەژمارەکەت؟',
-      deleteAccountWarning: 'هەموو تاقیکردنەوەکانت، خاڵەکانی پێشبڕکێ، گفتوگۆکانی مامۆستا و نامەکان بە یەکجاری دەسڕدرێنەوە و دەستبەجێ دەردەچیت.',
-      deleteAccountTypeLabel: 'وشەی DELETE بنووسە بۆ دڵنیابوون لە سڕینەوەی یەکجاری',
-      deleteAccountPlaceholder: 'DELETE بنووسە',
-      confirmDeleteAccountBtn: 'سڕینەوەی هەژمار بۆ هەمیشە',
-      deletingAccount: 'سڕینەوەی هەژمار...',
-      protectedAdminDeleteNote: 'هەژماری بەڕێوەبەری سەرەکی ناتوانرێت بسڕدرێتەوە بۆ پاراستنی بەردەوامیی سیستەم.',
-      refreshAccountsBtn: 'نوێکردنەوە',
-      searchAccountsPlaceholder: 'گەڕان لە هەژمارەکان بە ناو، ئیمەیڵ یان پۆل...',
-      filterAllAccounts: 'هەموو',
-      filterStudentsOnly: 'قوتابیان',
-      filterAdminsOnly: 'بەڕێوەبەر / مامۆستا',
-      filterOnlineOnly: 'لە هێڵدایە',
-      filterRestrictedOnly: 'سنووردارکراو',
-      inspectEditBtn: 'پشکنین / دەستکاری',
-      inspectModalTitle: 'پشکنین و دەستکاریکردنی هەژمار',
-      accountUpdatedMsg: 'پڕۆفایلی هەژماری {name} نوێکرایەوە.',
-      roleLabel: 'ڕۆڵی هەژمار',
-      sourceLabel: 'سەرچاوەی تۆمار',
-      joinedLabel: 'بەرواری تۆمار',
-      loadAccountsError: 'بارکردنی هەژمارە تۆمارکراوەکان سەرکەوتوو نەبوو.',
     },
     settings: {
       title: 'ڕێکخستنەکانی سیستەم و خوێندن',
@@ -2331,14 +2129,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'سنووردارکردنی پەیوەندی قوتابی',
       restrictReasonPlaceholder: 'هۆکاری سنووردارکردن بنووسە (بۆ نموونە وشەی نەشیاو یان سپام)...',
       confirmRestrictBtn: 'جێگیرکردنی سنووردارکردن',
-      deleteUserBtn: 'سڕینەوەی هەژمار',
-      deleteUserModalTitle: 'هەژمارەکە بۆ هەمیشە بسڕدرێتەوە؟',
-      deleteUserModalWarning: 'ئەم کردارە هەژمارەکە بە یەکجاری دەسڕێتەوە، هەموو دانیشتنە چالاکەکان دەستبەجێ دادەخات، و تاقیکردنەوە، خاڵ، نامە و پۆستەکان دەسڕێتەوە.',
-      confirmDeleteUserBtn: 'سڕینەوەی یەکجاری هەژمار',
-      deletingUserBtn: 'سڕینەوە...',
-      userDeletedSuccess: 'هەژماری {name} بە تەواوی سڕایەوە و دانیشتنە چالاکەکانی داخران.',
-      cannotDeleteSelf: 'ناتوانیت هەژماری چالاکی خۆت لە داشبۆردی بەڕێوەبەرەوە بسڕیتەوە.',
-      cannotDeleteMainAdmin: 'هەژماری بەڕێوەبەری سەرەکی ناتوانرێت بسڕدرێتەوە.',
       monitoringTitle: 'چاودێری کۆمەڵگا، تۆماری چالاکی و سەلامەتی',
       monitoringSub: 'پشکنینی هەموو نامە تایبەتەکان، گرووپ چاتەکان، کاتی چوونەژوورەوەی قوتابیان و ڕاپۆرتەکان.',
       tabOverview: 'پوختە',
@@ -2429,30 +2219,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'پاشەکەوتی بنکەی زانیاری بە سەرکەوتوویی دروستکرا.',
       backupRestoredMsg: 'پاشەکەوت بە سەرکەوتوویی گەڕێندرایەوە لەگەڵ پاراستنی مۆڵەتی بەڕێوەبەر.',
       backupConfirmReplace: 'جێگۆڕکێی تەواو زانیارییەکان دەگەڕێنێتەوە بۆ ئەم کاتە دوای دروستکردنی پاشەکەوتی سەلامەتی. بەردەوام بیت؟',
-      aiDisabledNotice: 'ستۆدیۆی زیرەکی دەستکرد لە ئێستادا لەلایەن بەڕێوەبەرەوە وەستێنراوە.',
-      tabAccounts: 'هەژمارە تۆمارکراوەکان',
-      tabContentControl: 'ناوەڕۆک و پرۆگرام',
-      tabAppSettings: 'ڕێکخستنەکانی بەرنامە',
-      registeredAccountsSub: 'پشکنینی هەموو هەژمارەکانی قوتابی و مامۆستا، دەستکاریکردنی پڕۆفایل، بەڕێوەبردنی دەسەڵات، سنووردارکردن یان سڕینەوەی هەژمارەکان.',
-      editProfileBtn: 'دەستکاری پڕۆفایل',
-      saveProfileBtn: 'پاشەکەوتکردنی گۆڕانکارییەکان',
-      contentControlTitle: 'کۆنتڕۆڵی پرۆگرام، تاقیکردنەوە و ڕاگەیاندنەکان',
-      contentControlSub: 'ڕاستەوخۆ بچۆ ناو دەستکاریکردنی هەر بەشێکی زانستی پۆلی ٩، پرسیاری تاقیکردنەوە، پرسیارە گشتییەکان، کتێب یان ڕاگەیاندن.',
-      openQuizzesBtn: 'دەستکاری تاقیکردنەوەی بەشەکان',
-      openGeneralQaBtn: 'دەستکاری پرسیارە گشتییەکان',
-      openTextbooksQaBtn: 'دەستکاری کتێب و پرسیارەکان',
-      openHomeAnnouncementsBtn: 'بەڕێوەبردنی ڕاگەیاندنەکان',
-      appSettingsTitle: 'ڕێکخستنە گشتییەکانی بەرنامە و کۆنتڕۆڵی دەستڕاگەیشتن',
-      appSettingsSub: 'ڕێکخستنی تۆمارکردنی قوتابی، کۆمەڵگا، ستۆدیۆی زیرەک، زمانی سەرەکی و ئاگاداری سەرتاسەری.',
-      settingAllowReg: 'ڕێگەپێدان بە تۆمارکردنی قوتابی نوێ',
-      settingCommunityEnabled: 'چالاککردنی کۆمەڵگەی قوتابیان بۆ قوتابیان',
-      settingCommunityPosting: 'ڕێگەپێدان بە پۆست، لێدوان و نامەی قوتابیان',
-      settingAiTutor: 'چالاککردنی ستۆدیۆی AI بۆ قوتابیان',
-      settingDefaultLang: 'زمانی سەرەکی',
-      settingMaintenanceMsg: 'ئاگاداری سەرتاسەری لە ناو بەرنامە (ئارەزوومەندانە)',
-      settingMaintenancePlaceholder: 'بە بەتاڵی جێیبهێڵە یان ئاگادارییەک بنووسە بۆ هەموو بەکارهێنەران...',
-      saveSettingsBtn: 'پاشەکەوتکردنی ڕێکخستنەکان',
-      settingsSavedMsg: 'ڕێکخستنەکانی بەرنامە پاشەکەوت کران و جێبەجێکران.',
     },
     community: {
       title: 'کۆمەڵگەی قوتابیان',
@@ -2535,11 +2301,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'تۆ',
       teacherBadge: 'بەڕێوەبەر / مامۆستا',
       restrictedUserTag: 'سنووردارکراو',
-      filterAllPeers: 'هەموو هاوپۆلەکان',
-      filterOnlinePeers: 'لە هێڵدا',
-      filterOfflinePeers: 'دەرەوەی هێڵ',
-      communityDisabledNotice: 'کۆمەڵگەی قوتابیان لە ئێستادا لەلایەن بەڕێوەبەرەوە ناچالاک کراوە.',
-      postingPausedNotice: 'بڵاوکردنەوە و ناردنی نامە لە ئێستادا وەستێنراوە (تەنها خوێندنەوە).',
     },
     competition: {
       title: 'پێشبڕکێ و ڕیزبەندی قوتابیان',
@@ -2681,15 +2442,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       appName: 'منصة الصف التاسع',
       scienceStudio: 'استوديو الذكاء العلمي',
       schoolTag: 'منصة الصف التاسع · علوم الصف التاسع',
-      motivationalQuote: 'جهدك اليوم هو مجدك غداً.',
-      motivationalQuotes: [
-        'جهدك اليوم هو مجدك غداً.',
-        'الفضول العلمي هو الشرارة التي تحوّل الأسئلة إلى اكتشاف.',
-        'كل مسألة علمية تحلها اليوم تصنع عقلاً أكثر تميزاً.',
-        'الخطوات الدراسية الصغيرة كل يوم تصنع نتائج عظيمة.',
-        'العلم يكافئ الصبر والمثابرة والعقل المتسائل.',
-        'أخطاء التدريب هي درجات تقودك إلى الإتقان.',
-      ],
       poweredBy: 'إدارة وتطوير الأستاذ كسروان',
       splashSubtitle: 'منصة تفاعلية لتعلّم العلوم للصف التاسع',
       offlineMode: 'وضع عدم الاتصال — عرض المحتوى المحفوظ',
@@ -2701,11 +2453,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       installIOSStep2: '٢. مرّر للأسفل واختر إضافة إلى الشاشة الرئيسية (Add to Home Screen).',
       installIOSStep3: '٣. اضغط على إضافة (Add) لفتح التطبيق مباشرة.',
       gotIt: 'فهمت',
-      greetingMorning: 'صباح الخير',
-      greetingAfternoon: 'طاب مساؤك',
-      greetingEvening: 'مساء الخير',
-      studentGreetingTemplate: '{timeGreeting}، طالبي العزيز! مرحباً بك',
-      heroJourneySubtitle: 'نتمنى لك رحلة تعليمية موفقة ومليئة بالاكتشاف والنجاح.',
     },
     nav: {
       home: 'الرئيسية',
@@ -2734,7 +2481,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
     },
     auth: {
       heroBadge: 'علوم الصف التاسع · ١١ فصلاً',
-      heroTitle: 'المنصة الرسمية لتعلّم العلوم لطلاب الصف التاسع.',
+      heroTitle: 'منصة علوم الصف التاسع.',
       heroDesc:
         'أتقن الفصول الـ ١١ باختبارات وتصحيح فوري، وتواصل مباشر مع الأستاذ كسروان، واستوديو الذكاء العلمي.',
       statChaptersLabel: 'فصول الصف التاسع',
@@ -2744,7 +2491,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loginTab: 'تسجيل الدخول',
       registerTab: 'إنشاء حساب',
       welcomeBack: 'أهلاً بعودتك',
-      loginSubtitle: 'سجّل الدخول ببريدك الإلكتروني كطالب في الصف التاسع أو معلم.',
+      loginSubtitle: 'سجّل الدخول ببريدك الإلكتروني المسجّل كطالب في الصف التاسع أو معلم.',
       emailLabel: 'البريد الإلكتروني',
       passwordLabel: 'كلمة المرور',
       forgotPassword: 'هل نسيت كلمة المرور؟',
@@ -2778,7 +2525,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       returnLoginBtn: 'العودة إلى تسجيل الدخول',
       passwordsMismatch: 'كلمتا المرور غير متطابقتين.',
       verifiedMsg: 'تم تأكيد رمز التحقق. أدخل كلمة المرور الجديدة أدناه.',
-      rememberMe: 'تذكرني',
       savedSessionNote: 'تبقى جلستك محفوظة بأمان حتى تقوم بتسجيل الخروج يدوياً.',
       dbEmptyTitle: 'تم اكتشاف إعادة تشغيل الخادم بدون حسابات (0 حسابات)',
       dbEmptyDesc:
@@ -2790,10 +2536,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       enterAdminCredentialsForRestore:
         'أدخل بريد المسؤول وكلمة المرور في النموذج أعلاه أولاً، ثم اختر ملف النسخ الاحتياطي .json.',
       continueWithGoogle: 'المتابعة باستخدام Google',
+      continueWithFacebook: 'المتابعة باستخدام Facebook',
       cloudSyncBadge: 'محفوظ في السحابة — يبقى آمناً مع كل تحديث أو تغيير للرابط',
-      orEmailSeparator: 'أو',
+      orEmailSeparator: 'أو المتابعة عبر',
       googleSignInLoading: 'جاري الاتصال بحساب Google...',
       googleSignInFailed: 'تعذر إكمال تسجيل الدخول عبر Google. يرجى السماح بالنوافذ المنبثقة والمحاولة مجدداً.',
+      facebookSignInLoading: 'جاري الاتصال بحساب Facebook...',
+      facebookSignInFailed: 'تعذر إكمال تسجيل الدخول عبر Facebook. يرجى السماح بالنوافذ المنبثقة والمحاولة مجدداً.',
+      facebookProviderDisabled:
+        'تسجيل الدخول عبر Facebook غير مفعّل في Firebase بعد. يرجى تسجيل الدخول عبر Google أو البريد الإلكتروني.',
+      socialAccountExistsDiffCredential:
+        'يوجد حساب مسجّل بهذا البريد الإلكتروني باستخدام طريقة أخرى. يرجى تسجيل الدخول عبر Google أو البريد الإلكتروني.',
       adminClaimPrompt:
         'تمت إعادة تعيين قاعدة البيانات بعد التحديث. سجّل الدخول عبر Google أدناه أو انتقل إلى إنشاء حساب لتعيين كلمة المرور.',
     },
@@ -2939,8 +2692,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'جاري الإرسال...',
       send: 'إرسال',
       download: 'تنزيل',
-      onlineLabel: 'متصل',
-      offlineLabel: 'غير متصل',
     },
     notifications: {
       title: 'الإشعارات',
@@ -2985,8 +2736,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       thinking: 'جاري التفكير...',
       chatPlaceholder: 'اسأل عن الشغل، القدرة، الطاقة الحركية، انتقال الحرارة...',
       send: 'إرسال',
-      retry: 'إعادة المحاولة',
-      stop: 'إيقاف',
       diagramTitle: 'مولّد المخططات عالية الدقة',
       diagramSub: 'مدعوم بمحرك المخططات Gemini 4 Hydrogen مع اختيار دقة PNG 1K و 2K و 4K.',
       diagramPromptLabel: 'وصف المخطط أو الصورة العلمية',
@@ -3007,13 +2756,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       roles: {
         physicsTutorLabel: 'معلم مفاهيم العلوم',
         physicsTutorInstruction:
-          'أنت معلم علوم للصف التاسع تشرح بإيجاز ووضوح باللغة العربية مع القانون ومثال يومي قصير، مع إبقاء رموز الوحدات الدولية باللاتينية (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
+          'أنت معلم مشجّع لمادة علوم الصف التاسع في منصة الصف التاسع. اشرح المبادئ العلمية بوضوح مع المعادلات وأمثلة من الحياة اليومية باللغة العربية، واحرص دائماً على إبقاء رموز الوحدات العلمية الدولية بالأحرف اللاتينية القياسية (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K) دون ترجمتها أو تعريبها.',
         stepSolverLabel: 'حلّال المسائل خطوة بخطوة',
         stepSolverInstruction:
-          'أنت حلّال مسائل علوم للصف التاسع. اكتب المعطيات والقانون وخطوات الحل بإيجاز باللغة العربية مع إبقاء رموز الوحدات الدولية باللاتينية (N, kg, m, s, m/s, J, W, Hz, Pa, °C, K).',
+          'أنت حلّال مسائل دقيق لعلوم الصف التاسع. اكتب المعطيات، واذكر القانون المناسب، واعرض خطوات الحل الجبرية بالتفصيل باللغة العربية، مع الحفاظ الدائم على رموز الوحدات الدولية بالأحرف اللاتينية القياسية (N, kg, m, cm, s, m/s, m/s², J, W, Hz, Pa, °C, °F, K).',
         labCoachLabel: 'مدرّب المختبر والتجارب',
         labCoachInstruction:
-          'أنت مدرّب مختبر علوم للصف التاسع. ساعد بإيجاز بالعربية في تصميم تجارب آمنة وتحديد المتغيرات وتحليل القياسات.',
+          'أنت مدرّب مختبر العلوم تساعد طلاب الصف التاسع على تصميم تجارب آمنة وتحديد المتغيرات وتحليل دقة القياس باللغة العربية.',
       },
     },
     profile: {
@@ -3063,38 +2812,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'تم تحديث الملف الشخصي بنجاح.',
       roleUpdatedMsg: 'تم تغيير صلاحية {name} إلى {role}.',
       accountRemovedMsg: 'تم حذف الحساب.',
-      cropModalTitle: 'قصّ وتعديل حجم الصورة الشخصية',
-      cropModalSub: 'اسحب للتحريك أو كبّر أو دوّر الصورة قبل حفظها بدقة 256×256.',
-      zoomLabel: 'التكبير',
-      rotateBtn: 'تدوير ٩٠°',
-      resetCropBtn: 'إعادة ضبط',
-      applyCropUploadBtn: 'قصّ ورفع الصورة',
-      invalidImageType: 'يرجى اختيار صورة بصيغة PNG أو JPG أو WebP أو GIF.',
-      imageTooLarge: 'يجب أن يكون حجم الصورة أقل من 15 MB.',
-      dangerZoneTitle: 'منطقة الخطر · حذف الحساب',
-      dangerZoneDesc: 'احذف حسابك وسجل اختباراتك ومنشوراتك ورسائلك ونقاط المسابقة نهائياً. لا يمكن التراجع عن هذا الإجراء.',
-      deleteAccountBtn: 'حذف حسابي نهائياً',
-      deleteAccountModalTitle: 'هل تريد حذف حسابك نهائياً؟',
-      deleteAccountWarning: 'سيتم حذف جميع محاولات الاختبار ونقاط المسابقة ومحادثات المعلم ورسائل المجتمع نهائياً وسيتم تسجيل خروجك فوراً.',
-      deleteAccountTypeLabel: 'اكتب DELETE للتأكيد على الحذف النهائي',
-      deleteAccountPlaceholder: 'اكتب DELETE',
-      confirmDeleteAccountBtn: 'تأكيد حذف الحساب نهائياً',
-      deletingAccount: 'جاري حذف الحساب...',
-      protectedAdminDeleteNote: 'لا يمكن حذف حساب المسؤول الرئيسي حفاظاً على استقرار النظام.',
-      refreshAccountsBtn: 'تحديث',
-      searchAccountsPlaceholder: 'ابحث عن الحسابات بالاسم أو البريد أو الصف...',
-      filterAllAccounts: 'الكل',
-      filterStudentsOnly: 'الطلاب',
-      filterAdminsOnly: 'المسؤولون / المعلمون',
-      filterOnlineOnly: 'متصل',
-      filterRestrictedOnly: 'مقيّد',
-      inspectEditBtn: 'فحص / تعديل',
-      inspectModalTitle: 'فحص وتعديل الحساب',
-      accountUpdatedMsg: 'تم تحديث ملف حساب {name}.',
-      roleLabel: 'دور الحساب',
-      sourceLabel: 'مصدر السجل',
-      joinedLabel: 'تاريخ الانضمام',
-      loadAccountsError: 'تعذر تحميل الحسابات المسجّلة.',
     },
     settings: {
       title: 'إعدادات النظام والدراسة',
@@ -3222,14 +2939,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'تقييد تواصل الطالب',
       restrictReasonPlaceholder: 'اذكر سبب التقييد (مثلاً لغة غير لائقة أو رسائل مزعجة)...',
       confirmRestrictBtn: 'تأكيد التقييد',
-      deleteUserBtn: 'حذف الحساب',
-      deleteUserModalTitle: 'حذف حساب المستخدم نهائياً؟',
-      deleteUserModalWarning: 'سيؤدي هذا إلى حذف الحساب نهائياً وإلغاء جميع جلساته النشطة فوراً ومسح محاولات الاختبار والنقاط والرسائل والمنشورات.',
-      confirmDeleteUserBtn: 'حذف الحساب نهائياً',
-      deletingUserBtn: 'جاري الحذف...',
-      userDeletedSuccess: 'تم حذف حساب {name} نهائياً وإلغاء جلساته النشطة.',
-      cannotDeleteSelf: 'لا يمكنك حذف حسابك النشط من لوحة تحكم المسؤول.',
-      cannotDeleteMainAdmin: 'لا يمكن حذف حساب المسؤول الرئيسي.',
       monitoringTitle: 'مراقبة المجتمع وسجل النشاطات والسلامة',
       monitoringSub: 'مراجعة جميع المحادثات الخاصة والدردشات الجماعية وأوقات تسجيل الدخول وبلاغات السلامة.',
       tabOverview: 'نظرة عامة',
@@ -3320,30 +3029,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       backupCreatedMsg: 'تم إنشاء نسخة احتياطية وتثبيتها على القرص بنجاح.',
       backupRestoredMsg: 'تمت استعادة النسخة الاحتياطية بنجاح مع الحفاظ على صلاحيات المسؤول.',
       backupConfirmReplace: 'سيتم استبدال السجلات الحالية بهذه النسخة بعد إنشاء نسخة أمان تلقائية. هل تريد المتابعة؟',
-      aiDisabledNotice: 'تم إيقاف ستوديو الذكاء الاصطناعي مؤقتاً من قِبل المسؤول.',
-      tabAccounts: 'الحسابات المسجّلة',
-      tabContentControl: 'المحتوى والمنهج',
-      tabAppSettings: 'إعدادات التطبيق',
-      registeredAccountsSub: 'فحص جميع حسابات الطلاب والمعلمين، وتعديل الملفات الشخصية، وإدارة الصلاحيات، وتقييد الحسابات أو حذفها بأمان.',
-      editProfileBtn: 'تعديل الملف',
-      saveProfileBtn: 'حفظ التغييرات',
-      contentControlTitle: 'التحكم بالمنهج والاختبارات والإعلانات',
-      contentControlSub: 'انتقل مباشرة إلى تعديل أي فصل من علوم الصف التاسع أو الاختبارات أو الأسئلة العامة أو إعلانات الصف.',
-      openQuizzesBtn: 'تعديل اختبارات الفصول',
-      openGeneralQaBtn: 'تعديل الأسئلة العامة',
-      openTextbooksQaBtn: 'تعديل الكتب والأسئلة الدراسية',
-      openHomeAnnouncementsBtn: 'إدارة الإعلانات',
-      appSettingsTitle: 'إعدادات التطبيق العامة والتحكم بالوصول',
-      appSettingsSub: 'إعداد تسجيل الطلاب، ووصول مجتمع الطلاب، وستوديو الذكاء الاصطناعي، واللغة الافتراضية، وشريط التنبيهات.',
-      settingAllowReg: 'السماح بتسجيل الطلاب الجدد',
-      settingCommunityEnabled: 'تفعيل مجتمع الطلاب للطلاب',
-      settingCommunityPosting: 'السماح بنشر المنشورات والتعليقات والرسائل',
-      settingAiTutor: 'تفعيل ستوديو الذكاء الاصطناعي للطلاب',
-      settingDefaultLang: 'اللغة الافتراضية',
-      settingMaintenanceMsg: 'رسالة تنبيه عامة في التطبيق (اختياري)',
-      settingMaintenancePlaceholder: 'اتركه فارغاً لإخفاء الشريط أو اكتب تنبيهاً لجميع المستخدمين...',
-      saveSettingsBtn: 'حفظ إعدادات التطبيق',
-      settingsSavedMsg: 'تم حفظ إعدادات التطبيق وتطبيقها فوراً.',
     },
     community: {
       title: 'مجتمع الطلاب',
@@ -3426,11 +3111,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       youLabel: 'أنت',
       teacherBadge: 'المسؤول / المعلم',
       restrictedUserTag: 'مقيّد',
-      filterAllPeers: 'جميع الزملاء',
-      filterOnlinePeers: 'متصلون',
-      filterOfflinePeers: 'غير متصلين',
-      communityDisabledNotice: 'تم تعطيل مجتمع الطلاب حالياً من قِبل مسؤول المدرسة.',
-      postingPausedNotice: 'النشر والمراسلة متوقفان مؤقتاً في المجتمع (وضع القراءة فقط).',
     },
     competition: {
       title: 'مسابقة الطلاب ولوحة المتصدرين',

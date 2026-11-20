@@ -1,12 +1,6 @@
-import {
-  getRedirectResult,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-  User as FirebaseUser,
-} from 'firebase/auth';
+import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -15,11 +9,11 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
-import { AppSettings, User } from '../types';
+import { User } from '../types';
 import {
-  applyFirebaseAuthPersistence,
   auth,
   db,
+  facebookProvider,
   googleProvider,
   handleFirestoreError,
   OperationType,
@@ -27,7 +21,6 @@ import {
 
 export const MAIN_ADMIN_EMAIL = 'mohamdm791@gmail.com';
 const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
-const PEER_ONLINE_TTL_MS = 90_000;
 
 export interface CloudUserProfile {
   uid: string;
@@ -44,10 +37,6 @@ export interface CloudUserProfile {
   totalPoints: number;
   quizzesCompleted: number;
   correctAnswers: number;
-  isRestricted?: boolean;
-  restrictionReason?: string;
-  lastLoginAt?: string;
-  lastActiveAt?: string;
 }
 
 export interface CloudQuizAttemptInput {
@@ -75,42 +64,6 @@ export interface SchoolAccountMirrorRow {
   createdAtIso: string;
 }
 
-export interface CloudPeerPresence {
-  uid: string;
-  numericId: number;
-  name: string;
-  role: 'student' | 'teacher';
-  isAdmin: boolean;
-  grade: string;
-  avatarUrl: string;
-  bio: string;
-  online: boolean;
-  currentSection: string;
-  isRestricted: boolean;
-  lastActiveAtIso: string;
-}
-
-export interface CloudRegisteredAccount {
-  uid?: string;
-  accountKey?: string;
-  name: string;
-  email: string;
-  role: 'student' | 'teacher';
-  isAdmin: boolean;
-  grade: string;
-  bio: string;
-  birthday: string;
-  avatarUrl: string;
-  isRestricted: boolean;
-  restrictionReason: string;
-  totalPoints: number;
-  quizzesCompleted: number;
-  correctAnswers: number;
-  lastLoginAt: string;
-  lastActiveAt: string;
-  createdAtIso: string;
-}
-
 function clampStr(raw: unknown, maxLen: number): string {
   const s = typeof raw === 'string' ? raw.trim() : '';
   return s.length > maxLen ? s.slice(0, maxLen) : s;
@@ -134,27 +87,6 @@ function clampNonNegInt(raw: unknown, maxVal: number): number {
   return n > maxVal ? maxVal : n;
 }
 
-function stableNumericId(seed: string): number {
-  let hash = 2166136261;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash ^= seed.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (Math.abs(hash) % 900000000) + 100000;
-}
-
-function toIsoFromTimestampOrString(raw: unknown): string {
-  if (typeof raw === 'string') return raw;
-  if (raw && typeof raw === 'object' && 'toDate' in raw && typeof (raw as { toDate: () => Date }).toDate === 'function') {
-    try {
-      return (raw as { toDate: () => Date }).toDate().toISOString();
-    } catch {
-      return '';
-    }
-  }
-  return '';
-}
-
 export async function sha256AccountKey(email: string): Promise<string> {
   const norm = email.trim().toLowerCase();
   const data = new TextEncoder().encode(norm);
@@ -165,35 +97,15 @@ export async function sha256AccountKey(email: string): Promise<string> {
   return `acct_${hex.slice(0, 48)}`;
 }
 
-export interface SocialAuthIdentity {
+export async function signInWithGoogleCloud(): Promise<{
   idToken: string;
   uid: string;
   email: string;
   displayName: string;
   photoUrl: string;
-}
-
-function isTrustedCloudAuthUser(fbUser: FirebaseUser | null): fbUser is FirebaseUser {
-  return Boolean(fbUser && fbUser.emailVerified);
-}
-
-async function isCurrentUserCloudAdmin(): Promise<boolean> {
-  const fbUser = auth.currentUser;
-  if (!fbUser || !fbUser.emailVerified) return false;
-  if ((fbUser.email || '').trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
-    await ensureMainAdminRegistryDoc().catch(() => {});
-    return true;
-  }
-  if (!VALID_ID_REGEX.test(fbUser.uid)) return false;
-  try {
-    const adminDoc = await getDoc(doc(db, 'admins', fbUser.uid));
-    return adminDoc.exists();
-  } catch {
-    return false;
-  }
-}
-
-async function formatFirebaseSocialIdentity(fbUser: FirebaseUser): Promise<SocialAuthIdentity> {
+}> {
+  const cred = await signInWithPopup(auth, googleProvider);
+  const fbUser = cred.user;
   const idToken = await fbUser.getIdToken();
   return {
     idToken,
@@ -204,20 +116,23 @@ async function formatFirebaseSocialIdentity(fbUser: FirebaseUser): Promise<Socia
   };
 }
 
-export async function signInWithGoogleCloud(rememberMe = true): Promise<SocialAuthIdentity> {
-  await applyFirebaseAuthPersistence(rememberMe);
-  const cred = await signInWithPopup(auth, googleProvider);
-  return formatFirebaseSocialIdentity(cred.user);
-}
-
-export async function consumePendingRedirectSignIn(): Promise<SocialAuthIdentity | null> {
-  try {
-    const res = await getRedirectResult(auth);
-    if (!res?.user) return null;
-    return formatFirebaseSocialIdentity(res.user);
-  } catch {
-    return null;
-  }
+export async function signInWithFacebookCloud(): Promise<{
+  idToken: string;
+  uid: string;
+  email: string;
+  displayName: string;
+  photoUrl: string;
+}> {
+  const cred = await signInWithPopup(auth, facebookProvider);
+  const fbUser = cred.user;
+  const idToken = await fbUser.getIdToken();
+  return {
+    idToken,
+    uid: fbUser.uid,
+    email: (fbUser.email || '').trim().toLowerCase(),
+    displayName: (fbUser.displayName || '').trim(),
+    photoUrl: (fbUser.photoURL || '').trim(),
+  };
 }
 
 export async function signOutFirebaseCloud(): Promise<void> {
@@ -255,39 +170,6 @@ export async function ensureMainAdminRegistryDoc(): Promise<void> {
   }
 }
 
-export async function syncAdminRegistryEntry(
-  targetUid: string,
-  targetEmail: string,
-  grantAdmin: boolean
-): Promise<void> {
-  const fbUser = auth.currentUser;
-  if (
-    !fbUser ||
-    !fbUser.emailVerified ||
-    (fbUser.email || '').trim().toLowerCase() !== MAIN_ADMIN_EMAIL
-  ) {
-    return;
-  }
-  const cleanUid = clampStr(targetUid, 128);
-  const cleanEmail = clampStr(targetEmail, 180).toLowerCase();
-  if (!VALID_ID_REGEX.test(cleanUid) || !cleanEmail || cleanEmail === MAIN_ADMIN_EMAIL) return;
-
-  try {
-    const ref = doc(db, 'admins', cleanUid);
-    if (grantAdmin) {
-      await setDoc(ref, {
-        uid: cleanUid,
-        email: cleanEmail,
-        createdAt: serverTimestamp(),
-      });
-    } else {
-      await deleteDoc(ref).catch(() => {});
-    }
-  } catch {
-    // non-fatal admin allowlist sync
-  }
-}
-
 export async function pullCloudUserProfile(uid: string): Promise<{
   profile: CloudUserProfile | null;
   attempts: CloudQuizAttemptInput[];
@@ -295,7 +177,7 @@ export async function pullCloudUserProfile(uid: string): Promise<{
   if (!VALID_ID_REGEX.test(uid)) {
     return { profile: null, attempts: [] };
   }
-  if (auth.currentUser && auth.currentUser.uid === uid && !isTrustedCloudAuthUser(auth.currentUser)) {
+  if (auth.currentUser && auth.currentUser.uid === uid && !auth.currentUser.emailVerified) {
     return { profile: null, attempts: [] };
   }
   const userPath = `users/${uid}`;
@@ -319,10 +201,6 @@ export async function pullCloudUserProfile(uid: string): Promise<{
         totalPoints: clampNonNegInt(d.totalPoints, 1000000),
         quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
         correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-        isRestricted: Boolean(d.isRestricted),
-        restrictionReason: clampStr(d.restrictionReason || '', 300),
-        lastLoginAt: clampStr(d.lastLoginAt || '', 64),
-        lastActiveAt: clampStr(d.lastActiveAt || '', 64),
       };
     }
   } catch (err) {
@@ -360,127 +238,12 @@ export async function pullCloudUserProfile(uid: string): Promise<{
   return { profile, attempts };
 }
 
-export async function syncCloudPeerPresence(
-  appUser: User | null | undefined,
-  online: boolean,
-  section = 'home'
-): Promise<void> {
-  const fbUser = auth.currentUser;
-  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid) || !appUser) return;
-
-  const isMainAdmin =
-    (fbUser.email || '').trim().toLowerCase() === MAIN_ADMIN_EMAIL;
-  const safeName =
-    clampStr(appUser.name || fbUser.displayName || 'Grade 9 Student', 120) ||
-    'Grade 9 Student';
-  const validName = safeName.length >= 2 ? safeName : 'Grade 9 Student';
-  const safeRole: 'student' | 'teacher' =
-    isMainAdmin || appUser.role === 'teacher' ? 'teacher' : 'student';
-  const safeAdmin = isMainAdmin || Boolean(appUser.isAdmin);
-  const nowIso = new Date().toISOString();
-  const ref = doc(db, 'peer_presence', fbUser.uid);
-
-  try {
-    const existing = await getDoc(ref).catch(() => null);
-    const basePayload = {
-      numericId: appUser.id || stableNumericId(fbUser.uid),
-      name: validName,
-      grade: clampStr(appUser.grade || '', 40),
-      avatarUrl: sanitizeAvatarForFirestore(appUser.avatar_url),
-      bio: clampStr(appUser.bio || '', 500),
-      online: Boolean(online),
-      currentSection: clampStr(online ? section : '', 40),
-      lastActiveAtIso: nowIso,
-      updatedAt: serverTimestamp(),
-    };
-
-    if (!existing || !existing.exists()) {
-      await setDoc(ref, {
-        uid: fbUser.uid,
-        role: isMainAdmin ? 'teacher' : 'student',
-        isAdmin: isMainAdmin,
-        isRestricted: false,
-        ...basePayload,
-      });
-    } else {
-      const existingData = existing.data();
-      const canUpdatePrivilege = await isCurrentUserCloudAdmin().catch(() => false);
-      if (canUpdatePrivilege) {
-        await setDoc(
-          ref,
-          {
-            role: safeRole,
-            isAdmin: safeAdmin,
-            isRestricted: !isMainAdmin && Boolean(appUser.isRestricted),
-            ...basePayload,
-          },
-          { merge: true }
-        );
-      } else {
-        await setDoc(
-          ref,
-          {
-            ...basePayload,
-            role: existingData.role === 'teacher' ? 'teacher' : 'student',
-            isAdmin: Boolean(existingData.isAdmin),
-          },
-          { merge: true }
-        );
-      }
-    }
-  } catch {
-    // Non-fatal cloud presence update
-  }
-}
-
-export async function pullAllPeerPresence(): Promise<CloudPeerPresence[]> {
-  const fbUser = auth.currentUser;
-  if (!isTrustedCloudAuthUser(fbUser)) {
-    return [];
-  }
-  try {
-    const q = query(
-      collection(db, 'peer_presence'),
-      where('role', 'in', ['student', 'teacher'])
-    );
-    const snaps = await getDocs(q);
-    const now = Date.now();
-    const list: CloudPeerPresence[] = [];
-    snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      const updatedIso =
-        toIsoFromTimestampOrString(d.updatedAt) || clampStr(d.lastActiveAtIso || '', 64);
-      const updatedMs = updatedIso ? Date.parse(updatedIso) : 0;
-      const isFresh = Number.isFinite(updatedMs) && updatedMs > 0 && now - updatedMs <= PEER_ONLINE_TTL_MS;
-      const uid = clampStr(d.uid || docSnap.id, 128);
-      if (!uid) return;
-      list.push({
-        uid,
-        numericId: Number(d.numericId) || stableNumericId(uid),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        role: d.role === 'teacher' ? 'teacher' : 'student',
-        isAdmin: Boolean(d.isAdmin),
-        grade: clampStr(d.grade || '', 40),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        bio: clampStr(d.bio || '', 500),
-        online: Boolean(d.online) && isFresh,
-        currentSection: Boolean(d.online) && isFresh ? clampStr(d.currentSection || 'home', 40) : '',
-        isRestricted: Boolean(d.isRestricted),
-        lastActiveAtIso: clampStr(d.lastActiveAtIso || updatedIso, 64),
-      });
-    });
-    return list;
-  } catch {
-    return [];
-  }
-}
-
 export async function syncCurrentUserToFirestore(
   appUser: User,
   stats?: { totalPoints?: number; quizzesCompleted?: number; correctAnswers?: number }
 ): Promise<void> {
   const fbUser = auth.currentUser;
-  if (!isTrustedCloudAuthUser(fbUser) || !fbUser.email) return;
+  if (!fbUser || !fbUser.emailVerified || !fbUser.email) return;
   if (fbUser.email.trim().toLowerCase() !== appUser.email.trim().toLowerCase()) return;
   if (!VALID_ID_REGEX.test(fbUser.uid)) return;
 
@@ -497,7 +260,6 @@ export async function syncCurrentUserToFirestore(
   const safeAvatar = sanitizeAvatarForFirestore(appUser.avatar_url);
   const safeNotifEnabled = appUser.notifications_enabled !== false;
   const safeNotifPrompt = sanitizeNotifStatus(appUser.notif_prompt_status);
-  const nowIso = new Date().toISOString();
 
   const userPath = `users/${fbUser.uid}`;
   const userRef = doc(db, 'users', fbUser.uid);
@@ -541,10 +303,6 @@ export async function syncCurrentUserToFirestore(
         totalPoints: nextPoints,
         quizzesCompleted: nextQuizzes,
         correctAnswers: nextCorrect,
-        isRestricted: false,
-        restrictionReason: '',
-        lastLoginAt: clampStr(appUser.lastLoginAt || nowIso, 64),
-        lastActiveAt: nowIso,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -562,8 +320,6 @@ export async function syncCurrentUserToFirestore(
           totalPoints: nextPoints,
           quizzesCompleted: nextQuizzes,
           correctAnswers: nextCorrect,
-          lastLoginAt: clampStr(appUser.lastLoginAt || nowIso, 64),
-          lastActiveAt: nowIso,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
@@ -609,8 +365,6 @@ export async function syncCurrentUserToFirestore(
       handleFirestoreError(err, OperationType.WRITE, lbPath);
     }
   }
-
-  await syncCloudPeerPresence(appUser, true, 'home').catch(() => {});
 }
 
 export async function recordQuizAttemptToCloud(
@@ -619,7 +373,7 @@ export async function recordQuizAttemptToCloud(
   appUser?: User | null
 ): Promise<void> {
   const fbUser = auth.currentUser;
-  if (!isTrustedCloudAuthUser(fbUser) || !fbUser.email || !VALID_ID_REGEX.test(fbUser.uid)) return;
+  if (!fbUser || !fbUser.emailVerified || !VALID_ID_REGEX.test(fbUser.uid)) return;
 
   const attemptId = `qa_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const path = `users/${fbUser.uid}/quiz_attempts/${attemptId}`;
@@ -647,7 +401,12 @@ export async function recordQuizAttemptToCloud(
 }
 
 export async function pullAllSchoolAccountsAsAdmin(): Promise<SchoolAccountMirrorRow[]> {
-  if (!(await isCurrentUserCloudAdmin())) {
+  const fbUser = auth.currentUser;
+  if (
+    !fbUser ||
+    !fbUser.emailVerified ||
+    (fbUser.email || '').trim().toLowerCase() !== MAIN_ADMIN_EMAIL
+  ) {
     return [];
   }
 
@@ -686,291 +445,19 @@ export async function pullAllSchoolAccountsAsAdmin(): Promise<SchoolAccountMirro
   return results;
 }
 
-export async function fetchCloudRegisteredUsersAsAdmin(): Promise<CloudRegisteredAccount[]> {
-  if (!(await isCurrentUserCloudAdmin())) {
-    return [];
-  }
-
-  const byEmail = new Map<string, CloudRegisteredAccount>();
-
-  try {
-    const q = query(
-      collection(db, 'users'),
-      where('role', 'in', ['student', 'teacher'])
-    );
-    const snaps = await getDocs(q);
-    snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      const email = clampStr(d.email, 180).toLowerCase();
-      if (!email) return;
-      const isMain = email === MAIN_ADMIN_EMAIL;
-      byEmail.set(email, {
-        uid: clampStr(d.uid || docSnap.id, 128),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        email,
-        role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
-        isAdmin: isMain || Boolean(d.isAdmin),
-        grade: clampStr(d.grade || '', 40),
-        bio: clampStr(d.bio || '', 500),
-        birthday: clampStr(d.birthday || '', 20),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        isRestricted: !isMain && Boolean(d.isRestricted),
-        restrictionReason: clampStr(d.restrictionReason || '', 300),
-        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-        lastLoginAt: clampStr(d.lastLoginAt || '', 64),
-        lastActiveAt:
-          clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
-        createdAtIso: toIsoFromTimestampOrString(d.createdAt) || new Date().toISOString(),
-      });
-    });
-  } catch {
-    // Non-fatal /users read; continue checking school_accounts
-  }
-
-  try {
-    const q = query(
-      collection(db, 'school_accounts'),
-      where('role', 'in', ['student', 'teacher'])
-    );
-    const snaps = await getDocs(q);
-    snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      const email = clampStr(d.email, 180).toLowerCase();
-      if (!email) return;
-      const isMain = email === MAIN_ADMIN_EMAIL;
-      const existing = byEmail.get(email);
-      if (existing) {
-        existing.accountKey = clampStr(d.accountKey || docSnap.id, 128);
-        if (!existing.grade && d.grade) existing.grade = clampStr(d.grade, 40);
-        if (!existing.bio && d.bio) existing.bio = clampStr(d.bio, 500);
-        if (!existing.birthday && d.birthday) existing.birthday = clampStr(d.birthday, 20);
-        if (!existing.avatarUrl && d.avatarUrl) {
-          existing.avatarUrl = sanitizeAvatarForFirestore(d.avatarUrl);
-        }
-        return;
-      }
-      byEmail.set(email, {
-        accountKey: clampStr(d.accountKey || docSnap.id, 128),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        email,
-        role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
-        isAdmin: isMain || Boolean(d.isAdmin),
-        grade: clampStr(d.grade || '', 40),
-        bio: clampStr(d.bio || '', 500),
-        birthday: clampStr(d.birthday || '', 20),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        isRestricted: false,
-        restrictionReason: '',
-        totalPoints: 0,
-        quizzesCompleted: 0,
-        correctAnswers: 0,
-        lastLoginAt: '',
-        lastActiveAt: toIsoFromTimestampOrString(d.updatedAt),
-        createdAtIso: clampStr(d.createdAtIso || '', 64) || new Date().toISOString(),
-      });
-    });
-  } catch {
-    // Non-fatal /school_accounts read
-  }
-
-  return Array.from(byEmail.values());
-}
-
-export async function updateCloudUserAsAdmin(params: {
-  email: string;
-  uid?: string;
-  name?: string;
-  grade?: string;
-  bio?: string;
-  birthday?: string;
-  role?: 'student' | 'teacher';
-  isAdmin?: boolean;
-  isRestricted?: boolean;
-  restrictionReason?: string;
-}): Promise<void> {
-  if (!(await isCurrentUserCloudAdmin())) return;
-  const email = clampStr(params.email, 180).toLowerCase();
-  const isMain = email === MAIN_ADMIN_EMAIL;
-
-  let targetUid = clampStr(params.uid || '', 128);
-  if (!targetUid && email) {
-    try {
-      const q = query(
-        collection(db, 'users'),
-        where('role', 'in', ['student', 'teacher'])
-      );
-      const snaps = await getDocs(q);
-      snaps.forEach((docSnap) => {
-        const d = docSnap.data();
-        if (String(d.email || '').trim().toLowerCase() === email) {
-          targetUid = String(d.uid || docSnap.id);
-        }
-      });
-    } catch {
-      // ignore lookup error
-    }
-  }
-
-  if (targetUid && VALID_ID_REGEX.test(targetUid)) {
-    try {
-      const userRef = doc(db, 'users', targetUid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const d = snap.data();
-        const nextRole: 'student' | 'teacher' = isMain
-          ? 'teacher'
-          : params.role || (d.role === 'teacher' ? 'teacher' : 'student');
-        const nextAdmin = isMain
-          ? true
-          : params.isAdmin !== undefined
-          ? Boolean(params.isAdmin)
-          : nextRole === 'teacher';
-        const nextName =
-          clampStr(params.name !== undefined ? params.name : d.name, 120) || 'Grade 9 Student';
-        const validName = nextName.length >= 2 ? nextName : 'Grade 9 Student';
-        await setDoc(
-          userRef,
-          {
-            name: validName,
-            grade: clampStr(params.grade !== undefined ? params.grade : d.grade, 40),
-            bio: clampStr(params.bio !== undefined ? params.bio : d.bio, 500),
-            birthday: clampStr(params.birthday !== undefined ? params.birthday : d.birthday, 20),
-            role: nextRole,
-            isAdmin: nextAdmin,
-            isRestricted: isMain
-              ? false
-              : params.isRestricted !== undefined
-              ? Boolean(params.isRestricted)
-              : Boolean(d.isRestricted),
-            restrictionReason: isMain
-              ? ''
-              : clampStr(
-                  params.restrictionReason !== undefined
-                    ? params.restrictionReason
-                    : d.restrictionReason,
-                  300
-                ),
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        await syncAdminRegistryEntry(targetUid, email, nextRole === 'teacher' && nextAdmin);
-
-        const presenceRef = doc(db, 'peer_presence', targetUid);
-        const presSnap = await getDoc(presenceRef).catch(() => null);
-        if (presSnap && presSnap.exists()) {
-          await setDoc(
-            presenceRef,
-            {
-              name: validName,
-              grade: clampStr(params.grade !== undefined ? params.grade : d.grade, 40),
-              bio: clampStr(params.bio !== undefined ? params.bio : d.bio, 500),
-              role: nextRole,
-              isAdmin: nextAdmin,
-              isRestricted: isMain
-                ? false
-                : params.isRestricted !== undefined
-                ? Boolean(params.isRestricted)
-                : Boolean(d.isRestricted),
-              updatedAt: serverTimestamp(),
-            },
-            { merge: true }
-          ).catch(() => {});
-        }
-      }
-    } catch {
-      // ignore non-fatal /users admin update error
-    }
-  }
-
-  if (email) {
-    try {
-      const accountKey = await sha256AccountKey(email);
-      const acctRef = doc(db, 'school_accounts', accountKey);
-      const acctSnap = await getDoc(acctRef);
-      if (acctSnap.exists()) {
-        const d = acctSnap.data();
-        const nextRole: 'student' | 'teacher' = isMain
-          ? 'teacher'
-          : params.role || (d.role === 'teacher' ? 'teacher' : 'student');
-        const nextAdmin = isMain
-          ? true
-          : params.isAdmin !== undefined
-          ? Boolean(params.isAdmin)
-          : nextRole === 'teacher';
-        await setDoc(
-          acctRef,
-          {
-            name: clampStr(params.name !== undefined ? params.name : d.name, 120) || 'Grade 9 Student',
-            grade: clampStr(params.grade !== undefined ? params.grade : d.grade, 40),
-            bio: clampStr(params.bio !== undefined ? params.bio : d.bio, 500),
-            birthday: clampStr(params.birthday !== undefined ? params.birthday : d.birthday, 20),
-            role: nextRole,
-            isAdmin: nextAdmin,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-      }
-    } catch {
-      // ignore non-fatal /school_accounts admin update error
-    }
-  }
-}
-
-export async function deleteCloudUserAsAdmin(email: string, uid?: string): Promise<void> {
-  if (!(await isCurrentUserCloudAdmin())) return;
-  const normalized = clampStr(email, 180).toLowerCase();
-  if (!normalized || normalized === MAIN_ADMIN_EMAIL) return;
-
-  let targetUid = clampStr(uid || '', 128);
-  if (!targetUid) {
-    try {
-      const q = query(
-        collection(db, 'users'),
-        where('role', 'in', ['student', 'teacher'])
-      );
-      const snaps = await getDocs(q);
-      snaps.forEach((docSnap) => {
-        const d = docSnap.data();
-        if (String(d.email || '').trim().toLowerCase() === normalized) {
-          targetUid = String(d.uid || docSnap.id);
-        }
-      });
-    } catch {
-      // ignore lookup error
-    }
-  }
-
-  if (targetUid && VALID_ID_REGEX.test(targetUid)) {
-    const q = query(
-      collection(db, 'users', targetUid, 'quiz_attempts'),
-      where('userId', '==', targetUid)
-    );
-    const attemptSnaps = await getDocs(q).catch(() => null);
-    if (attemptSnaps) {
-      for (const snap of attemptSnaps.docs) {
-        await deleteDoc(snap.ref).catch(() => {});
-      }
-    }
-    await deleteDoc(doc(db, 'leaderboard_entries', targetUid)).catch(() => {});
-    await deleteDoc(doc(db, 'peer_presence', targetUid)).catch(() => {});
-    await syncAdminRegistryEntry(targetUid, normalized, false).catch(() => {});
-    await deleteDoc(doc(db, 'users', targetUid)).catch(() => {});
-  }
-
-  await deleteSchoolAccountMirrorByEmail(normalized).catch(() => {});
-}
-
 export async function pushSchoolAccountsAsAdmin(
   accounts: SchoolAccountMirrorRow[]
 ): Promise<number> {
-  if (!(await isCurrentUserCloudAdmin())) {
+  const fbUser = auth.currentUser;
+  if (
+    !fbUser ||
+    !fbUser.emailVerified ||
+    (fbUser.email || '').trim().toLowerCase() !== MAIN_ADMIN_EMAIL
+  ) {
     return 0;
   }
+
+  await ensureMainAdminRegistryDoc();
 
   let synced = 0;
   for (const acct of accounts) {
@@ -1015,132 +502,4 @@ export async function pushSchoolAccountsAsAdmin(
     }
   }
   return synced;
-}
-
-export interface CloudLeaderboardRow {
-  uid: string;
-  name: string;
-  grade: string;
-  avatarUrl: string;
-  totalPoints: number;
-  quizzesCompleted: number;
-  correctAnswers: number;
-}
-
-export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]> {
-  const fbUser = auth.currentUser;
-  if (!isTrustedCloudAuthUser(fbUser)) {
-    return [];
-  }
-  try {
-    const q = query(
-      collection(db, 'leaderboard_entries'),
-      where('role', '==', 'student')
-    );
-    const snaps = await getDocs(q);
-    const rows: CloudLeaderboardRow[] = [];
-    snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      rows.push({
-        uid: String(d.uid || docSnap.id),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        grade: clampStr(d.grade || '', 40),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-      });
-    });
-    return rows;
-  } catch {
-    return [];
-  }
-}
-
-export async function fetchCloudAppSettings(): Promise<AppSettings | null> {
-  try {
-    const snap = await getDoc(doc(db, 'app_settings', 'global'));
-    if (!snap.exists()) return null;
-    const d = snap.data();
-    const lang = d.defaultLanguage === 'ku' || d.defaultLanguage === 'ar' ? d.defaultLanguage : 'en';
-    return {
-      allowStudentRegistration: d.allowStudentRegistration !== false,
-      communityEnabled: d.communityEnabled !== false,
-      communityPostingEnabled: d.communityPostingEnabled !== false,
-      aiTutorEnabled: d.aiTutorEnabled !== false,
-      defaultLanguage: lang,
-      maintenanceMessage: clampStr(d.maintenanceMessage || '', 300),
-      updatedAt: toIsoFromTimestampOrString(d.updatedAt),
-    };
-  } catch {
-    return null;
-  }
-}
-
-export async function saveCloudAppSettings(settings: AppSettings): Promise<boolean> {
-  if (!(await isCurrentUserCloudAdmin())) return false;
-  try {
-    await setDoc(doc(db, 'app_settings', 'global'), {
-      settingId: 'global',
-      scope: 'public',
-      allowStudentRegistration: Boolean(settings.allowStudentRegistration),
-      communityEnabled: Boolean(settings.communityEnabled),
-      communityPostingEnabled: Boolean(settings.communityPostingEnabled),
-      aiTutorEnabled: Boolean(settings.aiTutorEnabled),
-      defaultLanguage:
-        settings.defaultLanguage === 'ku' || settings.defaultLanguage === 'ar'
-          ? settings.defaultLanguage
-          : 'en',
-      maintenanceMessage: clampStr(settings.maintenanceMessage || '', 300),
-      updatedAt: serverTimestamp(),
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function deleteOwnCloudAccountData(expectedEmail?: string): Promise<void> {
-  const fbUser = auth.currentUser;
-  if (!fbUser || !VALID_ID_REGEX.test(fbUser.uid)) return;
-  if (
-    expectedEmail &&
-    fbUser.email &&
-    fbUser.email.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()
-  ) {
-    return;
-  }
-
-  try {
-    const q = query(
-      collection(db, 'users', fbUser.uid, 'quiz_attempts'),
-      where('userId', '==', fbUser.uid)
-    );
-    const attemptSnaps = await getDocs(q).catch(() => null);
-    if (attemptSnaps) {
-      for (const snap of attemptSnaps.docs) {
-        await deleteDoc(snap.ref).catch(() => {});
-      }
-    }
-    await deleteDoc(doc(db, 'leaderboard_entries', fbUser.uid)).catch(() => {});
-    await deleteDoc(doc(db, 'peer_presence', fbUser.uid)).catch(() => {});
-    await deleteDoc(doc(db, 'users', fbUser.uid)).catch(() => {});
-    await fbUser.delete().catch(() => {});
-  } catch {
-    // Non-fatal cleanup when offline or requiring recent login
-  }
-}
-
-export async function deleteSchoolAccountMirrorByEmail(email: string): Promise<void> {
-  if (!(await isCurrentUserCloudAdmin())) {
-    return;
-  }
-  const normalized = email.trim().toLowerCase();
-  if (!normalized || normalized === MAIN_ADMIN_EMAIL) return;
-  try {
-    const accountKey = await sha256AccountKey(normalized);
-    await deleteDoc(doc(db, 'school_accounts', accountKey));
-  } catch {
-    // Ignore non-fatal cloud mirror cleanup failure
-  }
 }

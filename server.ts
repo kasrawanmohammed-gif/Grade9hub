@@ -54,12 +54,7 @@ import {
 import { buildWrongOptionExplanation, SupportedLang } from './server/wrongOptionExplainer.ts';
 import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
 import { getPublicVapidKey, sendPushToAllStudents, sendPushToUser } from './server/push.ts';
-import {
-  generateStudyImage,
-  getGeminiErrorStatus,
-  runTutorChat,
-  runTutorChatStream,
-} from './server/gemini.ts';
+import { runTutorChat, generateStudyImage } from './server/gemini.ts';
 import { registerCommunityRoutes, logStudentActivity } from './server/communityRoutes.ts';
 import { normalizeScientificUnits } from './server/unitSanitizer.ts';
 import { seedTextbooksIfNeeded } from './server/seedTextbooks.ts';
@@ -445,19 +440,13 @@ function createSessionForUser(userId: number): { token: string; expiresAt: Date 
   return { token, expiresAt };
 }
 
-function setSessionCookie(
-  req: Request,
-  res: Response,
-  token: string,
-  expiresAt: Date,
-  rememberMe = true
-): void {
+function setSessionCookie(req: Request, res: Response, token: string, expiresAt: Date): void {
   const isHttps = isHttpsRequest(req);
   res.cookie(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: isHttps ? 'none' : 'lax',
     secure: isHttps,
-    ...(rememberMe ? { expires: expiresAt } : {}),
+    expires: expiresAt,
     path: '/',
   });
 }
@@ -608,16 +597,7 @@ function getAuthenticatedUser(req: Request): AuthUser | undefined {
 // ---------------- REAL-TIME PRESENCE & EDUCATIONAL RANKINGS ----------------
 const activeUserSockets = new Map<number, Set<WebSocket>>();
 const userActiveSection = new Map<number, string>();
-const lastHttpPresenceAt = new Map<number, number>();
 const adminDashboardSockets = new Set<WebSocket>();
-const PRESENCE_HEARTBEAT_TTL_MS = 45000;
-
-function isUserOnline(userId: number): boolean {
-  if (activeUserSockets.has(userId)) return true;
-  const lastPing = lastHttpPresenceAt.get(userId);
-  if (!lastPing) return false;
-  return Date.now() - lastPing <= PRESENCE_HEARTBEAT_TTL_MS;
-}
 
 const ALLOWED_PRESENCE_SECTIONS = new Set([
   'home',
@@ -634,92 +614,6 @@ const ALLOWED_PRESENCE_SECTIONS = new Set([
   'about',
   'admin-dashboard',
 ]);
-
-interface ServerAppSettings {
-  allowStudentRegistration: boolean;
-  communityEnabled: boolean;
-  communityPostingEnabled: boolean;
-  aiTutorEnabled: boolean;
-  defaultLanguage: 'en' | 'ku' | 'ar';
-  maintenanceMessage: string;
-  updatedAt?: string;
-}
-
-const DEFAULT_SERVER_APP_SETTINGS: ServerAppSettings = {
-  allowStudentRegistration: true,
-  communityEnabled: true,
-  communityPostingEnabled: true,
-  aiTutorEnabled: true,
-  defaultLanguage: 'en',
-  maintenanceMessage: '',
-};
-
-function getAppSettings(): ServerAppSettings {
-  try {
-    const row = db
-      .prepare('SELECT value FROM app_settings WHERE key = ?')
-      .get('app_settings_v1') as { value: string } | undefined;
-    if (!row?.value) return { ...DEFAULT_SERVER_APP_SETTINGS };
-    const parsed = JSON.parse(row.value) as Partial<ServerAppSettings>;
-    return {
-      allowStudentRegistration:
-        typeof parsed.allowStudentRegistration === 'boolean'
-          ? parsed.allowStudentRegistration
-          : true,
-      communityEnabled:
-        typeof parsed.communityEnabled === 'boolean' ? parsed.communityEnabled : true,
-      communityPostingEnabled:
-        typeof parsed.communityPostingEnabled === 'boolean'
-          ? parsed.communityPostingEnabled
-          : true,
-      aiTutorEnabled:
-        typeof parsed.aiTutorEnabled === 'boolean' ? parsed.aiTutorEnabled : true,
-      defaultLanguage: normalizeLang(parsed.defaultLanguage),
-      maintenanceMessage:
-        typeof parsed.maintenanceMessage === 'string'
-          ? parsed.maintenanceMessage.slice(0, 300)
-          : '',
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
-    };
-  } catch {
-    return { ...DEFAULT_SERVER_APP_SETTINGS };
-  }
-}
-
-function saveAppSettings(patch: Partial<ServerAppSettings>): ServerAppSettings {
-  const current = getAppSettings();
-  const next: ServerAppSettings = {
-    allowStudentRegistration:
-      typeof patch.allowStudentRegistration === 'boolean'
-        ? patch.allowStudentRegistration
-        : current.allowStudentRegistration,
-    communityEnabled:
-      typeof patch.communityEnabled === 'boolean'
-        ? patch.communityEnabled
-        : current.communityEnabled,
-    communityPostingEnabled:
-      typeof patch.communityPostingEnabled === 'boolean'
-        ? patch.communityPostingEnabled
-        : current.communityPostingEnabled,
-    aiTutorEnabled:
-      typeof patch.aiTutorEnabled === 'boolean' ? patch.aiTutorEnabled : current.aiTutorEnabled,
-    defaultLanguage:
-      patch.defaultLanguage !== undefined
-        ? normalizeLang(patch.defaultLanguage)
-        : current.defaultLanguage,
-    maintenanceMessage:
-      typeof patch.maintenanceMessage === 'string'
-        ? patch.maintenanceMessage.trim().slice(0, 300)
-        : current.maintenanceMessage,
-    updatedAt: new Date().toISOString(),
-  };
-
-  db.prepare(
-    `INSERT INTO app_settings (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-  ).run('app_settings_v1', JSON.stringify(next));
-  return next;
-}
 
 interface StudentStatsRow {
   id: number;
@@ -819,7 +713,7 @@ function buildStudentPerformanceList() {
       r.teacher_messages_count * 3 +
       r.ai_tutor_turns * 2;
 
-    const online = isUserOnline(r.id);
+    const online = activeUserSockets.has(r.id);
     const currentSection = online ? userActiveSection.get(r.id) || 'home' : '';
     const lastActiveAt =
       [r.last_active_at, r.latest_quiz_at, r.latest_message_at]
@@ -1069,7 +963,7 @@ function buildCompetitionLeaderboard(viewerUserId: number) {
       name: r.name,
       grade: r.grade || '',
       avatar_url: r.avatar_url || '',
-      online: isUserOnline(r.id),
+      online: activeUserSockets.has(r.id),
       totalPoints: Number(r.total_points || 0),
       quizPoints: Number(r.quiz_points || 0),
       activityPoints: Number(r.activity_points || 0),
@@ -1290,26 +1184,6 @@ async function startServer() {
   app.use(express.json({ limit: '25mb' }));
   app.use(cookieParser());
 
-  // Allow cross-origin frontend deployments (e.g., grade9hub.vercel.app -> Cloud Run API)
-  app.use('/api', (req: Request, res: Response, next: NextFunction) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-Remember-Me, X-Firebase-Id-Token, Accept'
-      );
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-    }
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
-      return;
-    }
-    next();
-  });
-
   // Request-level guard: if SQLite users table is ever empty (e.g. rebuild/URL swap/restart),
   // immediately hydrate from src/data/persistent_backup.json before handling ANY API request.
   app.use('/api', (_req: Request, _res: Response, next: NextFunction) => {
@@ -1329,9 +1203,7 @@ async function startServer() {
       req.path.startsWith('/api/') &&
       ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
       !req.path.startsWith('/api/admin/backups') &&
-      !req.path.startsWith('/api/presence/') &&
       !(req.method === 'DELETE' && req.path.startsWith('/api/admin/users/')) &&
-      !(req.method === 'DELETE' && req.path === '/api/profile') &&
       req.path !== '/api/auth/logout'
     ) {
       res.on('finish', () => {
@@ -1401,14 +1273,13 @@ async function startServer() {
     }
 
     if (activeToken) {
-      const rememberMe = req.headers['x-remember-me'] !== '0';
       const nextExpiry = new Date(Date.now() + SESSION_TTL_DAYS * 24 * 60 * 60 * 1000);
       db.prepare('INSERT OR REPLACE INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)').run(
         activeToken,
         user.id,
         nextExpiry.toISOString()
       );
-      setSessionCookie(req, res, activeToken, nextExpiry, rememberMe);
+      setSessionCookie(req, res, activeToken, nextExpiry);
     }
 
     res.json({
@@ -1458,9 +1329,8 @@ async function startServer() {
         restoredId,
         nextExpiry.toISOString()
       );
-      const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
       db.prepare("UPDATE users SET last_active_at = datetime('now') WHERE id = ?").run(restoredId);
-      setSessionCookie(req, res, sessionToken, nextExpiry, rememberMe);
+      setSessionCookie(req, res, sessionToken, nextExpiry);
 
       const restoredRow = db
         .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
@@ -1526,13 +1396,6 @@ async function startServer() {
       Boolean(existing) &&
       existing!.password_hash === BOOTSTRAP_PENDING_HASH &&
       isMainAdmin;
-
-    if (!isMainAdmin && !claimingPendingAdmin && !getAppSettings().allowStudentRegistration) {
-      res.status(403).json({
-        error: 'New student registration is currently paused by the administrator.',
-      });
-      return;
-    }
 
     if (existing && !claimingPendingAdmin) {
       res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
@@ -1617,10 +1480,6 @@ async function startServer() {
       res.status(400).json({ error: 'Email and password are required.' });
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      res.status(400).json({ error: 'Please enter a valid email address.' });
-      return;
-    }
 
     let row = db
       .prepare(
@@ -1639,123 +1498,65 @@ async function startServer() {
       }
     }
 
-    const isPrivilegedAccount =
-      email === TEACHER_EMAIL.toLowerCase() ||
-      Boolean(row && (row.role === 'teacher' || row.is_admin));
-
-    if (isPrivilegedAccount) {
-      if (!row || row.password_hash === BOOTSTRAP_PENDING_HASH) {
-        // Universal client-side auto-recovery: if server DB lost this account across a container reset,
-        // decrypt & verify the user's server-signed encrypted passport and bcrypt password hash before restoring!
-        let restoredViaPassport = false;
-        if (clientPassportToken) {
-          const passportData = decryptSignedJson<AccountPassportPayload>(
-            'user-passport',
-            clientPassportToken
+    if (!row || row.password_hash === BOOTSTRAP_PENDING_HASH) {
+      // Universal client-side auto-recovery: if server DB lost this account across a container reset,
+      // decrypt & verify the user's server-signed encrypted passport and bcrypt password hash before restoring!
+      let restoredViaPassport = false;
+      if (clientPassportToken) {
+        const passportData = decryptSignedJson<AccountPassportPayload>(
+          'user-passport',
+          clientPassportToken
+        );
+        if (
+          passportData &&
+          passportData.v === 1 &&
+          passportData.user?.email?.trim().toLowerCase() === email &&
+          passportData.user.password_hash &&
+          passportData.user.password_hash !== BOOTSTRAP_PENDING_HASH
+        ) {
+          const passportPasswordOk = await bcrypt.compare(
+            password,
+            passportData.user.password_hash
           );
-          if (
-            passportData &&
-            passportData.v === 1 &&
-            passportData.user?.email?.trim().toLowerCase() === email &&
-            passportData.user.password_hash &&
-            passportData.user.password_hash !== BOOTSTRAP_PENDING_HASH
-          ) {
-            const passportPasswordOk = await bcrypt.compare(
-              password,
-              passportData.user.password_hash
-            );
-            if (passportPasswordOk) {
-              restoreUserPassportRecord(passportData);
-              row = db
-                .prepare(
-                  `SELECT ${USER_SELECT_COLS}, password_hash FROM users WHERE LOWER(email) = LOWER(?)`
-                )
-                .get(email) as (DbUserRow & { password_hash: string }) | undefined;
-              restoredViaPassport = Boolean(row && row.password_hash !== BOOTSTRAP_PENDING_HASH);
-            }
+          if (passportPasswordOk) {
+            restoreUserPassportRecord(passportData);
+            row = db
+              .prepare(
+                `SELECT ${USER_SELECT_COLS}, password_hash FROM users WHERE LOWER(email) = LOWER(?)`
+              )
+              .get(email) as (DbUserRow & { password_hash: string }) | undefined;
+            restoredViaPassport = Boolean(row && row.password_hash !== BOOTSTRAP_PENDING_HASH);
           }
         }
+      }
 
-        if (!restoredViaPassport) {
-          const dbEmpty = getRealUserCount() === 0;
-          res.status(401).json({
-            error: 'Invalid email or password.',
-            dbEmpty,
-            bootstrapPending: row?.password_hash === BOOTSTRAP_PENDING_HASH,
-          });
-          return;
-        }
-      } else if (row.password_hash.startsWith('!FIREBASE_GOOGLE_LINKED!')) {
+      if (!restoredViaPassport) {
+        const dbEmpty = getRealUserCount() === 0;
         res.status(401).json({
-          error:
-            'This account uses Google Sign-In. Please click "Continue with Google" above or use Forgot Password to set an email password.',
-          dbEmpty: false,
-          googleLinkedOnly: true,
+          error: 'Invalid email or password.',
+          dbEmpty,
+          bootstrapPending: row?.password_hash === BOOTSTRAP_PENDING_HASH,
         });
         return;
-      } else {
-        const matches = await bcrypt.compare(password, row.password_hash);
-        if (!matches) {
-          res.status(401).json({ error: 'Invalid email or password.', dbEmpty: false });
-          return;
-        }
       }
-    } else if (!row || row.password_hash === BOOTSTRAP_PENDING_HASH) {
-      // Instant student login: automatically initialize/create a student account on the fly
-      const localPart = email.split('@')[0] || '';
-      const cleanedName = localPart
-        .replace(/[._-]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .split(' ')
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ')
-        .slice(0, 48);
-      const derivedName = cleanedName.length >= 2 ? cleanedName : 'Grade 9 Student';
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      let userId: number;
-      if (row && row.password_hash === BOOTSTRAP_PENDING_HASH) {
-        db.prepare(
-          `UPDATE users
-           SET name = CASE WHEN LENGTH(TRIM(name)) >= 2 THEN name ELSE ? END,
-               password_hash = ?,
-               role = 'student',
-               is_admin = 0,
-               last_login_at = datetime('now'),
-               last_active_at = datetime('now')
-           WHERE id = ?`
-        ).run(derivedName, passwordHash, row.id);
-        userId = row.id;
-      } else {
-        const result = db
-          .prepare(
-            `INSERT INTO users (name, email, password_hash, role, is_admin, grade, bio, birthday)
-             VALUES (?, ?, ?, 'student', 0, '', '', '')`
-          )
-          .run(derivedName, email, passwordHash);
-        userId = Number(result.lastInsertRowid);
-        db.prepare(
-          `INSERT INTO notifications (user_id, title, body, category, link_tab)
-           VALUES (?, ?, ?, 'announcement', 'home')`
-        ).run(
-          userId,
-          'Welcome to Grade 9 Hub',
-          'Your account is ready. Explore the 11 chapters, General Questions, Student Community, Ask Your Teacher, and Science AI Studio.'
-        );
-        logStudentActivity(userId, 'register', 'Created student account', 'user', userId);
+    } else if (row.password_hash.startsWith('!FIREBASE_GOOGLE_LINKED!')) {
+      res.status(401).json({
+        error:
+          'This account uses Google Sign-In. Please click "Continue with Google" above or use Forgot Password to set an email password.',
+        dbEmpty: false,
+        googleLinkedOnly: true,
+      });
+      return;
+    } else {
+      const matches = await bcrypt.compare(password, row.password_hash);
+      if (!matches) {
+        res.status(401).json({ error: 'Invalid email or password.', dbEmpty: false });
+        return;
       }
-
-      row = db
-        .prepare(
-          `SELECT ${USER_SELECT_COLS}, password_hash FROM users WHERE id = ?`
-        )
-        .get(userId) as (DbUserRow & { password_hash: string }) | undefined;
     }
 
     if (!row) {
-      res.status(500).json({ error: 'Unable to initialize student session.' });
+      res.status(401).json({ error: 'Invalid email or password.', dbEmpty: getRealUserCount() === 0 });
       return;
     }
 
@@ -1768,9 +1569,8 @@ async function startServer() {
       row.is_admin = 1;
     }
 
-    const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     const { token, expiresAt } = createSessionForUser(row.id);
-    setSessionCookie(req, res, token, expiresAt, rememberMe);
+    setSessionCookie(req, res, token, expiresAt);
     db.prepare("UPDATE users SET last_login_at = datetime('now'), last_active_at = datetime('now') WHERE id = ?").run(
       row.id
     );
@@ -1820,12 +1620,14 @@ async function startServer() {
     try {
       identity = await verifyFirebaseIdToken(idToken);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unable to verify social sign-in token.';
+      const msg = err instanceof Error ? err.message : 'Unable to verify Google sign-in token.';
       res.status(401).json({ error: msg });
       return;
     }
 
     const email = identity.email.trim().toLowerCase();
+    const isFacebook = identity.provider === 'facebook.com';
+    const providerLabel = isFacebook ? 'Facebook' : 'Google';
     const isMainAdmin = identity.emailVerified && email === TEACHER_EMAIL.toLowerCase();
     const safeRole: 'student' | 'teacher' = isMainAdmin ? 'teacher' : 'student';
     const isAdminFlag = isMainAdmin ? 1 : 0;
@@ -1855,7 +1657,7 @@ async function startServer() {
       String(
         cloudProfile?.name ||
           identity.name ||
-          (isMainAdmin ? 'Mr. Kasrawan' : email.split('@')[0])
+          (isMainAdmin ? 'Mr. Kasrawan' : isFacebook ? 'Grade 9 Student' : email.split('@')[0])
       )
         .trim()
         .slice(0, 120) || 'Grade 9 User';
@@ -1866,7 +1668,7 @@ async function startServer() {
 
     let userId: number;
     if (!row) {
-      const markerHash = `!FIREBASE_GOOGLE_LINKED!${crypto.randomUUID()}`;
+      const markerHash = `!FIREBASE_${isFacebook ? 'FACEBOOK' : 'GOOGLE'}_LINKED!${crypto.randomUUID()}`;
       const inserted = db
         .prepare(
           `INSERT INTO users (
@@ -1894,8 +1696,8 @@ async function startServer() {
         userId,
         'register',
         isMainAdmin
-          ? 'Signed in as administrator with Google'
-          : 'Created student account with Google',
+          ? `Signed in as administrator with ${providerLabel}`
+          : `Created student account with ${providerLabel}`,
         'user',
         userId
       );
@@ -1906,11 +1708,11 @@ async function startServer() {
         ).run(
           userId,
           'Welcome to Grade 9 Hub',
-          'Your Google account is ready. Your progress and account are safely backed up across updates.'
+          `Your ${providerLabel} account is ready. Your progress and account are safely backed up across updates.`
         );
       }
     } else if (row.password_hash === BOOTSTRAP_PENDING_HASH) {
-      const markerHash = `!FIREBASE_GOOGLE_LINKED!${crypto.randomUUID()}`;
+      const markerHash = `!FIREBASE_${isFacebook ? 'FACEBOOK' : 'GOOGLE'}_LINKED!${crypto.randomUUID()}`;
       db.prepare(
         `UPDATE users
          SET name = ?, password_hash = ?, role = ?, is_admin = ?,
@@ -1957,7 +1759,7 @@ async function startServer() {
         String(cloudProfile?.birthday || '').slice(0, 20),
         userId
       );
-      logStudentActivity(userId, 'login', 'Signed in via Google', 'user', userId);
+      logStudentActivity(userId, 'login', `Signed in via ${providerLabel}`, 'user', userId);
     }
 
     // Merge cloud competition points if SQLite has fewer points (e.g., after container rebuild)
@@ -2000,10 +1802,9 @@ async function startServer() {
       }
     }
 
-    const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     ensureMainAdminPermissions();
     const { token, expiresAt } = createSessionForUser(userId);
-    setSessionCookie(req, res, token, expiresAt, rememberMe);
+    setSessionCookie(req, res, token, expiresAt);
     const freshRow = db
       .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
       .get(userId) as DbUserRow;
@@ -2395,16 +2196,7 @@ async function startServer() {
     const headerToken = extractSessionToken(req);
     const actingUser = getAuthenticatedUserByToken(headerToken || cookieToken);
     if (actingUser) {
-      lastHttpPresenceAt.delete(actingUser.id);
-      if (!activeUserSockets.has(actingUser.id)) {
-        userActiveSection.delete(actingUser.id);
-      }
       logStudentActivity(actingUser.id, 'logout', 'Logged out of Grade 9 Hub', 'user', actingUser.id);
-      broadcastToAllUsers({
-        type: 'community:presence',
-        payload: { userId: actingUser.id, online: activeUserSockets.has(actingUser.id) },
-      });
-      broadcastAdminDashboard();
     }
     const revoke = (tok?: string) => {
       if (!tok || typeof tok !== 'string') return;
@@ -2700,513 +2492,30 @@ async function startServer() {
     });
   });
 
-  function permanentlyDeleteUserAccount(
-    targetId: number,
-    options: { extraRevokeTokens?: Array<string | undefined | null>; reason: string }
-  ): { ok: true; deletedEmail: string } | { ok: false; status: number; error: string } {
-    const target = db
-      .prepare('SELECT id, email, avatar_url FROM users WHERE id = ?')
-      .get(targetId) as { id: number; email: string; avatar_url: string } | undefined;
-
-    if (!target) {
-      return { ok: false, status: 404, error: 'User account not found.' };
-    }
-    if (target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase()) {
-      return { ok: false, status: 400, error: 'The main administrator account cannot be deleted.' };
-    }
-
-    const sessionRows = db
-      .prepare('SELECT token FROM sessions WHERE user_id = ?')
-      .all(targetId) as Array<{ token: string }>;
-
-    const tokensToRevoke = new Set<string>();
-    for (const s of sessionRows) {
-      if (s.token) tokensToRevoke.add(s.token);
-    }
-    for (const tok of options.extraRevokeTokens || []) {
-      if (tok && typeof tok === 'string') tokensToRevoke.add(tok);
-    }
-
-    if (target.avatar_url && target.avatar_url.startsWith('/uploads/')) {
-      const oldPath = path.join(uploadsDir, path.basename(target.avatar_url));
-      if (fs.existsSync(oldPath)) {
-        try {
-          fs.unlinkSync(oldPath);
-        } catch {
-          // ignore
-        }
-      }
-    }
-
-    const tx = db.transaction(() => {
-      const insertRevoked = db.prepare(
-        'INSERT OR IGNORE INTO revoked_sessions (token_hash) VALUES (?)'
-      );
-      for (const tok of tokensToRevoke) {
-        insertRevoked.run(hashToken(tok));
-      }
-      db.prepare('DELETE FROM password_resets WHERE LOWER(email) = LOWER(?)').run(target.email);
-      db.prepare("DELETE FROM community_reports WHERE target_type = 'user' AND target_id = ?").run(
-        targetId
-      );
-      db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
-    });
-    tx();
-
-    lastHttpPresenceAt.delete(targetId);
-    userActiveSection.delete(targetId);
-    const sockets = activeUserSockets.get(targetId);
-    if (sockets) {
-      activeUserSockets.delete(targetId);
-      const disconnectPayload = JSON.stringify({
-        type: 'auth:force_logout',
-        payload: { reason: 'account_deleted' },
-      });
-      for (const client of sockets) {
-        adminDashboardSockets.delete(client);
-        try {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(disconnectPayload);
-          }
-          client.close(1000, 'Account deleted');
-        } catch {
-          // ignore close errors
-        }
-      }
-    }
-
-    checkpointDatabase();
-    writeRecoverySnapshotSync(options.reason, { allowUserRemoval: true });
-    broadcastToAllUsers({
-      type: 'community:presence',
-      payload: { userId: targetId, online: false, deleted: true },
-    });
-    broadcastToAllUsers({
-      type: 'leaderboard:update',
-      payload: { userId: targetId, deleted: true },
-    });
-    broadcastAdminDashboard();
-
-    return { ok: true, deletedEmail: target.email };
-  }
-
-  app.delete('/api/profile', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-    const user = req.user!;
-    const confirmationText = String(req.body?.confirmationText || '').trim().toUpperCase();
-    if (confirmationText !== 'DELETE') {
-      res.status(400).json({ error: 'Please type DELETE to confirm permanent account deletion.' });
-      return;
-    }
-
-    const cookieToken = req.cookies?.[SESSION_COOKIE];
-    const headerToken = extractSessionToken(req);
-    const result = permanentlyDeleteUserAccount(user.id, {
-      extraRevokeTokens: [cookieToken, headerToken],
-      reason: 'self-delete-account',
-    });
-
-    if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-
-    const isHttps = isHttpsRequest(req);
-    res.clearCookie(SESSION_COOKIE, {
-      path: '/',
-      httpOnly: true,
-      sameSite: isHttps ? 'none' : 'lax',
-      secure: isHttps,
-    });
-    res.json({ ok: true, deletedUserId: user.id, deletedEmail: result.deletedEmail });
-  });
-
-  app.post('/api/presence/heartbeat', requireAuth, (req: AuthenticatedRequest, res: Response) => {
-    const user = req.user!;
-    const isPrivileged = user.role === 'teacher' || user.isAdmin;
-    const wasOnline = isUserOnline(user.id);
-
-    lastHttpPresenceAt.set(user.id, Date.now());
-    const section = typeof req.body?.section === 'string' ? req.body.section : '';
-    const safeSection = ALLOWED_PRESENCE_SECTIONS.has(section)
-      ? section
-      : userActiveSection.get(user.id) || 'home';
-    userActiveSection.set(user.id, safeSection);
-    touchUserActivity(user.id);
-
-    if (!wasOnline && !isPrivileged) {
-      logStudentActivity(user.id, 'online', 'Came online in Grade 9 Hub', 'user', user.id);
-    }
-    if (!wasOnline || !isPrivileged) {
-      broadcastAdminDashboard();
-      broadcastToAllUsers({
-        type: 'community:presence',
-        payload: { userId: user.id, online: true, section: safeSection },
-      });
-    }
-
-    res.json({ ok: true, online: true });
-  });
-
-  app.post('/api/presence/offline', (req: Request, res: Response) => {
-    const bodyToken = typeof req.body?.token === 'string' ? req.body.token : undefined;
-    const actingUser =
-      getAuthenticatedUser(req) || (bodyToken ? getAuthenticatedUserByToken(bodyToken) : undefined);
-
-    if (actingUser) {
-      const wasHttpOnline = lastHttpPresenceAt.has(actingUser.id);
-      lastHttpPresenceAt.delete(actingUser.id);
-      if (!activeUserSockets.has(actingUser.id)) {
-        userActiveSection.delete(actingUser.id);
-        if (wasHttpOnline && actingUser.role !== 'teacher' && !actingUser.isAdmin) {
-          logStudentActivity(actingUser.id, 'offline', 'Disconnected from Grade 9 Hub', 'user', actingUser.id);
-        }
-        broadcastToAllUsers({
-          type: 'community:presence',
-          payload: { userId: actingUser.id, online: false },
-        });
-        broadcastAdminDashboard();
-      }
-    }
-
-    res.json({ ok: true });
-  });
-
-  // ---------------- APP SETTINGS & ADMIN USER MANAGEMENT ----------------
-  app.get('/api/settings/public', (_req: Request, res: Response) => {
-    res.json({ settings: getAppSettings() });
-  });
-
-  app.get('/api/admin/settings', requireTeacher, (_req: AuthenticatedRequest, res: Response) => {
-    res.json({ settings: getAppSettings() });
-  });
-
-  app.put('/api/admin/settings', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
-    const patch = (req.body || {}) as Partial<ServerAppSettings>;
-    const updated = saveAppSettings(patch);
-    checkpointDatabase();
-    writeRecoverySnapshotSync('admin-settings-update');
-    broadcastToAllUsers({ type: 'app:settings', payload: updated });
-    res.json({ ok: true, settings: updated });
-  });
-
-  app.get('/api/admin/users', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
-    const q = String(req.query.q || '').trim().toLowerCase();
-    const roleFilter = String(req.query.role || 'all').toLowerCase();
-    const statusFilter = String(req.query.status || 'all').toLowerCase();
-
+  // ---------------- ADMIN USER & PERMISSION MANAGEMENT ----------------
+  app.get('/api/admin/users', requireTeacher, (_req: AuthenticatedRequest, res: Response) => {
     const rows = db
       .prepare(
-        `SELECT u.id, u.name, u.email, u.role, u.is_admin, u.grade, u.bio, u.birthday, u.avatar_url,
-                u.is_restricted, u.restriction_reason, u.last_login_at, u.last_active_at,
-                u.ai_tutor_turns, u.created_at,
-                COALESCE(qa.quizzes_completed, 0) AS quizzes_completed,
-                COALESCE(qa.quiz_questions_total, 0) AS quiz_questions_total,
-                COALESCE(qa.quiz_correct_total, 0) AS quiz_correct_total,
-                COALESCE(qa.avg_score_percent, 0) AS avg_score_percent
-         FROM users u
-         LEFT JOIN (
-           SELECT user_id,
-                  COUNT(*) AS quizzes_completed,
-                  SUM(total_questions) AS quiz_questions_total,
-                  SUM(correct_count) AS quiz_correct_total,
-                  ROUND(AVG(score_percent), 1) AS avg_score_percent
-           FROM quiz_attempts
-           GROUP BY user_id
-         ) qa ON qa.user_id = u.id
-         ORDER BY u.is_admin DESC, CASE WHEN u.role = 'teacher' THEN 0 ELSE 1 END, u.id DESC`
+        `SELECT id, name, email, role, is_admin, grade, created_at
+         FROM users
+         ORDER BY is_admin DESC, CASE WHEN role = 'teacher' THEN 0 ELSE 1 END, id DESC`
       )
-      .all() as Array<
-      DbUserRow & {
-        last_active_at?: string;
-        ai_tutor_turns?: number;
-        quizzes_completed?: number;
-        quiz_questions_total?: number;
-        quiz_correct_total?: number;
-        avg_score_percent?: number;
-      }
-    >;
-
-    const mapped = rows
-      .map((r) => {
-        const isMain = r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
-        const role: 'student' | 'teacher' = isMain ? 'teacher' : (r.role as 'student' | 'teacher');
-        const isAdmin = isMain || Boolean(r.is_admin);
-        const online = isUserOnline(r.id);
-        return {
-          id: r.id,
-          name: r.name,
-          email: r.email,
-          role,
-          isAdmin,
-          grade: r.grade || '',
-          bio: r.bio || '',
-          birthday: r.birthday || '',
-          avatar_url: r.avatar_url || '',
-          online,
-          currentSection: online ? userActiveSection.get(r.id) || 'home' : '',
-          isRestricted: !isMain && Boolean(r.is_restricted),
-          restrictionReason: r.restriction_reason || '',
-          lastLoginAt: r.last_login_at || '',
-          lastActiveAt: r.last_active_at || '',
-          quizzesCompleted: Number(r.quizzes_completed || 0),
-          questionsAnswered: Number(r.quiz_questions_total || 0),
-          correctAnswers: Number(r.quiz_correct_total || 0),
-          avgScorePercent: Number(r.avg_score_percent || 0),
-          aiTutorTurns: Number(r.ai_tutor_turns || 0),
-          source: 'local' as const,
-          created_at: r.created_at,
-        };
-      })
-      .filter((u) => {
-        if (roleFilter === 'student' && (u.role !== 'student' || u.isAdmin)) return false;
-        if (roleFilter === 'teacher' && u.role !== 'teacher' && !u.isAdmin) return false;
-        if (statusFilter === 'online' && !u.online) return false;
-        if (statusFilter === 'offline' && u.online) return false;
-        if (statusFilter === 'restricted' && !u.isRestricted) return false;
-        if (q) {
-          const hay = `${u.name} ${u.email} ${u.grade} ${u.bio}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      });
-
-    res.json({ users: mapped });
-  });
-
-  app.get('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
-    const targetId = Number(req.params.id);
-    if (!Number.isInteger(targetId) || targetId <= 0) {
-      res.status(400).json({ error: 'Invalid user ID.' });
-      return;
-    }
-
-    const row = db
-      .prepare(
-        `SELECT u.id, u.name, u.email, u.role, u.is_admin, u.grade, u.bio, u.birthday, u.avatar_url,
-                u.is_restricted, u.restriction_reason, u.last_login_at, u.last_active_at,
-                u.ai_tutor_turns, u.created_at,
-                COALESCE(qa.quizzes_completed, 0) AS quizzes_completed,
-                COALESCE(qa.quiz_questions_total, 0) AS quiz_questions_total,
-                COALESCE(qa.quiz_correct_total, 0) AS quiz_correct_total,
-                COALESCE(qa.avg_score_percent, 0) AS avg_score_percent
-         FROM users u
-         LEFT JOIN (
-           SELECT user_id,
-                  COUNT(*) AS quizzes_completed,
-                  SUM(total_questions) AS quiz_questions_total,
-                  SUM(correct_count) AS quiz_correct_total,
-                  ROUND(AVG(score_percent), 1) AS avg_score_percent
-           FROM quiz_attempts
-           GROUP BY user_id
-         ) qa ON qa.user_id = u.id
-         WHERE u.id = ?`
-      )
-      .get(targetId) as
-      | (DbUserRow & {
-          last_active_at?: string;
-          ai_tutor_turns?: number;
-          quizzes_completed?: number;
-          quiz_questions_total?: number;
-          quiz_correct_total?: number;
-          avg_score_percent?: number;
-        })
-      | undefined;
-
-    if (!row) {
-      res.status(404).json({ error: 'User account not found.' });
-      return;
-    }
-
-    const isMain = row.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
-    const online = isUserOnline(row.id);
-
-    const attempts = db
-      .prepare(
-        `SELECT qa.id, qa.mode, qa.chapter_number, c.title AS chapter_title,
-                qa.total_questions, qa.correct_count, qa.score_percent, qa.created_at
-         FROM quiz_attempts qa
-         LEFT JOIN chapters c ON c.chapter_number = qa.chapter_number
-         WHERE qa.user_id = ?
-         ORDER BY qa.id DESC
-         LIMIT 20`
-      )
-      .all(targetId);
-
-    const recentActivity = db
-      .prepare(
-        `SELECT id, action_type, details, target_type, created_at
-         FROM student_activity_logs
-         WHERE user_id = ?
-         ORDER BY id DESC
-         LIMIT 25`
-      )
-      .all(targetId);
+      .all() as DbUserRow[];
 
     res.json({
-      user: {
-        id: row.id,
-        name: row.name,
-        email: row.email,
-        role: isMain ? 'teacher' : (row.role as 'student' | 'teacher'),
-        isAdmin: isMain || Boolean(row.is_admin),
-        grade: row.grade || '',
-        bio: row.bio || '',
-        birthday: row.birthday || '',
-        avatar_url: row.avatar_url || '',
-        online,
-        currentSection: online ? userActiveSection.get(row.id) || 'home' : '',
-        isRestricted: !isMain && Boolean(row.is_restricted),
-        restrictionReason: row.restriction_reason || '',
-        lastLoginAt: row.last_login_at || '',
-        lastActiveAt: row.last_active_at || '',
-        quizzesCompleted: Number(row.quizzes_completed || 0),
-        questionsAnswered: Number(row.quiz_questions_total || 0),
-        correctAnswers: Number(row.quiz_correct_total || 0),
-        avgScorePercent: Number(row.avg_score_percent || 0),
-        aiTutorTurns: Number(row.ai_tutor_turns || 0),
-        source: 'local',
-        created_at: row.created_at,
-      },
-      attempts,
-      recentActivity,
-    });
-  });
-
-  app.put('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
-    const requester = req.user!;
-    const targetId = Number(req.params.id);
-    if (!Number.isInteger(targetId) || targetId <= 0) {
-      res.status(400).json({ error: 'Invalid user ID.' });
-      return;
-    }
-
-    const target = db
-      .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
-      .get(targetId) as DbUserRow | undefined;
-
-    if (!target) {
-      res.status(404).json({ error: 'User account not found.' });
-      return;
-    }
-
-    const isMain = target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase();
-    const name =
-      req.body?.name !== undefined ? String(req.body.name || '').trim() : target.name;
-    const grade =
-      req.body?.grade !== undefined ? String(req.body.grade || '').trim().slice(0, 40) : target.grade;
-    const bio =
-      req.body?.bio !== undefined ? String(req.body.bio || '').trim().slice(0, 500) : target.bio;
-    const birthday =
-      req.body?.birthday !== undefined ? String(req.body.birthday || '').trim() : target.birthday || '';
-
-    if (name.length < 2) {
-      res.status(400).json({ error: 'Name must be at least 2 characters.' });
-      return;
-    }
-    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
-      res.status(400).json({ error: 'Birthday must be in YYYY-MM-DD format.' });
-      return;
-    }
-
-    let nextRole: 'student' | 'teacher' = target.role as 'student' | 'teacher';
-    let nextAdmin = target.is_admin ? 1 : 0;
-
-    if (req.body?.role !== undefined) {
-      const requestedRole = req.body.role === 'teacher' ? 'teacher' : 'student';
-      if (isMain && requestedRole !== 'teacher') {
-        res.status(400).json({
-          error: 'The main administrator account (mohamdm791@gmail.com) cannot be demoted.',
-        });
-        return;
-      }
-      if (targetId === requester.id && requestedRole !== 'teacher') {
-        res.status(400).json({ error: 'You cannot demote your own administrator account.' });
-        return;
-      }
-      nextRole = requestedRole;
-      if (req.body?.isAdmin !== undefined) {
-        nextAdmin = requestedRole === 'teacher' && Boolean(req.body.isAdmin) ? 1 : 0;
-      } else {
-        nextAdmin = requestedRole === 'teacher' ? 1 : 0;
-      }
-    } else if (req.body?.isAdmin !== undefined && !isMain) {
-      nextAdmin = Boolean(req.body.isAdmin) ? 1 : 0;
-      if (nextAdmin === 1) nextRole = 'teacher';
-    }
-
-    if (isMain) {
-      nextRole = 'teacher';
-      nextAdmin = 1;
-    }
-
-    let nextRestricted = target.is_restricted ? 1 : 0;
-    let nextReason = target.restriction_reason || '';
-    if (req.body?.restricted !== undefined) {
-      const wantRestrict = Boolean(req.body.restricted);
-      if (isMain && wantRestrict) {
-        res.status(400).json({
-          error: 'The main administrator account cannot be restricted.',
-        });
-        return;
-      }
-      if (targetId === requester.id && wantRestrict) {
-        res.status(400).json({ error: 'You cannot restrict your own active account.' });
-        return;
-      }
-      nextRestricted = wantRestrict ? 1 : 0;
-      nextReason = wantRestrict
-        ? String(req.body?.reason || '').trim().slice(0, 300)
-        : '';
-    }
-
-    db.prepare(
-      `UPDATE users
-       SET name = ?, grade = ?, bio = ?, birthday = ?, role = ?, is_admin = ?,
-           is_restricted = ?, restriction_reason = ?
-       WHERE id = ?`
-    ).run(
-      name,
-      grade,
-      bio,
-      birthday,
-      nextRole,
-      nextAdmin,
-      nextRestricted,
-      nextReason,
-      targetId
-    );
-
-    checkpointDatabase();
-    writeRecoverySnapshotSync('admin-user-update');
-    broadcastAdminDashboard();
-
-    const updated = db
-      .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
-      .get(targetId) as DbUserRow;
-
-    res.json({
-      ok: true,
-      user: {
-        id: updated.id,
-        name: updated.name,
-        email: updated.email,
-        role: isMain ? 'teacher' : updated.role,
-        isAdmin: isMain || Boolean(updated.is_admin),
-        grade: updated.grade || '',
-        bio: updated.bio || '',
-        birthday: updated.birthday || '',
-        avatar_url: updated.avatar_url || '',
-        online: isUserOnline(updated.id),
-        isRestricted: !isMain && Boolean(updated.is_restricted),
-        restrictionReason: updated.restriction_reason || '',
-        lastLoginAt: updated.last_login_at || '',
-        created_at: updated.created_at,
-      },
+      users: rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        role: r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase() ? 'teacher' : r.role,
+        isAdmin: r.email.toLowerCase() === TEACHER_EMAIL.toLowerCase() || Boolean(r.is_admin),
+        grade: r.grade,
+        created_at: r.created_at,
+      })),
     });
   });
 
   app.put('/api/admin/users/:id/role', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
-    const requester = req.user!;
     const targetId = Number(req.params.id);
     const target = db
       .prepare('SELECT id, email, role, is_admin FROM users WHERE id = ?')
@@ -3223,11 +2532,6 @@ async function startServer() {
     }
 
     const nextRole = req.body?.role === 'teacher' ? 'teacher' : 'student';
-    if (targetId === requester.id && nextRole !== 'teacher') {
-      res.status(400).json({ error: 'You cannot demote your own administrator account.' });
-      return;
-    }
-
     const nextAdmin = nextRole === 'teacher' && req.body?.isAdmin !== false ? 1 : 0;
 
     db.prepare('UPDATE users SET role = ?, is_admin = ? WHERE id = ?').run(
@@ -3237,7 +2541,6 @@ async function startServer() {
     );
     checkpointDatabase();
     writeRecoverySnapshotSync('admin-role-update');
-    broadcastAdminDashboard();
 
     res.json({ ok: true, role: nextRole, isAdmin: Boolean(nextAdmin) });
   });
@@ -3245,24 +2548,28 @@ async function startServer() {
   app.delete('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
     const requester = req.user!;
     const targetId = Number(req.params.id);
-    if (!Number.isInteger(targetId) || targetId <= 0) {
-      res.status(400).json({ error: 'Invalid user ID.' });
+    const target = db
+      .prepare('SELECT id, email FROM users WHERE id = ?')
+      .get(targetId) as { id: number; email: string } | undefined;
+
+    if (!target) {
+      res.status(404).json({ error: 'User account not found.' });
       return;
     }
-    if (targetId === requester.id) {
+    if (target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase()) {
+      res.status(400).json({ error: 'The main administrator account cannot be deleted.' });
+      return;
+    }
+    if (target.id === requester.id) {
       res.status(400).json({ error: 'You cannot delete your own active account.' });
       return;
     }
 
-    const result = permanentlyDeleteUserAccount(targetId, {
-      reason: 'admin-delete-user',
-    });
-    if (!result.ok) {
-      res.status(result.status).json({ error: result.error });
-      return;
-    }
-
-    res.json({ ok: true, deletedUserId: targetId, deletedEmail: result.deletedEmail });
+    db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+    checkpointDatabase();
+    writeRecoverySnapshotSync('admin-delete-user', { allowUserRemoval: true });
+    broadcastAdminDashboard();
+    res.json({ ok: true });
   });
 
   // ---------------- ADMIN ANALYTICS, ACTIVE PRESENCE & SEARCH ----------------
@@ -3845,7 +3152,6 @@ async function startServer() {
     const questionId = Number(req.body?.questionId);
     const selectedOption = String(req.body?.selectedOption || '').trim().toUpperCase();
     const lang = normalizeLang(req.body?.lang);
-    const skipSave = Boolean(req.body?.skipSave);
 
     if (!Number.isInteger(questionId) || !['A', 'B', 'C', 'D'].includes(selectedOption)) {
       res.status(400).json({ error: 'Valid question ID and answer choice (A, B, C, or D) are required.' });
@@ -3903,39 +3209,36 @@ async function startServer() {
         });
 
     const actingUser = req.user!;
+    const ansRes = db
+      .prepare('INSERT INTO student_question_answers (user_id, question_id, is_correct) VALUES (?, ?, ?)')
+      .run(actingUser.id, q.id, isCorrect ? 1 : 0);
+
     let pointsAwarded = 0;
     let totalPoints = getUserCompetitionTotal(actingUser.id);
-
-    if (!skipSave) {
-      const ansRes = db
-        .prepare('INSERT INTO student_question_answers (user_id, question_id, is_correct) VALUES (?, ?, ?)')
-        .run(actingUser.id, q.id, isCorrect ? 1 : 0);
-
-      if (isCorrect) {
-        const pts = awardCompetitionPoints({
-          userId: actingUser.id,
-          eventKey: `sqa-${ansRes.lastInsertRowid}`,
-          eventType: 'correct_answer',
-          points: COMPETITION_RULES.correctAnswer,
-          chapterNumber: q.chapter_number,
-          details: `Question #${q.id}`,
-        });
-        pointsAwarded = pts.awarded;
-        totalPoints = pts.totalPoints;
-      }
-
-      touchUserActivity(actingUser.id);
-      logStudentActivity(
-        actingUser.id,
-        'question_answered',
-        `Question #${q.id} (${isCorrect ? 'Correct' : 'Incorrect'})`,
-        'question',
-        q.id
-      );
-      broadcastAdminDashboard();
-      checkpointDatabase();
-      writeRecoverySnapshotSync('question-answered');
+    if (isCorrect) {
+      const pts = awardCompetitionPoints({
+        userId: actingUser.id,
+        eventKey: `sqa-${ansRes.lastInsertRowid}`,
+        eventType: 'correct_answer',
+        points: COMPETITION_RULES.correctAnswer,
+        chapterNumber: q.chapter_number,
+        details: `Question #${q.id}`,
+      });
+      pointsAwarded = pts.awarded;
+      totalPoints = pts.totalPoints;
     }
+
+    touchUserActivity(actingUser.id);
+    logStudentActivity(
+      actingUser.id,
+      'question_answered',
+      `Question #${q.id} (${isCorrect ? 'Correct' : 'Incorrect'})`,
+      'question',
+      q.id
+    );
+    broadcastAdminDashboard();
+    checkpointDatabase();
+    writeRecoverySnapshotSync('question-answered');
 
     res.json({
       questionId: q.id,
@@ -3948,7 +3251,7 @@ async function startServer() {
       wrongReason,
       pointsAwarded,
       totalPoints,
-      accountPassport: skipSave ? undefined : buildAccountPassportForUser(actingUser.id),
+      accountPassport: buildAccountPassportForUser(actingUser.id),
     });
   });
 
@@ -4595,7 +3898,6 @@ async function startServer() {
       const threads = db
         .prepare(
           `SELECT u.id AS student_id, u.name AS student_name, u.email AS student_email, u.grade AS student_grade, u.avatar_url AS student_avatar_url,
-                  u.last_active_at AS student_last_active_at,
                   MAX(m.created_at) AS last_message_at,
                   (SELECT tm.message_text FROM teacher_messages tm WHERE tm.student_id = u.id ORDER BY tm.id DESC LIMIT 1) AS last_message_text,
                   (SELECT tm.attachment_name FROM teacher_messages tm WHERE tm.student_id = u.id ORDER BY tm.id DESC LIMIT 1) AS last_attachment_name,
@@ -4606,25 +3908,9 @@ async function startServer() {
            GROUP BY u.id
            ORDER BY last_message_at DESC`
         )
-        .all() as Array<{
-        student_id: number;
-        student_name: string;
-        student_email: string;
-        student_grade: string;
-        student_avatar_url: string;
-        student_last_active_at: string;
-        last_message_at: string;
-        last_message_text: string | null;
-        last_attachment_name: string | null;
-        unread_count: number;
-      }>;
+        .all();
 
-      res.json({
-        threads: threads.map((th) => ({
-          ...th,
-          student_online: isUserOnline(th.student_id),
-        })),
-      });
+      res.json({ threads });
       return;
     }
 
@@ -4644,7 +3930,6 @@ async function startServer() {
           student_email: user.email,
           student_grade: user.grade,
           student_avatar_url: user.avatar_url,
-          student_online: isUserOnline(user.id),
           unread_count: unreadCountRow.count,
         },
       ],
@@ -4885,177 +4170,44 @@ async function startServer() {
   });
 
   // ---------------- GEMINI AI TUTOR & IMAGE GENERATOR ----------------
-  // Optional user resolver: attaches req.user for activity/points tracking when signed in,
-  // but never blocks AI Studio chat or diagram generation when unauthenticated or in cloud/guest mode.
-  const optionalAiAuth = async (
-    req: AuthenticatedRequest,
-    _res: Response,
-    next: NextFunction
-  ): Promise<void> => {
-    const { user } = getAuthenticatedUserWithMeta(req);
-    if (user) {
-      req.user = user;
-      next();
-      return;
-    }
-
-    const fbTokenRaw = req.headers['x-firebase-id-token'];
-    const fbToken = typeof fbTokenRaw === 'string' ? fbTokenRaw.trim() : '';
-    if (fbToken) {
-      try {
-        const verified = await verifyFirebaseIdToken(fbToken);
-        const row = db
-          .prepare('SELECT id, email, role, is_admin, name FROM users WHERE lower(email) = ?')
-          .get(verified.email.toLowerCase()) as
-          | { id: number; email: string; role: string; is_admin: number; name: string }
-          | undefined;
-        if (row) {
-          req.user = {
-            id: row.id,
-            email: row.email,
-            role: row.role as 'student' | 'teacher',
-            isAdmin: Boolean(row.is_admin),
-            name: row.name,
-          } as AuthenticatedRequest['user'];
-        }
-      } catch {
-        // Proceed without req.user so AI chat remains unblocked
-      }
-    }
-
-    next();
-  };
-
-  app.post('/api/ai/chat', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
-    if (req.user && req.user.role === 'student' && !req.user.isAdmin && !getAppSettings().aiTutorEnabled) {
-      res.status(403).json({ error: 'AI Studio is currently disabled by the administrator.' });
-      return;
-    }
-    const model = String(req.body?.model || 'gemini-3.1-flash-lite');
-    const systemInstruction = String(
-      req.body?.systemInstruction ||
-        'Grade 9 Science Tutor: explain concepts clearly step-by-step with SI units.'
-    );
-    const history = Array.isArray(req.body?.history) ? req.body.history : [];
-    const message = String(req.body?.message || '').trim();
-    const wantsStream =
-      Boolean(req.body?.stream) ||
-      String(req.headers.accept || '').toLowerCase().includes('text/event-stream');
-
-    if (!message) {
-      res.status(400).json({ error: 'Please enter a message for the AI tutor.' });
-      return;
-    }
-
-    const recordAiTurn = () => {
-      try {
-        const chatUser = req.user;
-        if (!chatUser) return;
-        db.prepare(
-          "UPDATE users SET ai_tutor_turns = ai_tutor_turns + 1, last_active_at = datetime('now') WHERE id = ?"
-        ).run(chatUser.id);
-        logStudentActivity(chatUser.id, 'ai_tutor_used', message.slice(0, 100), 'ai_chat', null);
-        awardCompetitionPoints({
-          userId: chatUser.id,
-          eventKey: `ai-chat-${chatUser.id}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
-          eventType: 'curriculum_activity',
-          points: COMPETITION_RULES.curriculumActivity,
-          chapterNumber: null,
-          details: 'Practiced science with AI Tutor',
-        });
-        broadcastAdminDashboard();
-      } catch {
-        // ignore telemetry/stat write failure
-      }
-    };
-
-    const requestAbortController = new AbortController();
-    const onClientClose = () => {
-      if (!res.writableFinished) {
-        requestAbortController.abort();
-      }
-    };
-    res.on('close', onClientClose);
-
-    if (wantsStream) {
-      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache, no-transform');
-      res.setHeader('Connection', 'keep-alive');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders?.();
-      if (!res.writableEnded) {
-        res.write(': stream-open\n\n');
-      }
-
-      const keepalive = setInterval(() => {
-        if (!res.writableEnded && !requestAbortController.signal.aborted) {
-          res.write(': ping\n\n');
-        }
-      }, 4000);
-
-      try {
-        const stream = runTutorChatStream({
-          model,
-          systemInstruction,
-          history,
-          message,
-          signal: requestAbortController.signal,
-        });
-
-        let finalModel = model;
-        let receivedAny = false;
-        for await (const part of stream) {
-          if (requestAbortController.signal.aborted || res.writableEnded) break;
-          finalModel = part.model;
-          if (part.chunk) {
-            receivedAny = true;
-            res.write(`data: ${JSON.stringify({ chunk: part.chunk, model: part.model })}\n\n`);
-          }
-        }
-        if (!requestAbortController.signal.aborted && !res.writableEnded) {
-          if (!receivedAny) {
-            res.write(
-              `data: ${JSON.stringify({ chunk: 'I could not generate a response for that question.', model: finalModel })}\n\n`
-            );
-          }
-          res.write(`data: ${JSON.stringify({ done: true, model: finalModel })}\n\n`);
-          res.end();
-          recordAiTurn();
-        }
-      } catch (err) {
-        if (!requestAbortController.signal.aborted && !res.writableEnded) {
-          const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
-          res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
-          res.end();
-        }
-      } finally {
-        clearInterval(keepalive);
-        res.off('close', onClientClose);
-      }
-      return;
-    }
-
+  app.post('/api/ai/chat', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const result = await runTutorChat({
-        model,
-        systemInstruction,
-        history,
-        message,
-        signal: requestAbortController.signal,
+      const model = String(req.body?.model || 'gemini-4-hydrogen');
+      const systemInstruction = String(
+        req.body?.systemInstruction ||
+          'You are an encouraging Grade 9 Science Tutor for Grade 9 Hub. Explain concepts clearly with step-by-step reasoning and SI units.'
+      );
+      const history = Array.isArray(req.body?.history) ? req.body.history : [];
+      const message = String(req.body?.message || '').trim();
+
+      if (!message) {
+        res.status(400).json({ error: 'Please enter a message for the AI tutor.' });
+        return;
+      }
+
+      const result = await runTutorChat({ model, systemInstruction, history, message });
+      const chatUser = req.user!;
+      db.prepare("UPDATE users SET ai_tutor_turns = ai_tutor_turns + 1, last_active_at = datetime('now') WHERE id = ?").run(
+        chatUser.id
+      );
+      logStudentActivity(chatUser.id, 'ai_tutor_used', message.slice(0, 100), 'ai_chat', null);
+      awardCompetitionPoints({
+        userId: chatUser.id,
+        eventKey: `ai-chat-${chatUser.id}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+        eventType: 'curriculum_activity',
+        points: COMPETITION_RULES.curriculumActivity,
+        chapterNumber: null,
+        details: 'Practiced science with AI Tutor',
       });
-      recordAiTurn();
+      broadcastAdminDashboard();
       res.json(result);
     } catch (err) {
-      if (!res.headersSent && !requestAbortController.signal.aborted) {
-        const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
-        res.status(getGeminiErrorStatus(err)).json({ error: msg });
-      }
-    } finally {
-      res.off('close', onClientClose);
+      const msg = err instanceof Error ? err.message : 'AI Tutor request failed.';
+      res.status(500).json({ error: msg });
     }
   });
 
-  app.post('/api/ai/generate-image', optionalAiAuth, async (req: AuthenticatedRequest, res: Response) => {
+  app.post('/api/ai/generate-image', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const prompt = String(req.body?.prompt || '').trim();
       const imageSize = String(req.body?.imageSize || '1K');
@@ -5070,7 +4222,7 @@ async function startServer() {
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Image generation failed.';
-      res.status(getGeminiErrorStatus(err)).json({ error: msg });
+      res.status(500).json({ error: msg });
     }
   });
 
@@ -5257,7 +4409,7 @@ async function startServer() {
     requireAuth,
     requireTeacher,
     upload,
-    isUserOnline: (userId) => isUserOnline(userId),
+    isUserOnline: (userId) => activeUserSockets.has(userId),
     getUserSection: (userId) => userActiveSection.get(userId) || 'home',
     touchUserActivity,
     broadcastAdminDashboard,
@@ -5358,12 +4510,6 @@ async function startServer() {
               payload: { userId: user.id, online: true, section: safeSection },
             });
           }
-        } else if (msg.type === 'presence:heartbeat') {
-          ws.isAlive = true;
-          if (typeof msg.section === 'string' && ALLOWED_PRESENCE_SECTIONS.has(msg.section)) {
-            userActiveSection.set(user.id, msg.section);
-          }
-          touchUserActivity(user.id);
         }
       } catch {
         // ignore malformed frames
@@ -5378,10 +4524,8 @@ async function startServer() {
         set.delete(ws);
         if (set.size === 0) {
           activeUserSockets.delete(user.id);
-          if (!lastHttpPresenceAt.has(user.id)) {
-            userActiveSection.delete(user.id);
-            wentOffline = true;
-          }
+          userActiveSection.delete(user.id);
+          wentOffline = true;
         }
       }
       if (wentOffline && !isPrivileged) {
@@ -5406,32 +4550,7 @@ async function startServer() {
       aliveClient.isAlive = false;
       aliveClient.ping();
     }
-
-    const now = Date.now();
-    let expiredAny = false;
-    for (const [uid, lastPing] of Array.from(lastHttpPresenceAt.entries())) {
-      if (now - lastPing > PRESENCE_HEARTBEAT_TTL_MS) {
-        lastHttpPresenceAt.delete(uid);
-        if (!activeUserSockets.has(uid)) {
-          userActiveSection.delete(uid);
-          expiredAny = true;
-          const uRow = db.prepare('SELECT role, is_admin FROM users WHERE id = ?').get(uid) as
-            | { role: string; is_admin: number }
-            | undefined;
-          if (uRow && uRow.role === 'student' && !uRow.is_admin) {
-            logStudentActivity(uid, 'offline', 'Disconnected from Grade 9 Hub', 'user', uid);
-          }
-          broadcastToAllUsers({
-            type: 'community:presence',
-            payload: { userId: uid, online: false },
-          });
-        }
-      }
-    }
-    if (expiredAny) {
-      broadcastAdminDashboard();
-    }
-  }, 15000);
+  }, 25000);
 
   wss.on('close', () => {
     clearInterval(wsHeartbeat);

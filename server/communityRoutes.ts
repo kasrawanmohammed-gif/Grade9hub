@@ -73,55 +73,8 @@ interface RegisterCommunityDeps {
 const ALLOWED_REACTIONS = new Set(['like', 'helpful', 'celebrate', 'insightful']);
 const ALLOWED_REPORT_TARGETS = new Set(['post', 'comment', 'dm', 'group_message', 'user']);
 
-function getCommunityPolicy(): { communityEnabled: boolean; communityPostingEnabled: boolean } {
-  try {
-    const row = db
-      .prepare('SELECT value FROM app_settings WHERE key = ?')
-      .get('app_settings_v1') as { value: string } | undefined;
-    if (!row?.value) return { communityEnabled: true, communityPostingEnabled: true };
-    const parsed = JSON.parse(row.value) as {
-      communityEnabled?: boolean;
-      communityPostingEnabled?: boolean;
-    };
-    return {
-      communityEnabled: typeof parsed.communityEnabled === 'boolean' ? parsed.communityEnabled : true,
-      communityPostingEnabled:
-        typeof parsed.communityPostingEnabled === 'boolean'
-          ? parsed.communityPostingEnabled
-          : true,
-    };
-  } catch {
-    return { communityEnabled: true, communityPostingEnabled: true };
-  }
-}
-
-function ensureCommunityReadable(user: CommunityAuthUser, res: Response): boolean {
-  if (user.role === 'teacher' || user.isAdmin) return true;
-  if (!getCommunityPolicy().communityEnabled) {
-    res.status(403).json({
-      error: 'Student Community is currently disabled by the administrator.',
-    });
-    return false;
-  }
-  return true;
-}
-
 function ensureNotRestricted(user: CommunityAuthUser, res: Response): boolean {
-  if (user.role === 'teacher' || user.isAdmin) return true;
-  const policy = getCommunityPolicy();
-  if (!policy.communityEnabled) {
-    res.status(403).json({
-      error: 'Student Community is currently disabled by the administrator.',
-    });
-    return false;
-  }
-  if (!policy.communityPostingEnabled) {
-    res.status(403).json({
-      error: 'Community posting and messaging are currently paused by the administrator.',
-    });
-    return false;
-  }
-  if (user.isRestricted) {
+  if (user.isRestricted && user.role !== 'teacher' && !user.isAdmin) {
     res.status(403).json({
       error: user.restrictionReason
         ? `Your community posting and messaging privileges are restricted: ${user.restrictionReason}`
@@ -215,7 +168,6 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
       author_avatar_url: post.author_avatar_url || '',
       author_role: post.author_role,
       author_is_admin: Boolean(post.author_is_admin),
-      author_online: isUserOnline(post.author_id),
       author_grade: post.author_grade || '',
       author_is_restricted: Boolean(post.author_is_restricted),
       chapter_number: post.chapter_number,
@@ -235,7 +187,6 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
         author_avatar_url: c.author_avatar_url || '',
         author_role: c.author_role,
         author_is_admin: Boolean(c.author_is_admin),
-        author_online: isUserOnline(c.author_id),
         content: c.content,
         created_at: c.created_at,
       })),
@@ -245,7 +196,6 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
   // ---------------- 1. ACTIVE STUDENTS & CLASSMATES ----------------
   app.get('/api/community/peers', requireAuth, (req: CommunityAuthedRequest, res: Response) => {
     const viewer = req.user!;
-    if (!ensureCommunityReadable(viewer, res)) return;
     const isPrivileged = viewer.role === 'teacher' || viewer.isAdmin;
 
     const rows = db
@@ -299,7 +249,6 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
   // ---------------- 2. COMMUNITY SOCIAL FEED (POSTS, COMMENTS, REACTIONS) ----------------
   app.get('/api/community/posts', requireAuth, (req: CommunityAuthedRequest, res: Response) => {
     const viewer = req.user!;
-    if (!ensureCommunityReadable(viewer, res)) return;
     const q = String(req.query.q || '').trim().toLowerCase();
     const chapterParam = req.query.chapter ? Number(req.query.chapter) : null;
 
@@ -485,7 +434,6 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
       ...created,
       author_avatar_url: created.author_avatar_url || '',
       author_is_admin: Boolean(created.author_is_admin),
-      author_online: isUserOnline(created.author_id),
     };
 
     touchUserActivity(user.id);
@@ -688,14 +636,13 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
 
   app.get('/api/community/dm/:peerId', requireAuth, (req: CommunityAuthedRequest, res: Response) => {
     const user = req.user!;
-    if (!ensureCommunityReadable(user, res)) return;
     const peerId = Number(req.params.peerId);
     if (!Number.isInteger(peerId) || peerId <= 0) {
       res.status(400).json({ error: 'Invalid classmate ID.' });
       return;
     }
 
-    const rawMessages = db
+    const messages = db
       .prepare(
         `SELECT m.*,
                 su.name AS sender_name, su.avatar_url AS sender_avatar_url, su.role AS sender_role,
@@ -707,12 +654,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
          ORDER BY m.id ASC
          LIMIT 200`
       )
-      .all(user.id, peerId, peerId, user.id) as Array<{ sender_id: number } & Record<string, unknown>>;
-
-    const messages = rawMessages.map((m) => ({
-      ...m,
-      sender_online: isUserOnline(m.sender_id),
-    }));
+      .all(user.id, peerId, peerId, user.id);
 
     db.prepare(
       `UPDATE community_direct_messages
@@ -764,7 +706,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
         .run(user.id, peerId, messageText, attachmentName, attachmentUrl, attachmentMime);
 
       const messageId = Number(result.lastInsertRowid);
-      const createdRaw = db
+      const created = db
         .prepare(
           `SELECT m.*,
                   su.name AS sender_name, su.avatar_url AS sender_avatar_url, su.role AS sender_role,
@@ -774,9 +716,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
            JOIN users ru ON ru.id = m.recipient_id
            WHERE m.id = ?`
         )
-        .get(messageId) as ({ sender_id: number } & Record<string, unknown>) | undefined;
-
-      const created = createdRaw ? { ...createdRaw, sender_online: isUserOnline(createdRaw.sender_id) } : createdRaw;
+        .get(messageId);
 
       touchUserActivity(user.id);
       logStudentActivity(
@@ -1043,7 +983,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
       group_role: 'owner' | 'member';
     }>;
 
-    const rawMessages = db
+    const messages = db
       .prepare(
         `SELECT gm.*, u.name AS sender_name, u.avatar_url AS sender_avatar_url,
                 u.role AS sender_role, u.is_admin AS sender_is_admin
@@ -1053,13 +993,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
          ORDER BY gm.id ASC
          LIMIT 250`
       )
-      .all(groupId) as Array<{ sender_id: number; sender_is_admin: number } & Record<string, unknown>>;
-
-    const messages = rawMessages.map((gm) => ({
-      ...gm,
-      sender_is_admin: Boolean(gm.sender_is_admin),
-      sender_online: isUserOnline(gm.sender_id),
-    }));
+      .all(groupId);
 
     res.json({
       group: { ...group, is_public: Boolean(group.is_public), is_member: isMember },
@@ -1117,7 +1051,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
         .run(groupId, user.id, messageText, attachmentName, attachmentUrl, attachmentMime);
 
       const messageId = Number(result.lastInsertRowid);
-      const createdRaw = db
+      const created = db
         .prepare(
           `SELECT gm.*, u.name AS sender_name, u.avatar_url AS sender_avatar_url,
                   u.role AS sender_role, u.is_admin AS sender_is_admin
@@ -1125,15 +1059,7 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
            JOIN users u ON u.id = gm.sender_id
            WHERE gm.id = ?`
         )
-        .get(messageId) as ({ sender_id: number; sender_is_admin: number } & Record<string, unknown>) | undefined;
-
-      const created = createdRaw
-        ? {
-            ...createdRaw,
-            sender_is_admin: Boolean(createdRaw.sender_is_admin),
-            sender_online: isUserOnline(createdRaw.sender_id),
-          }
-        : createdRaw;
+        .get(messageId);
 
       touchUserActivity(user.id);
       logStudentActivity(

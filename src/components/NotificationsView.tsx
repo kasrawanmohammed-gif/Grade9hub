@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   Bell,
   BellOff,
@@ -11,7 +11,6 @@ import {
 import { apiFetch } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { NotificationItem, TabId } from '../types';
-import { formatUtcDateTime } from '../utils/dateFormat';
 
 interface NotificationsViewProps {
   notifications: NotificationItem[];
@@ -39,27 +38,16 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   onNavigate,
 }) => {
   const { t } = useLanguage();
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const handleMarkRead = async (id: number, targetTab: TabId) => {
-    setActionError(null);
-    try {
-      await apiFetch(`/api/notifications/${id}/read`, { method: 'POST' });
-      await onRefresh();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Unable to mark notification as read.');
-    }
+    await apiFetch(`/api/notifications/${id}/read`, { method: 'POST' });
+    await onRefresh();
     onNavigate(targetTab);
   };
 
   const handleMarkAllRead = async () => {
-    setActionError(null);
-    try {
-      await apiFetch('/api/notifications/read-all', { method: 'POST' });
-      await onRefresh();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Unable to mark all notifications as read.');
-    }
+    await apiFetch('/api/notifications/read-all', { method: 'POST' });
+    await onRefresh();
   };
 
   const getCategoryIcon = (cat: NotificationItem['category']) => {
@@ -129,9 +117,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
         </div>
       </div>
 
-      {(pushError || actionError) && (
+      {pushError && (
         <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-3 text-sm text-[#991B1B]">
-          {actionError || pushError}
+          {pushError}
         </div>
       )}
 
@@ -165,7 +153,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
                     </span>
                     <span aria-hidden="true">·</span>
                     <span className="tabular-nums">
-                      {formatUtcDateTime(n.created_at)}
+                      {new Date(n.created_at + 'Z').toLocaleString()}
                     </span>
                     {n.is_read === 0 && (
                       <>

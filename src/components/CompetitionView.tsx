@@ -29,14 +29,11 @@ import {
   TabId,
   User,
 } from '../types';
-import type { LiveCommunityEvent } from './CommunityView';
 import { UserAvatar } from './UserAvatar';
-import { formatUtcDate } from '../utils/dateFormat';
 
 interface CompetitionViewProps {
   user: User;
   leaderboardVersion: number;
-  liveEvent?: LiveCommunityEvent | null;
   onNavigate: (tab: TabId) => void;
 }
 
@@ -58,7 +55,6 @@ function getMedalEmoji(badge: CompetitionMedal | number): string {
 export const CompetitionView: React.FC<CompetitionViewProps> = ({
   user,
   leaderboardVersion,
-  liveEvent,
   onNavigate,
 }) => {
   const { t } = useLanguage();
@@ -68,7 +64,6 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
   const [data, setData] = useState<CompetitionLeaderboardResponse | null>(null);
-  const [livePresenceMap, setLivePresenceMap] = useState<Record<number, boolean>>({});
   const [pending, setPending] = useState<QueuedPointsSummary>({
     count: 0,
     totalPendingPoints: 0,
@@ -102,7 +97,6 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     try {
       const res = await apiFetch<CompetitionLeaderboardResponse>('/api/competition/leaderboard');
       setData(res);
-      setLivePresenceMap({});
       setUsingCachedOffline(false);
       await saveCachedLeaderboard(user.id, res);
     } catch {
@@ -183,19 +177,6 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     };
   }, [loadLeaderboard, refreshPending, t.competition.syncedSuccessMsg, user.id]);
 
-  useEffect(() => {
-    if (!liveEvent || liveEvent.type !== 'community:presence' || !liveEvent.payload) return;
-    const p = liveEvent.payload as { userId?: number; online?: boolean };
-    if (typeof p.userId !== 'number') return;
-    setLivePresenceMap((prev) => ({ ...prev, [p.userId!]: Boolean(p.online) }));
-  }, [liveEvent]);
-
-  const isEntryOnline = useCallback(
-    (entry: LeaderboardEntry) =>
-      entry.userId in livePresenceMap ? livePresenceMap[entry.userId] : Boolean(entry.online),
-    [livePresenceMap]
-  );
-
   const rules = data?.rules || DEFAULT_RULES;
 
   // Overlay any unsynced local offline points so student sees immediate feedback
@@ -205,37 +186,14 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       return base;
     }
 
-    let foundMe = false;
-    const withPending = base.map((entry) => {
-      if (entry.userId === user.id || entry.isCurrentUser) {
-        foundMe = true;
-        return {
-          ...entry,
-          totalPoints: entry.totalPoints + pending.totalPendingPoints,
-        };
-      }
-      return entry;
-    });
-
-    if (!foundMe) {
-      withPending.push({
-        rank: withPending.length + 1,
-        userId: user.id,
-        name: user.name,
-        grade: user.grade || '',
-        avatar_url: user.avatar_url || '',
-        online: typeof navigator !== 'undefined' ? navigator.onLine : true,
-        totalPoints: (data?.myStats?.totalPoints ?? 0) + pending.totalPendingPoints,
-        quizPoints: data?.myStats?.quizPoints ?? 0,
-        activityPoints: data?.myStats?.activityPoints ?? 0,
-        quizzesCompleted: data?.myStats?.quizzesCompleted ?? 0,
-        correctAnswers: data?.myStats?.correctAnswers ?? 0,
-        questionsAnswered: data?.myStats?.correctAnswers ?? 0,
-        accuracyPercent: data?.myStats?.accuracyPercent ?? 0,
-        badge: null,
-        isCurrentUser: true,
-      });
-    }
+    const withPending = base.map((entry) =>
+      entry.userId === user.id || entry.isCurrentUser
+        ? {
+            ...entry,
+            totalPoints: entry.totalPoints + pending.totalPendingPoints,
+          }
+        : entry
+    );
 
     withPending.sort((a, b) => {
       if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
@@ -248,7 +206,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       rank: idx + 1,
       badge: idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : null,
     }));
-  }, [data?.leaderboard, data?.myStats, isPrivileged, pending.totalPendingPoints, user.avatar_url, user.grade, user.id, user.name]);
+  }, [data?.leaderboard, isPrivileged, pending.totalPendingPoints, user.id]);
 
   const topThree = useMemo(() => displayedLeaderboard.slice(0, 3), [displayedLeaderboard]);
 
@@ -521,25 +479,14 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                     {placeLabel}
                   </p>
 
-                  <div className="relative">
-                    <UserAvatar
-                      name={entry.name}
-                      avatarUrl={entry.avatar_url}
-                      sizeClass={isFirst ? 'w-16 h-16' : 'w-14 h-14'}
-                      textClass="text-lg"
-                      borderClass={isFirst ? 'border-2 border-[#E5B742]' : 'border-2 border-[#D9A62E]'}
-                      fallbackClass={isFirst ? 'bg-white text-[#6B1118]' : 'bg-[#6B1118] text-white'}
-                    />
-                    {isEntryOnline(entry) && (
-                      <span
-                        title={t.askTeacher.onlineLabel}
-                        aria-label={t.askTeacher.onlineLabel}
-                        className={`absolute bottom-0 end-0 w-3.5 h-3.5 rounded-full bg-[#059669] ring-2 ${
-                          isFirst ? 'ring-[#6B1118]' : 'ring-[#FAF8F5] dark:ring-[#272222]'
-                        }`}
-                      />
-                    )}
-                  </div>
+                  <UserAvatar
+                    name={entry.name}
+                    avatarUrl={entry.avatar_url}
+                    sizeClass={isFirst ? 'w-16 h-16' : 'w-14 h-14'}
+                    textClass="text-lg"
+                    borderClass={isFirst ? 'border-2 border-[#E5B742]' : 'border-2 border-[#D9A62E]'}
+                    fallbackClass={isFirst ? 'bg-white text-[#6B1118]' : 'bg-[#6B1118] text-white'}
+                  />
 
                   <h4 className="mt-3 text-base font-bold max-w-full truncate">
                     {entry.name}
@@ -641,21 +588,12 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                       </td>
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div className="relative shrink-0">
-                            <UserAvatar
-                              name={entry.name}
-                              avatarUrl={entry.avatar_url}
-                              sizeClass="w-9 h-9"
-                              textClass="text-xs"
-                            />
-                            {isEntryOnline(entry) && (
-                              <span
-                                title={t.askTeacher.onlineLabel}
-                                aria-label={t.askTeacher.onlineLabel}
-                                className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-[#059669] ring-2 ring-white dark:ring-[#1E1A1A]"
-                              />
-                            )}
-                          </div>
+                          <UserAvatar
+                            name={entry.name}
+                            avatarUrl={entry.avatar_url}
+                            sizeClass="w-9 h-9"
+                            textClass="text-xs"
+                          />
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-[#1C1917] truncate">
                               {entry.name}
@@ -788,7 +726,9 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                     <p className="text-xs text-[#57534E] truncate">
                       {ev.details} ·{' '}
                       <span className="tabular-nums">
-                        {formatUtcDate(ev.created_at)}
+                        {new Date(
+                          ev.created_at.endsWith('Z') ? ev.created_at : `${ev.created_at}Z`
+                        ).toLocaleDateString()}
                       </span>
                     </p>
                   </div>

@@ -1,86 +1,18 @@
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import {
-  Auth,
-  browserLocalPersistence,
-  browserPopupRedirectResolver,
-  browserSessionPersistence,
-  getAuth,
-  GoogleAuthProvider,
-  indexedDBLocalPersistence,
-  initializeAuth,
-  setPersistence,
-} from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { FacebookAuthProvider, getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-const REMEMBER_ME_KEY = 'grade9hub_remember_me';
+const app = initializeApp(firebaseConfig);
 
-function readRememberMeDefault(): boolean {
-  try {
-    if (typeof window === 'undefined') return true;
-    return window.localStorage.getItem(REMEMBER_ME_KEY) !== 'false';
-  } catch {
-    return true;
-  }
-}
-
-const requiredConfigKeys = [
-  'apiKey',
-  'authDomain',
-  'projectId',
-  'appId',
-  'firestoreDatabaseId',
-] as const;
-
-for (const key of requiredConfigKeys) {
-  if (!firebaseConfig[key]) {
-    console.error(`Missing required Firebase config parameter: ${key}`);
-  }
-}
-
-export const firebaseApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-
-export const db = getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId);
-
-let authInstance: Auth;
-if (typeof window !== 'undefined') {
-  try {
-    authInstance = initializeAuth(firebaseApp, {
-      persistence: [
-        browserLocalPersistence,
-        indexedDBLocalPersistence,
-        browserSessionPersistence,
-      ],
-      popupRedirectResolver: browserPopupRedirectResolver,
-    });
-  } catch {
-    authInstance = getAuth(firebaseApp);
-  }
-} else {
-  authInstance = getAuth(firebaseApp);
-}
-
-export const auth = authInstance;
-
-export async function applyFirebaseAuthPersistence(rememberMe: boolean): Promise<void> {
-  if (typeof window === 'undefined') return;
-  try {
-    await setPersistence(
-      auth,
-      rememberMe ? browserLocalPersistence : browserSessionPersistence
-    );
-  } catch {
-    // ignore storage restriction fallback
-  }
-}
-
-export const authPersistenceReady: Promise<void> =
-  typeof window !== 'undefined'
-    ? applyFirebaseAuthPersistence(readRememberMeDefault())
-    : Promise.resolve();
-
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+export const facebookProvider = new FacebookAuthProvider();
+facebookProvider.addScope('email');
+facebookProvider.addScope('public_profile');
+facebookProvider.setCustomParameters({ display: 'popup' });
 
 export enum OperationType {
   CREATE = 'create',

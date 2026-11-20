@@ -158,9 +158,6 @@
   .bg-\[\#F9EFF0\]\/60 {
     background-color: rgb(var(--accent-soft-rgb) / 0.6);
   }
-  .bg-\[\#F9EFF0\]\/65 {
-    background-color: rgb(var(--accent-soft-rgb) / 0.65);
-  }
   .hover\:bg-\[\#F9EFF0\]:hover {
     background-color: var(--accent-soft);
   }
@@ -180,17 +177,11 @@
   .border-\[\#6B1118\]\/30 {
     border-color: rgb(var(--accent-rgb) / 0.3);
   }
-  .border-\[\#6B1118\]\/50 {
-    border-color: rgb(var(--accent-rgb) / 0.5);
-  }
   .hover\:border-\[\#6B1118\]:hover {
     border-color: rgb(var(--accent-rgb));
   }
   .hover\:border-\[\#6B1118\]\/40:hover {
     border-color: rgb(var(--accent-rgb) / 0.4);
-  }
-  .hover\:border-\[\#6B1118\]\/45:hover {
-    border-color: rgb(var(--accent-rgb) / 0.45);
   }
   .hover\:border-\[\#6B1118\]\/50:hover {
     border-color: rgb(var(--accent-rgb) / 0.5);
@@ -245,8 +236,7 @@ html.dark .bg-\[\#F4EFE8\] {
 }
 
 html.dark .bg-\[\#F9EFF0\],
-html.dark .bg-\[\#F9EFF0\]\/60,
-html.dark .bg-\[\#F9EFF0\]\/65 {
+html.dark .bg-\[\#F9EFF0\]\/60 {
   background-color: var(--accent-soft-dark) !important;
 }
 
@@ -256,14 +246,8 @@ html.dark .bg-\[\#6B1118\]\/10 {
 
 html.dark .bg-\[\#FBF4DF\],
 html.dark .bg-\[\#FBF4DF\]\/60,
-html.dark .bg-\[\#FBF4DF\]\/65,
-html.dark .bg-\[\#FBF4DF\]\/70,
-html.dark .bg-\[\#FEFCE8\] {
+html.dark .bg-\[\#FBF4DF\]\/70 {
   background-color: #2B2314 !important;
-}
-
-html.dark .text-\[\#92400E\] {
-  color: #FCD34D !important;
 }
 
 html.dark .bg-\[\#ECFDF5\] {
@@ -288,7 +272,6 @@ html.dark .focus\:border-\[\#6B1118\]:focus {
 }
 
 html.dark .hover\:border-\[\#6B1118\]\/40:hover,
-html.dark .hover\:border-\[\#6B1118\]\/45:hover,
 html.dark .hover\:border-\[\#6B1118\]\/50:hover {
   border-color: rgb(var(--accent-text-dark-rgb) / 0.55) !important;
 }
@@ -333,14 +316,11 @@ html.dark .bg-\[\#DC2626\] .bg-white {
   color: #DC2626 !important;
 }
 
-html.dark .text-\[\#065F46\],
-html.dark .text-\[\#065F46\]\/80,
-html.dark .text-\[\#065F46\]\/90 {
+html.dark .text-\[\#065F46\] {
   color: #6EE7B7 !important;
 }
 
 html.dark .text-\[\#991B1B\],
-html.dark .text-\[\#991B1B\]\/70,
 html.dark .text-\[\#7F1D1D\] {
   color: #FCA5A5 !important;
 }
@@ -475,143 +455,3 @@ html.reduce-motion *::after {
 .g9-animate-drawer-rtl {
   animation: g9-drawer-rtl 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-
-@keyframes g9-quote-enter-up {
-  from {
-    opacity: 0;
-    transform: translateY(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0%);
-  }
-}
-
-@keyframes g9-quote-exit-up {
-  from {
-    opacity: 1;
-    transform: translateY(0%);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-100%);
-  }
-}
-
-.g9-quote-enter-up {
-  animation: g9-quote-enter-up 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.g9-quote-exit-up {
-  animation: g9-quote-exit-up 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes g9-science-orbit-cw {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes g9-science-orbit-ccw {
-  from {
-    transform: rotate(360deg);
-  }
-  to {
-    transform: rotate(0deg);
-  }
-}
-
-@keyframes g9-science-float-slow {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-
-@keyframes g9-science-float-alt {
-  0%, 100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(5px);
-  }
-}
-
-@keyframes g9-science-wave {
-  0%, 100% {
-    transform: translateX(0px);
-    opacity: 0.85;
-  }
-  50% {
-    transform: translateX(-10px);
-    opacity: 1;
-  }
-}
-
-@keyframes g9-science-spectrum {
-  0%, 100% {
-    opacity: 0.78;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes g9-science-breathe {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.035);
-  }
-}
-
-@keyframes g9-science-particles {
-  0%, 100% {
-    transform: translateY(0px);
-    opacity: 0.75;
-  }
-  50% {
-    transform: translateY(-4px);
-    opacity: 1;
-  }
-}
-
-.g9-science-orbit-cw {
-  animation: g9-science-orbit-cw 36s linear infinite;
-}
-
-.g9-science-orbit-ccw {
-  animation: g9-science-orbit-ccw 26s linear infinite;
-}
-
-.g9-science-float-slow {
-  animation: g9-science-float-slow 9s ease-in-out infinite;
-}
-
-.g9-science-float-alt {
-  animation: g9-science-float-alt 10.5s ease-in-out infinite;
-}
-
-.g9-science-wave {
-  animation: g9-science-wave 11s ease-in-out infinite;
-}
-
-.g9-science-spectrum {
-  animation: g9-science-spectrum 8s ease-in-out infinite;
-}
-
-.g9-science-breathe {
-  animation: g9-science-breathe 8.5s ease-in-out infinite;
-}
-
-.g9-science-particles {
-  animation: g9-science-particles 12s ease-in-out infinite;
-}
-
-

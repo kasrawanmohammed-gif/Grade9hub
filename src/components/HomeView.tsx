@@ -30,9 +30,7 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
-import { AllScienceVisual } from './AllScienceVisual';
-import { formatUtcDate } from '../utils/dateFormat';
-import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
+import prismHeroImg from '../assets/images/physics_optics_prism_hero_1794573933754.jpg';
 
 interface HomeViewProps {
   user: User;
@@ -133,12 +131,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
   };
 
   const handleDeleteAnnouncement = async (id: number) => {
-    setError(null);
     try {
       await apiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
       await onRefreshAnnouncements();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete announcement.');
+    } catch {
+      // handled silently
     }
   };
 
@@ -184,8 +181,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </div>
         </div>
 
-        <div className="lg:col-span-5 min-h-[220px] sm:min-h-[250px] lg:min-h-full relative overflow-hidden bg-[#F4EFE8] border-t lg:border-t-0 lg:border-s border-[#E6DFD5]">
-          <AllScienceVisual />
+        <div className="lg:col-span-5 min-h-[220px] relative bg-[#F4EFE8]">
+          <img
+            src={prismHeroImg}
+            alt="Science prism refracting light beam"
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1C1917]/50 via-transparent to-transparent pointer-events-none" />
         </div>
       </section>
 
@@ -470,12 +473,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </form>
         )}
 
-        {error && !showPublisher && (
-          <p className="mt-4 text-sm text-[#991B1B] bg-[#FEF2F2] border border-[#DC2626]/30 rounded-lg px-3 py-2">
-            {error}
-          </p>
-        )}
-
         <div className="mt-5 divide-y divide-[#E6DFD5]">
           {announcements.length === 0 ? (
             <div className="py-10 text-center text-sm text-[#57534E]">
@@ -496,7 +493,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <span>{item.author_name || 'Mr. Kasrawan'}</span>
                     <span aria-hidden="true">·</span>
                     <span className="tabular-nums">
-                      {formatUtcDate(item.created_at)}
+                      {new Date(item.created_at + 'Z').toLocaleDateString()}
                     </span>
                   </div>
                   <h4 className="text-base font-semibold text-[#1C1917]">{item.title}</h4>
@@ -521,7 +518,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                         </a>
                       ) : (
                         <a
-                          href={getAttachmentDownloadHref(item.attachment_url, item.attachment_name)}
+                          href={`/api/uploads/download/${item.attachment_url
+                            .split('/')
+                            .pop()}?name=${encodeURIComponent(item.attachment_name)}`}
                           className="inline-flex items-center gap-2 rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] px-3 py-2 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118]/40"
                         >
                           <FileText className="w-4 h-4" />

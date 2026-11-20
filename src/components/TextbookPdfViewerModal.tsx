@@ -417,7 +417,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
             onClick={() => goToPage(currentPage - 1)}
             className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[42px]"
           >
-            {dir === 'rtl' ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            <ChevronLeft className="w-4 h-4" />
             <span>{t.textbooks.prevPageBtn}</span>
           </button>
 
@@ -444,7 +444,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
             className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[42px]"
           >
             <span>{t.textbooks.nextPageBtn}</span>
-            {dir === 'rtl' ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
 
