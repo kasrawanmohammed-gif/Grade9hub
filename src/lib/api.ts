@@ -271,6 +271,7 @@ const ALWAYS_BACKEND_PREFIXES = [
   '/api/textbooks-qa',
   '/api/competition/',
   '/api/profile',
+  '/api/presence/',
   '/api/notifications',
   '/api/announcements',
   '/api/push/',

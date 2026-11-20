@@ -1,6 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { Award, Bell, Camera, CheckCircle2, Save, Shield, Trash2, UserCog } from 'lucide-react';
+import {
+  AlertTriangle,
+  Award,
+  Bell,
+  Camera,
+  CheckCircle2,
+  Save,
+  Shield,
+  Trash2,
+  UserCog,
+  X,
+} from 'lucide-react';
 import { apiFetch, getStoredSessionToken, setStoredCachedUser } from '../lib/api';
+import {
+  deleteOwnCloudAccountData,
+  MAIN_ADMIN_EMAIL,
+} from '../lib/cloudAccounts';
 import {
   initializeAdminVaultWithPassword,
   syncAdminVaultWithStoredKey,
@@ -10,11 +25,13 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
 import { AdminUserRecord, QuizAttempt, User } from '../types';
 import { UserAvatar } from './UserAvatar';
+import { AvatarCropModal } from './AvatarCropModal';
 import { formatUtcDate } from '../utils/dateFormat';
 
 interface ProfileViewProps {
   user: User;
   onUserUpdated: (user: User) => void;
+  onAccountDeleted: () => Promise<void> | void;
   pushSupported: boolean;
   pushSubscribed: boolean;
   pushBusy: boolean;
@@ -25,6 +42,7 @@ interface ProfileViewProps {
 export const ProfileView: React.FC<ProfileViewProps> = ({
   user,
   onUserUpdated,
+  onAccountDeleted,
   pushSupported,
   pushSubscribed,
   pushBusy,
@@ -33,6 +51,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 }) => {
   const { language, t } = useLanguage();
   const isPrivileged = user.role === 'teacher' || Boolean(user.isAdmin);
+  const isMainAdmin = user.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
   const [name, setName] = useState(user.name);
   const [birthday, setBirthday] = useState(user.birthday || '');
   const [grade, setGrade] = useState(user.grade);
@@ -41,9 +60,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [pendingCropFile, setPendingCropFile] = useState<File | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
+
+  // Self-account deletion modal state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmInput, setDeleteConfirmInput] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
 
   // Admin User Management state
   const [allUsers, setAllUsers] = useState<AdminUserRecord[]>([]);
@@ -122,16 +148,31 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    setMsg(null);
+    setError(null);
+
+    if (!/^image\/(png|jpe?g|webp|gif)$/i.test(file.type)) {
+      setError(t.profile.invalidImageType);
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      setError(t.profile.imageTooLarge);
+      return;
+    }
+    setPendingCropFile(file);
+  };
+
+  const handleCroppedAvatarConfirm = async (croppedFile: File) => {
     setAvatarBusy(true);
     setMsg(null);
     setError(null);
     try {
       const formData = new FormData();
-      formData.append('avatar', file);
+      formData.append('avatar', croppedFile);
       const data = await apiFetch<{ user: User }>('/api/profile/avatar', {
         method: 'POST',
         body: formData,
@@ -149,9 +190,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           })
           .catch(() => {});
       }
+      setPendingCropFile(null);
       setMsg(t.profile.avatarUpdatedMsg);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload profile picture.');
+      setPendingCropFile(null);
     } finally {
       setAvatarBusy(false);
     }
@@ -223,6 +266,34 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
+  const handleConfirmDeleteOwnAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isMainAdmin || deletingAccount) return;
+    if (deleteConfirmInput.trim().toUpperCase() !== 'DELETE') {
+      setDeleteAccountError(t.profile.deleteAccountTypeLabel);
+      return;
+    }
+
+    setDeletingAccount(true);
+    setDeleteAccountError(null);
+    try {
+      await apiFetch('/api/profile', {
+        method: 'DELETE',
+        body: JSON.stringify({ confirmationText: deleteConfirmInput.trim() }),
+      });
+      await deleteOwnCloudAccountData(user.email).catch(() => {});
+      setDeleteModalOpen(false);
+      setDeleteConfirmInput('');
+      await onAccountDeleted();
+    } catch (err) {
+      setDeleteAccountError(
+        err instanceof Error ? err.message : 'Failed to delete your account.'
+      );
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -282,7 +353,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
                   disabled={avatarBusy}
                   onChange={handleAvatarUpload}
                   className="hidden"
@@ -458,6 +529,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Danger Zone: Permanent Account Deletion */}
+          <div className="rounded-2xl bg-white border border-[#DC2626]/30 p-6 space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 text-[#DC2626] shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-[#991B1B]">{t.profile.dangerZoneTitle}</h3>
+                <p className="text-xs text-[#57534E] mt-1 leading-relaxed">
+                  {isMainAdmin ? t.profile.protectedAdminDeleteNote : t.profile.dangerZoneDesc}
+                </p>
+              </div>
+            </div>
+
+            {!isMainAdmin && (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteConfirmInput('');
+                    setDeleteAccountError(null);
+                    setDeleteModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#DC2626]/40 bg-[#FEF2F2] px-4 py-2.5 text-xs font-bold text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-colors cursor-pointer min-h-[42px]"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{t.profile.deleteAccountBtn}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -572,6 +673,109 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
           )}
         </section>
+      )}
+
+      {/* Interactive Avatar Crop & Resize Modal */}
+      {pendingCropFile && (
+        <AvatarCropModal
+          file={pendingCropFile}
+          busy={avatarBusy}
+          onCancel={() => {
+            if (!avatarBusy) setPendingCropFile(null);
+          }}
+          onConfirm={handleCroppedAvatarConfirm}
+        />
+      )}
+
+      {/* Self-Account Deletion Confirmation Modal */}
+      {deleteModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-own-account-title"
+          onClick={() => {
+            if (!deletingAccount) setDeleteModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4"
+        >
+          <form
+            onSubmit={handleConfirmDeleteOwnAccount}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1E1A1A] border border-[#E6DFD5] dark:border-[#342D2D] p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] dark:border-[#342D2D] pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FEF2F2] border border-[#DC2626]/30 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-[#DC2626]" />
+                </div>
+                <h3
+                  id="delete-own-account-title"
+                  className="text-base font-bold text-[#1C1917] dark:text-[#F5EFE9]"
+                >
+                  {t.profile.deleteAccountModalTitle}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteModalOpen(false)}
+                aria-label={t.profile.cancel}
+                className="p-1 text-[#57534E] hover:text-[#1C1917] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs sm:text-sm text-[#57534E] dark:text-[#B8AEA5] leading-relaxed">
+              {t.profile.deleteAccountWarning}
+            </p>
+
+            {deleteAccountError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3.5 py-2.5 text-xs text-[#991B1B]">
+                {deleteAccountError}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-[#1C1917] dark:text-[#F5EFE9]">
+                {t.profile.deleteAccountTypeLabel}
+              </label>
+              <input
+                type="text"
+                autoFocus
+                required
+                dir="ltr"
+                value={deleteConfirmInput}
+                onChange={(e) => setDeleteConfirmInput(e.target.value)}
+                placeholder={t.profile.deleteAccountPlaceholder}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#DC2626]"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={deletingAccount}
+                onClick={() => setDeleteModalOpen(false)}
+                className="rounded-xl border border-[#E6DFD5] px-4 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] cursor-pointer min-h-[40px]"
+              >
+                {t.profile.cancel}
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  deletingAccount || deleteConfirmInput.trim().toUpperCase() !== 'DELETE'
+                }
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#DC2626] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B91C1C] disabled:opacity-50 cursor-pointer min-h-[40px]"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>
+                  {deletingAccount ? t.profile.deletingAccount : t.profile.confirmDeleteAccountBtn}
+                </span>
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );

@@ -127,6 +127,8 @@ export interface TeacherThread {
   student_email: string;
   student_grade: string;
   student_avatar_url?: string;
+  student_online?: boolean;
+  student_last_active_at?: string;
   last_message_at?: string;
   last_message_text?: string;
   last_attachment_name?: string | null;

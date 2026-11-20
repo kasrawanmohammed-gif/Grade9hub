@@ -6,6 +6,7 @@ import {
 } from 'firebase/auth';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -547,6 +548,55 @@ export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]
     return rows;
   } catch {
     return [];
+  }
+}
+
+export async function deleteOwnCloudAccountData(expectedEmail?: string): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (!fbUser || !VALID_ID_REGEX.test(fbUser.uid)) return;
+  if (
+    expectedEmail &&
+    fbUser.email &&
+    fbUser.email.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()
+  ) {
+    return;
+  }
+
+  try {
+    const q = query(
+      collection(db, 'users', fbUser.uid, 'quiz_attempts'),
+      where('userId', '==', fbUser.uid)
+    );
+    const attemptSnaps = await getDocs(q).catch(() => null);
+    if (attemptSnaps) {
+      for (const snap of attemptSnaps.docs) {
+        await deleteDoc(snap.ref).catch(() => {});
+      }
+    }
+    await deleteDoc(doc(db, 'leaderboard_entries', fbUser.uid)).catch(() => {});
+    await deleteDoc(doc(db, 'users', fbUser.uid)).catch(() => {});
+    await fbUser.delete().catch(() => {});
+  } catch {
+    // Non-fatal cleanup when offline or requiring recent login
+  }
+}
+
+export async function deleteSchoolAccountMirrorByEmail(email: string): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (
+    !fbUser ||
+    !fbUser.emailVerified ||
+    (fbUser.email || '').trim().toLowerCase() !== MAIN_ADMIN_EMAIL
+  ) {
+    return;
+  }
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || normalized === MAIN_ADMIN_EMAIL) return;
+  try {
+    const accountKey = await sha256AccountKey(normalized);
+    await deleteDoc(doc(db, 'school_accounts', accountKey));
+  } catch {
+    // Ignore non-fatal cloud mirror cleanup failure
   }
 }
 

@@ -608,7 +608,16 @@ function getAuthenticatedUser(req: Request): AuthUser | undefined {
 // ---------------- REAL-TIME PRESENCE & EDUCATIONAL RANKINGS ----------------
 const activeUserSockets = new Map<number, Set<WebSocket>>();
 const userActiveSection = new Map<number, string>();
+const lastHttpPresenceAt = new Map<number, number>();
 const adminDashboardSockets = new Set<WebSocket>();
+const PRESENCE_HEARTBEAT_TTL_MS = 45000;
+
+function isUserOnline(userId: number): boolean {
+  if (activeUserSockets.has(userId)) return true;
+  const lastPing = lastHttpPresenceAt.get(userId);
+  if (!lastPing) return false;
+  return Date.now() - lastPing <= PRESENCE_HEARTBEAT_TTL_MS;
+}
 
 const ALLOWED_PRESENCE_SECTIONS = new Set([
   'home',
@@ -724,7 +733,7 @@ function buildStudentPerformanceList() {
       r.teacher_messages_count * 3 +
       r.ai_tutor_turns * 2;
 
-    const online = activeUserSockets.has(r.id);
+    const online = isUserOnline(r.id);
     const currentSection = online ? userActiveSection.get(r.id) || 'home' : '';
     const lastActiveAt =
       [r.last_active_at, r.latest_quiz_at, r.latest_message_at]
@@ -974,7 +983,7 @@ function buildCompetitionLeaderboard(viewerUserId: number) {
       name: r.name,
       grade: r.grade || '',
       avatar_url: r.avatar_url || '',
-      online: activeUserSockets.has(r.id),
+      online: isUserOnline(r.id),
       totalPoints: Number(r.total_points || 0),
       quizPoints: Number(r.quiz_points || 0),
       activityPoints: Number(r.activity_points || 0),
@@ -1234,7 +1243,9 @@ async function startServer() {
       req.path.startsWith('/api/') &&
       ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) &&
       !req.path.startsWith('/api/admin/backups') &&
+      !req.path.startsWith('/api/presence/') &&
       !(req.method === 'DELETE' && req.path.startsWith('/api/admin/users/')) &&
+      !(req.method === 'DELETE' && req.path === '/api/profile') &&
       req.path !== '/api/auth/logout'
     ) {
       res.on('finish', () => {
@@ -2291,7 +2302,16 @@ async function startServer() {
     const headerToken = extractSessionToken(req);
     const actingUser = getAuthenticatedUserByToken(headerToken || cookieToken);
     if (actingUser) {
+      lastHttpPresenceAt.delete(actingUser.id);
+      if (!activeUserSockets.has(actingUser.id)) {
+        userActiveSection.delete(actingUser.id);
+      }
       logStudentActivity(actingUser.id, 'logout', 'Logged out of Grade 9 Hub', 'user', actingUser.id);
+      broadcastToAllUsers({
+        type: 'community:presence',
+        payload: { userId: actingUser.id, online: activeUserSockets.has(actingUser.id) },
+      });
+      broadcastAdminDashboard();
     }
     const revoke = (tok?: string) => {
       if (!tok || typeof tok !== 'string') return;
@@ -2587,6 +2607,177 @@ async function startServer() {
     });
   });
 
+  function permanentlyDeleteUserAccount(
+    targetId: number,
+    options: { extraRevokeTokens?: Array<string | undefined | null>; reason: string }
+  ): { ok: true; deletedEmail: string } | { ok: false; status: number; error: string } {
+    const target = db
+      .prepare('SELECT id, email, avatar_url FROM users WHERE id = ?')
+      .get(targetId) as { id: number; email: string; avatar_url: string } | undefined;
+
+    if (!target) {
+      return { ok: false, status: 404, error: 'User account not found.' };
+    }
+    if (target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase()) {
+      return { ok: false, status: 400, error: 'The main administrator account cannot be deleted.' };
+    }
+
+    const sessionRows = db
+      .prepare('SELECT token FROM sessions WHERE user_id = ?')
+      .all(targetId) as Array<{ token: string }>;
+
+    const tokensToRevoke = new Set<string>();
+    for (const s of sessionRows) {
+      if (s.token) tokensToRevoke.add(s.token);
+    }
+    for (const tok of options.extraRevokeTokens || []) {
+      if (tok && typeof tok === 'string') tokensToRevoke.add(tok);
+    }
+
+    if (target.avatar_url && target.avatar_url.startsWith('/uploads/')) {
+      const oldPath = path.join(uploadsDir, path.basename(target.avatar_url));
+      if (fs.existsSync(oldPath)) {
+        try {
+          fs.unlinkSync(oldPath);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    const tx = db.transaction(() => {
+      const insertRevoked = db.prepare(
+        'INSERT OR IGNORE INTO revoked_sessions (token_hash) VALUES (?)'
+      );
+      for (const tok of tokensToRevoke) {
+        insertRevoked.run(hashToken(tok));
+      }
+      db.prepare('DELETE FROM password_resets WHERE LOWER(email) = LOWER(?)').run(target.email);
+      db.prepare("DELETE FROM community_reports WHERE target_type = 'user' AND target_id = ?").run(
+        targetId
+      );
+      db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
+    });
+    tx();
+
+    lastHttpPresenceAt.delete(targetId);
+    userActiveSection.delete(targetId);
+    const sockets = activeUserSockets.get(targetId);
+    if (sockets) {
+      activeUserSockets.delete(targetId);
+      const disconnectPayload = JSON.stringify({
+        type: 'auth:force_logout',
+        payload: { reason: 'account_deleted' },
+      });
+      for (const client of sockets) {
+        adminDashboardSockets.delete(client);
+        try {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(disconnectPayload);
+          }
+          client.close(1000, 'Account deleted');
+        } catch {
+          // ignore close errors
+        }
+      }
+    }
+
+    checkpointDatabase();
+    writeRecoverySnapshotSync(options.reason, { allowUserRemoval: true });
+    broadcastToAllUsers({
+      type: 'community:presence',
+      payload: { userId: targetId, online: false, deleted: true },
+    });
+    broadcastToAllUsers({
+      type: 'leaderboard:update',
+      payload: { userId: targetId, deleted: true },
+    });
+    broadcastAdminDashboard();
+
+    return { ok: true, deletedEmail: target.email };
+  }
+
+  app.delete('/api/profile', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const confirmationText = String(req.body?.confirmationText || '').trim().toUpperCase();
+    if (confirmationText !== 'DELETE') {
+      res.status(400).json({ error: 'Please type DELETE to confirm permanent account deletion.' });
+      return;
+    }
+
+    const cookieToken = req.cookies?.[SESSION_COOKIE];
+    const headerToken = extractSessionToken(req);
+    const result = permanentlyDeleteUserAccount(user.id, {
+      extraRevokeTokens: [cookieToken, headerToken],
+      reason: 'self-delete-account',
+    });
+
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    const isHttps = isHttpsRequest(req);
+    res.clearCookie(SESSION_COOKIE, {
+      path: '/',
+      httpOnly: true,
+      sameSite: isHttps ? 'none' : 'lax',
+      secure: isHttps,
+    });
+    res.json({ ok: true, deletedUserId: user.id, deletedEmail: result.deletedEmail });
+  });
+
+  app.post('/api/presence/heartbeat', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const isPrivileged = user.role === 'teacher' || user.isAdmin;
+    const wasOnline = isUserOnline(user.id);
+
+    lastHttpPresenceAt.set(user.id, Date.now());
+    const section = typeof req.body?.section === 'string' ? req.body.section : '';
+    const safeSection = ALLOWED_PRESENCE_SECTIONS.has(section)
+      ? section
+      : userActiveSection.get(user.id) || 'home';
+    userActiveSection.set(user.id, safeSection);
+    touchUserActivity(user.id);
+
+    if (!wasOnline && !isPrivileged) {
+      logStudentActivity(user.id, 'online', 'Came online in Grade 9 Hub', 'user', user.id);
+    }
+    if (!wasOnline || !isPrivileged) {
+      broadcastAdminDashboard();
+      broadcastToAllUsers({
+        type: 'community:presence',
+        payload: { userId: user.id, online: true, section: safeSection },
+      });
+    }
+
+    res.json({ ok: true, online: true });
+  });
+
+  app.post('/api/presence/offline', (req: Request, res: Response) => {
+    const bodyToken = typeof req.body?.token === 'string' ? req.body.token : undefined;
+    const actingUser =
+      getAuthenticatedUser(req) || (bodyToken ? getAuthenticatedUserByToken(bodyToken) : undefined);
+
+    if (actingUser) {
+      const wasHttpOnline = lastHttpPresenceAt.has(actingUser.id);
+      lastHttpPresenceAt.delete(actingUser.id);
+      if (!activeUserSockets.has(actingUser.id)) {
+        userActiveSection.delete(actingUser.id);
+        if (wasHttpOnline && actingUser.role !== 'teacher' && !actingUser.isAdmin) {
+          logStudentActivity(actingUser.id, 'offline', 'Disconnected from Grade 9 Hub', 'user', actingUser.id);
+        }
+        broadcastToAllUsers({
+          type: 'community:presence',
+          payload: { userId: actingUser.id, online: false },
+        });
+        broadcastAdminDashboard();
+      }
+    }
+
+    res.json({ ok: true });
+  });
+
   // ---------------- ADMIN USER & PERMISSION MANAGEMENT ----------------
   app.get('/api/admin/users', requireTeacher, (_req: AuthenticatedRequest, res: Response) => {
     const rows = db
@@ -2643,28 +2834,24 @@ async function startServer() {
   app.delete('/api/admin/users/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
     const requester = req.user!;
     const targetId = Number(req.params.id);
-    const target = db
-      .prepare('SELECT id, email FROM users WHERE id = ?')
-      .get(targetId) as { id: number; email: string } | undefined;
-
-    if (!target) {
-      res.status(404).json({ error: 'User account not found.' });
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      res.status(400).json({ error: 'Invalid user ID.' });
       return;
     }
-    if (target.email.toLowerCase() === TEACHER_EMAIL.toLowerCase()) {
-      res.status(400).json({ error: 'The main administrator account cannot be deleted.' });
-      return;
-    }
-    if (target.id === requester.id) {
+    if (targetId === requester.id) {
       res.status(400).json({ error: 'You cannot delete your own active account.' });
       return;
     }
 
-    db.prepare('DELETE FROM users WHERE id = ?').run(targetId);
-    checkpointDatabase();
-    writeRecoverySnapshotSync('admin-delete-user', { allowUserRemoval: true });
-    broadcastAdminDashboard();
-    res.json({ ok: true });
+    const result = permanentlyDeleteUserAccount(targetId, {
+      reason: 'admin-delete-user',
+    });
+    if (!result.ok) {
+      res.status(result.status).json({ error: result.error });
+      return;
+    }
+
+    res.json({ ok: true, deletedUserId: targetId, deletedEmail: result.deletedEmail });
   });
 
   // ---------------- ADMIN ANALYTICS, ACTIVE PRESENCE & SEARCH ----------------
@@ -3997,6 +4184,7 @@ async function startServer() {
       const threads = db
         .prepare(
           `SELECT u.id AS student_id, u.name AS student_name, u.email AS student_email, u.grade AS student_grade, u.avatar_url AS student_avatar_url,
+                  u.last_active_at AS student_last_active_at,
                   MAX(m.created_at) AS last_message_at,
                   (SELECT tm.message_text FROM teacher_messages tm WHERE tm.student_id = u.id ORDER BY tm.id DESC LIMIT 1) AS last_message_text,
                   (SELECT tm.attachment_name FROM teacher_messages tm WHERE tm.student_id = u.id ORDER BY tm.id DESC LIMIT 1) AS last_attachment_name,
@@ -4007,9 +4195,25 @@ async function startServer() {
            GROUP BY u.id
            ORDER BY last_message_at DESC`
         )
-        .all();
+        .all() as Array<{
+        student_id: number;
+        student_name: string;
+        student_email: string;
+        student_grade: string;
+        student_avatar_url: string;
+        student_last_active_at: string;
+        last_message_at: string;
+        last_message_text: string | null;
+        last_attachment_name: string | null;
+        unread_count: number;
+      }>;
 
-      res.json({ threads });
+      res.json({
+        threads: threads.map((th) => ({
+          ...th,
+          student_online: isUserOnline(th.student_id),
+        })),
+      });
       return;
     }
 
@@ -4029,6 +4233,7 @@ async function startServer() {
           student_email: user.email,
           student_grade: user.grade,
           student_avatar_url: user.avatar_url,
+          student_online: isUserOnline(user.id),
           unread_count: unreadCountRow.count,
         },
       ],
@@ -4602,7 +4807,7 @@ async function startServer() {
     requireAuth,
     requireTeacher,
     upload,
-    isUserOnline: (userId) => activeUserSockets.has(userId),
+    isUserOnline: (userId) => isUserOnline(userId),
     getUserSection: (userId) => userActiveSection.get(userId) || 'home',
     touchUserActivity,
     broadcastAdminDashboard,
@@ -4703,6 +4908,12 @@ async function startServer() {
               payload: { userId: user.id, online: true, section: safeSection },
             });
           }
+        } else if (msg.type === 'presence:heartbeat') {
+          ws.isAlive = true;
+          if (typeof msg.section === 'string' && ALLOWED_PRESENCE_SECTIONS.has(msg.section)) {
+            userActiveSection.set(user.id, msg.section);
+          }
+          touchUserActivity(user.id);
         }
       } catch {
         // ignore malformed frames
@@ -4717,8 +4928,10 @@ async function startServer() {
         set.delete(ws);
         if (set.size === 0) {
           activeUserSockets.delete(user.id);
-          userActiveSection.delete(user.id);
-          wentOffline = true;
+          if (!lastHttpPresenceAt.has(user.id)) {
+            userActiveSection.delete(user.id);
+            wentOffline = true;
+          }
         }
       }
       if (wentOffline && !isPrivileged) {
@@ -4743,7 +4956,32 @@ async function startServer() {
       aliveClient.isAlive = false;
       aliveClient.ping();
     }
-  }, 25000);
+
+    const now = Date.now();
+    let expiredAny = false;
+    for (const [uid, lastPing] of Array.from(lastHttpPresenceAt.entries())) {
+      if (now - lastPing > PRESENCE_HEARTBEAT_TTL_MS) {
+        lastHttpPresenceAt.delete(uid);
+        if (!activeUserSockets.has(uid)) {
+          userActiveSection.delete(uid);
+          expiredAny = true;
+          const uRow = db.prepare('SELECT role, is_admin FROM users WHERE id = ?').get(uid) as
+            | { role: string; is_admin: number }
+            | undefined;
+          if (uRow && uRow.role === 'student' && !uRow.is_admin) {
+            logStudentActivity(uid, 'offline', 'Disconnected from Grade 9 Hub', 'user', uid);
+          }
+          broadcastToAllUsers({
+            type: 'community:presence',
+            payload: { userId: uid, online: false },
+          });
+        }
+      }
+    }
+    if (expiredAny) {
+      broadcastAdminDashboard();
+    }
+  }, 15000);
 
   wss.on('close', () => {
     clearInterval(wsHeartbeat);

@@ -29,8 +29,10 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, getStoredSessionToken } from '../lib/api';
+import { deleteSchoolAccountMirrorByEmail, MAIN_ADMIN_EMAIL } from '../lib/cloudAccounts';
 import { syncAdminVaultWithStoredKey, syncSessionBoundVault } from '../lib/recoveryVault';
 import { useLanguage } from '../contexts/LanguageContext';
+import { formatMsg } from '../i18n/translations';
 import { ScientificText } from './ScientificText';
 import { UserAvatar } from './UserAvatar';
 import { formatUtcDateTime } from '../utils/dateFormat';
@@ -51,10 +53,12 @@ import {
   DatabaseHealthStats,
   StudentActivityLog,
   TabId,
+  User,
 } from '../types';
 import type { LiveCommunityEvent } from './CommunityView';
 
 interface AdminDashboardViewProps {
+  currentUser: User;
   snapshot: AdminDashboardSnapshot | null;
   wsConnected: boolean;
   focusSearchTrigger?: number;
@@ -69,6 +73,7 @@ type SearchScopeFilter = 'all' | 'students' | 'questions' | 'chapters' | 'messag
 type MonitoringTab = 'overview' | 'dms' | 'groups' | 'logs' | 'moderation' | 'backups';
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
+  currentUser,
   snapshot,
   wsConnected,
   focusSearchTrigger,
@@ -116,6 +121,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [restrictReason, setRestrictReason] = useState('');
   const [restrictBusy, setRestrictBusy] = useState(false);
   const [moderationError, setModerationError] = useState<string | null>(null);
+
+  // Safe Account Deletion State
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; email: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [accountActionMsg, setAccountActionMsg] = useState<string | null>(null);
+  const [accountActionError, setAccountActionError] = useState<string | null>(null);
 
   // Database Backup & Recovery State
   const [dbStats, setDbStats] = useState<DatabaseHealthStats | null>(null);
@@ -237,6 +248,32 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   useEffect(() => {
     if (!liveEvent) return;
+    if (liveEvent.type === 'community:presence' && liveEvent.payload) {
+      const p = liveEvent.payload as {
+        userId?: number;
+        online?: boolean;
+        lastActiveAt?: string;
+      };
+      if (typeof p.userId === 'number') {
+        const isOn = Boolean(p.online);
+        setStudentDetail((prev) =>
+          prev && prev.student.id === p.userId
+            ? {
+                ...prev,
+                student: {
+                  ...prev.student,
+                  online: isOn,
+                  lastActiveAt: p.lastActiveAt || prev.student.lastActiveAt,
+                },
+              }
+            : prev
+        );
+        setActivityLogs((prev) =>
+          prev.map((l) => (l.user_id === p.userId ? { ...l, user_online: isOn } : l))
+        );
+      }
+      return;
+    }
     if (
       liveEvent.type === 'admin:community_event' ||
       liveEvent.type.startsWith('community:')
@@ -361,6 +398,72 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       setModerationError(err instanceof Error ? err.message : 'Failed to update restriction status.');
     } finally {
       setRestrictBusy(false);
+    }
+  };
+
+  const isProtectedUser = (target: { id: number; email: string }) =>
+    target.id === currentUser.id || target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL;
+
+  const openDeleteUserModal = (target: { id: number; name: string; email: string }) => {
+    setAccountActionMsg(null);
+    setAccountActionError(null);
+    if (target.id === currentUser.id) {
+      setAccountActionError(t.admin.cannotDeleteSelf);
+      return;
+    }
+    if (target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
+      setAccountActionError(t.admin.cannotDeleteMainAdmin);
+      return;
+    }
+    setDeleteTarget(target);
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deleteTarget || deleteBusy) return;
+    if (deleteTarget.id === currentUser.id) {
+      setAccountActionError(t.admin.cannotDeleteSelf);
+      setDeleteTarget(null);
+      return;
+    }
+    if (deleteTarget.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
+      setAccountActionError(t.admin.cannotDeleteMainAdmin);
+      setDeleteTarget(null);
+      return;
+    }
+
+    setDeleteBusy(true);
+    setAccountActionMsg(null);
+    setAccountActionError(null);
+    const removed = deleteTarget;
+    try {
+      await apiFetch(`/api/admin/users/${removed.id}`, { method: 'DELETE' });
+      await deleteSchoolAccountMirrorByEmail(removed.email).catch(() => {});
+
+      setDeleteTarget(null);
+      if (selectedStudentId === removed.id) {
+        setSelectedStudentId(null);
+        setStudentDetail(null);
+      }
+      setSearchResults((prev) =>
+        prev
+          ? {
+              ...prev,
+              students: prev.students.filter((s) => s.id !== removed.id),
+            }
+          : prev
+      );
+      setAccountActionMsg(formatMsg(t.admin.userDeletedSuccess, { name: removed.name }));
+      await Promise.all([
+        onRefreshDashboard(),
+        fetchCommunityOverview(),
+        fetchActivityLogs(logQuery, logActionFilter),
+        fetchReports(reportStatusFilter),
+        fetchBackups(),
+      ]);
+    } catch (err) {
+      setAccountActionError(err instanceof Error ? err.message : 'Failed to delete user account.');
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -659,6 +762,35 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         <ShieldCheck className="w-4 h-4 text-[#6B1118] shrink-0 mt-0.5" />
         <span>{t.admin.privacyNote}</span>
       </div>
+
+      {accountActionMsg && (
+        <div className="rounded-xl border border-[#059669]/30 bg-[#ECFDF5] px-4 py-3 text-xs sm:text-sm font-medium text-[#065F46] flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{accountActionMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAccountActionMsg(null)}
+            className="p-1 rounded hover:bg-black/5 cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {accountActionError && (
+        <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-3 text-xs sm:text-sm font-medium text-[#991B1B] flex items-center justify-between gap-3">
+          <span>{accountActionError}</span>
+          <button
+            type="button"
+            onClick={() => setAccountActionError(null)}
+            className="p-1 rounded hover:bg-black/5 cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* 1. Unified Admin Search Bar */}
       <section className="rounded-2xl bg-white border border-[#E6DFD5] p-5 sm:p-6 space-y-4">
@@ -1182,13 +1314,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <p className="text-xs text-[#57534E] truncate">
                       {st.email}
                       {st.lastLoginAt
-                        ? ` · ${t.admin.lastLogin}: ${new Date(
-                            st.lastLoginAt.endsWith('Z') ? st.lastLoginAt : `${st.lastLoginAt}Z`
-                          ).toLocaleString()}`
+                        ? ` · ${t.admin.lastLogin}: ${formatUtcDateTime(st.lastLoginAt)}`
                         : st.lastActiveAt
-                        ? ` · ${t.admin.lastActive}: ${new Date(
-                            st.lastActiveAt.endsWith('Z') ? st.lastActiveAt : `${st.lastActiveAt}Z`
-                          ).toLocaleString()}`
+                        ? ` · ${t.admin.lastActive}: ${formatUtcDateTime(st.lastActiveAt)}`
                         : ''}
                     </p>
                   </div>
@@ -1245,6 +1373,19 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     >
                       {st.isRestricted ? t.admin.unrestrictBtn : t.admin.restrictBtn}
                     </button>
+                    {!isProtectedUser(st) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openDeleteUserModal({ id: st.id, name: st.name, email: st.email })
+                        }
+                        aria-label={`${t.admin.deleteUserBtn} ${st.name}`}
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#DC2626]/30 bg-[#FEF2F2] px-2.5 py-1.5 font-semibold text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-colors cursor-pointer min-h-[36px]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>{t.admin.deleteUserBtn}</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2127,18 +2268,36 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = studentDetail.student.id;
-                      setSelectedStudentId(null);
-                      onOpenStudentChat(targetId);
-                    }}
-                    className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] cursor-pointer min-h-[40px]"
-                  >
-                    <MessageSquare className="w-4 h-4 text-[#E5B742]" />
-                    <span>{t.admin.openChatBtn}</span>
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = studentDetail.student.id;
+                        setSelectedStudentId(null);
+                        onOpenStudentChat(targetId);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] cursor-pointer min-h-[40px]"
+                    >
+                      <MessageSquare className="w-4 h-4 text-[#E5B742]" />
+                      <span>{t.admin.openChatBtn}</span>
+                    </button>
+                    {!isProtectedUser(studentDetail.student) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openDeleteUserModal({
+                            id: studentDetail.student.id,
+                            name: studentDetail.student.name,
+                            email: studentDetail.student.email,
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3.5 py-2 text-xs font-semibold text-[#DC2626] hover:bg-[#DC2626] hover:text-white transition-colors cursor-pointer min-h-[40px]"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span>{t.admin.deleteUserBtn}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* KPI Grid */}
@@ -2321,6 +2480,82 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Permanent User Account Deletion Confirmation Modal */}
+      {deleteTarget && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-delete-user-title"
+          onClick={() => {
+            if (!deleteBusy) setDeleteTarget(null);
+          }}
+          className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-[#1E1A1A] border border-[#E6DFD5] dark:border-[#342D2D] p-6 space-y-4 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] dark:border-[#342D2D] pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#FEF2F2] border border-[#DC2626]/30 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-[#DC2626]" />
+                </div>
+                <h3
+                  id="admin-delete-user-title"
+                  className="text-base font-bold text-[#1C1917] dark:text-[#F5EFE9]"
+                >
+                  {t.admin.deleteUserModalTitle}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => setDeleteTarget(null)}
+                aria-label={t.admin.closeBtn}
+                className="p-1 text-[#57534E] hover:text-[#1C1917] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs sm:text-sm text-[#57534E] dark:text-[#B8AEA5] leading-relaxed">
+              {formatMsg(t.admin.deleteUserModalWarning, {
+                name: deleteTarget.name,
+                email: deleteTarget.email,
+              })}
+            </p>
+
+            {accountActionError && (
+              <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]">
+                {accountActionError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-xl border border-[#E6DFD5] px-4 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] cursor-pointer min-h-[40px]"
+              >
+                {t.admin.closeBtn}
+              </button>
+              <button
+                type="button"
+                disabled={deleteBusy}
+                onClick={() => void handleConfirmDeleteUser()}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-[#DC2626] px-4 py-2 text-xs font-semibold text-white hover:bg-[#B91C1C] disabled:opacity-50 cursor-pointer min-h-[40px]"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>
+                  {deleteBusy ? t.admin.deletingUserBtn : t.admin.confirmDeleteUserBtn}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

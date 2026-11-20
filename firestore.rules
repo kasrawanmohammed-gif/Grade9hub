@@ -247,7 +247,7 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isValidId(userId) && isAdmin();
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
 
       // Master Gate Subcollection: Quiz Attempts (/users/{userId}/quiz_attempts/{attemptId})
       match /quiz_attempts/{attemptId} {
@@ -263,7 +263,7 @@ service cloud.firestore {
           get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
 
         allow update: if false;
-        allow delete: if isValidId(userId) && isValidId(attemptId) && isAdmin();
+        allow delete: if isValidId(userId) && isValidId(attemptId) && (isOwner(userId) || isAdmin());
       }
     }
 
@@ -293,7 +293,7 @@ service cloud.firestore {
           'updatedAt'
         ]);
 
-      allow delete: if isValidId(userId) && isAdmin();
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
     }
 
     // 3. Verified Admins Registry (/admins/{userId})

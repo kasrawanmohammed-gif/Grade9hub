@@ -1173,6 +1173,35 @@ export async function handleStaticApiFallback(
     return { user: updated };
   }
 
+  if (pathname === '/api/profile/avatar' && method === 'POST') {
+    const currentUser = getCachedUserLocal();
+    if (!currentUser) {
+      throw new StaticFallbackHttpError('Not signed in.', 401);
+    }
+    const formData = options.body instanceof FormData ? options.body : null;
+    const rawFile = formData ? formData.get('avatar') : null;
+    if (!(rawFile instanceof File)) {
+      throw new StaticFallbackHttpError('Please upload an image file (PNG, JPG, WebP, or GIF).', 400);
+    }
+    if (rawFile.size > 4 * 1024 * 1024) {
+      throw new StaticFallbackHttpError('Profile picture must be smaller than 4 MB.', 400);
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => reject(new Error('Failed to read image file.'));
+      reader.readAsDataURL(rawFile);
+    });
+    if (!dataUrl) {
+      throw new StaticFallbackHttpError('Unable to read uploaded profile picture.', 400);
+    }
+    const updated: User = { ...currentUser, avatar_url: dataUrl };
+    const token = getSessionTokenLocal() || `local_${updated.id}`;
+    saveSessionAndCachedUser(updated, token);
+    void syncCurrentUserToFirestore(updated).catch(() => {});
+    return { user: updated };
+  }
+
   if (pathname === '/api/profile/avatar' && method === 'DELETE') {
     const currentUser = getCachedUserLocal();
     if (!currentUser) {
@@ -1183,6 +1212,45 @@ export async function handleStaticApiFallback(
     saveSessionAndCachedUser(updated, token);
     void syncCurrentUserToFirestore(updated).catch(() => {});
     return { user: updated };
+  }
+
+  if (pathname === '/api/profile' && method === 'DELETE') {
+    const currentUser = getCachedUserLocal();
+    if (!currentUser) {
+      throw new StaticFallbackHttpError('Not signed in.', 401);
+    }
+    if (currentUser.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
+      throw new StaticFallbackHttpError('The main administrator account cannot be deleted.', 403);
+    }
+    if (String(body.confirmationText || '').trim().toUpperCase() !== 'DELETE') {
+      throw new StaticFallbackHttpError(
+        'Please type DELETE to confirm permanent account deletion.',
+        400
+      );
+    }
+    const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+    delete profiles[currentUser.email.trim().toLowerCase()];
+    writeLocalJson(STATIC_PROFILES_KEY, profiles);
+
+    const allStats = readLocalJson<Record<string, StoredStaticStats>>(STATIC_STATS_KEY, {});
+    delete allStats[String(currentUser.id)];
+    writeLocalJson(STATIC_STATS_KEY, allStats);
+
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(SESSION_TOKEN_KEY);
+        window.localStorage.removeItem(CACHED_USER_KEY);
+        window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+        window.sessionStorage.removeItem(CACHED_USER_KEY);
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return { ok: true };
+  }
+
+  if ((pathname === '/api/presence/heartbeat' || pathname === '/api/presence/offline') && method === 'POST') {
+    return { ok: true, online: pathname.endsWith('/heartbeat') };
   }
 
   if (pathname === '/api/notifications/permission-choice' && method === 'POST') {
@@ -1236,6 +1304,9 @@ export async function handleStaticApiFallback(
   }
   if (pathname === '/api/admin/users' && method === 'GET') {
     return { users: [] };
+  }
+  if (/^\/api\/admin\/users\/\d+$/.test(pathname) && method === 'DELETE') {
+    return { ok: true };
   }
   if (pathname === '/api/admin/dashboard' && method === 'GET') {
     return {

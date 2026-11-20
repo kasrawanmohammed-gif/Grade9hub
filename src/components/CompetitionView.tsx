@@ -29,12 +29,14 @@ import {
   TabId,
   User,
 } from '../types';
+import type { LiveCommunityEvent } from './CommunityView';
 import { UserAvatar } from './UserAvatar';
 import { formatUtcDate } from '../utils/dateFormat';
 
 interface CompetitionViewProps {
   user: User;
   leaderboardVersion: number;
+  liveEvent?: LiveCommunityEvent | null;
   onNavigate: (tab: TabId) => void;
 }
 
@@ -56,6 +58,7 @@ function getMedalEmoji(badge: CompetitionMedal | number): string {
 export const CompetitionView: React.FC<CompetitionViewProps> = ({
   user,
   leaderboardVersion,
+  liveEvent,
   onNavigate,
 }) => {
   const { t } = useLanguage();
@@ -65,6 +68,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
   const [data, setData] = useState<CompetitionLeaderboardResponse | null>(null);
+  const [livePresenceMap, setLivePresenceMap] = useState<Record<number, boolean>>({});
   const [pending, setPending] = useState<QueuedPointsSummary>({
     count: 0,
     totalPendingPoints: 0,
@@ -98,6 +102,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     try {
       const res = await apiFetch<CompetitionLeaderboardResponse>('/api/competition/leaderboard');
       setData(res);
+      setLivePresenceMap({});
       setUsingCachedOffline(false);
       await saveCachedLeaderboard(user.id, res);
     } catch {
@@ -177,6 +182,19 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       window.removeEventListener(COMPETITION_UPDATED_EVENT, onQueueUpdate);
     };
   }, [loadLeaderboard, refreshPending, t.competition.syncedSuccessMsg, user.id]);
+
+  useEffect(() => {
+    if (!liveEvent || liveEvent.type !== 'community:presence' || !liveEvent.payload) return;
+    const p = liveEvent.payload as { userId?: number; online?: boolean };
+    if (typeof p.userId !== 'number') return;
+    setLivePresenceMap((prev) => ({ ...prev, [p.userId!]: Boolean(p.online) }));
+  }, [liveEvent]);
+
+  const isEntryOnline = useCallback(
+    (entry: LeaderboardEntry) =>
+      entry.userId in livePresenceMap ? livePresenceMap[entry.userId] : Boolean(entry.online),
+    [livePresenceMap]
+  );
 
   const rules = data?.rules || DEFAULT_RULES;
 
@@ -503,14 +521,25 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                     {placeLabel}
                   </p>
 
-                  <UserAvatar
-                    name={entry.name}
-                    avatarUrl={entry.avatar_url}
-                    sizeClass={isFirst ? 'w-16 h-16' : 'w-14 h-14'}
-                    textClass="text-lg"
-                    borderClass={isFirst ? 'border-2 border-[#E5B742]' : 'border-2 border-[#D9A62E]'}
-                    fallbackClass={isFirst ? 'bg-white text-[#6B1118]' : 'bg-[#6B1118] text-white'}
-                  />
+                  <div className="relative">
+                    <UserAvatar
+                      name={entry.name}
+                      avatarUrl={entry.avatar_url}
+                      sizeClass={isFirst ? 'w-16 h-16' : 'w-14 h-14'}
+                      textClass="text-lg"
+                      borderClass={isFirst ? 'border-2 border-[#E5B742]' : 'border-2 border-[#D9A62E]'}
+                      fallbackClass={isFirst ? 'bg-white text-[#6B1118]' : 'bg-[#6B1118] text-white'}
+                    />
+                    {isEntryOnline(entry) && (
+                      <span
+                        title={t.askTeacher.onlineLabel}
+                        aria-label={t.askTeacher.onlineLabel}
+                        className={`absolute bottom-0 end-0 w-3.5 h-3.5 rounded-full bg-[#059669] ring-2 ${
+                          isFirst ? 'ring-[#6B1118]' : 'ring-[#FAF8F5] dark:ring-[#272222]'
+                        }`}
+                      />
+                    )}
+                  </div>
 
                   <h4 className="mt-3 text-base font-bold max-w-full truncate">
                     {entry.name}
@@ -612,12 +641,21 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                       </td>
                       <td className="py-3.5 px-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <UserAvatar
-                            name={entry.name}
-                            avatarUrl={entry.avatar_url}
-                            sizeClass="w-9 h-9"
-                            textClass="text-xs"
-                          />
+                          <div className="relative shrink-0">
+                            <UserAvatar
+                              name={entry.name}
+                              avatarUrl={entry.avatar_url}
+                              sizeClass="w-9 h-9"
+                              textClass="text-xs"
+                            />
+                            {isEntryOnline(entry) && (
+                              <span
+                                title={t.askTeacher.onlineLabel}
+                                aria-label={t.askTeacher.onlineLabel}
+                                className="absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full bg-[#059669] ring-2 ring-white dark:ring-[#1E1A1A]"
+                              />
+                            )}
+                          </div>
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-[#1C1917] truncate">
                               {entry.name}

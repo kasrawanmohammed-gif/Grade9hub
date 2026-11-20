@@ -269,6 +269,8 @@ export interface Translations {
     sending: string;
     send: string;
     download: string;
+    onlineLabel: string;
+    offlineLabel: string;
   };
   notifications: {
     title: string;
@@ -386,6 +388,24 @@ export interface Translations {
     updatedMsg: string;
     roleUpdatedMsg: string;
     accountRemovedMsg: string;
+    cropModalTitle: string;
+    cropModalSub: string;
+    zoomLabel: string;
+    rotateBtn: string;
+    resetCropBtn: string;
+    applyCropUploadBtn: string;
+    invalidImageType: string;
+    imageTooLarge: string;
+    dangerZoneTitle: string;
+    dangerZoneDesc: string;
+    deleteAccountBtn: string;
+    deleteAccountModalTitle: string;
+    deleteAccountWarning: string;
+    deleteAccountTypeLabel: string;
+    deleteAccountPlaceholder: string;
+    confirmDeleteAccountBtn: string;
+    deletingAccount: string;
+    protectedAdminDeleteNote: string;
   };
   settings: {
     title: string;
@@ -511,6 +531,14 @@ export interface Translations {
     restrictPromptTitle: string;
     restrictReasonPlaceholder: string;
     confirmRestrictBtn: string;
+    deleteUserBtn: string;
+    deleteUserModalTitle: string;
+    deleteUserModalWarning: string;
+    confirmDeleteUserBtn: string;
+    deletingUserBtn: string;
+    userDeletedSuccess: string;
+    cannotDeleteSelf: string;
+    cannotDeleteMainAdmin: string;
     monitoringTitle: string;
     monitoringSub: string;
     tabOverview: string;
@@ -1084,6 +1112,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'Sending...',
       send: 'Send',
       download: 'Download',
+      onlineLabel: 'Online',
+      offlineLabel: 'Offline',
     },
     notifications: {
       title: 'Notifications',
@@ -1204,6 +1234,24 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'Profile updated successfully.',
       roleUpdatedMsg: 'Updated {name} to {role}.',
       accountRemovedMsg: 'Account removed.',
+      cropModalTitle: 'Crop & Resize Profile Photo',
+      cropModalSub: 'Drag to position, zoom, or rotate before saving your 256×256 avatar.',
+      zoomLabel: 'Zoom',
+      rotateBtn: 'Rotate 90°',
+      resetCropBtn: 'Reset',
+      applyCropUploadBtn: 'Crop & Upload',
+      invalidImageType: 'Please choose a PNG, JPG, WebP, or GIF image (SVG is not supported).',
+      imageTooLarge: 'Image must be smaller than 15 MB.',
+      dangerZoneTitle: 'Danger Zone · Delete Account',
+      dangerZoneDesc: 'Permanently delete your account, quiz history, community posts, messages, and competition points. This cannot be undone.',
+      deleteAccountBtn: 'Delete My Account',
+      deleteAccountModalTitle: 'Permanently Delete Your Account?',
+      deleteAccountWarning: 'All of your quiz attempts, competition points, teacher conversations, and community messages will be permanently deleted and you will be signed out immediately.',
+      deleteAccountTypeLabel: 'Type DELETE to confirm permanent deletion',
+      deleteAccountPlaceholder: 'Type DELETE',
+      confirmDeleteAccountBtn: 'Permanently Delete Account',
+      deletingAccount: 'Deleting account...',
+      protectedAdminDeleteNote: 'The main administrator account cannot be deleted to protect system continuity.',
     },
     settings: {
       title: 'System & Study Settings',
@@ -1331,6 +1379,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'Restrict Student Communication',
       restrictReasonPlaceholder: 'Reason for restricting community access (e.g. inappropriate language or spam)...',
       confirmRestrictBtn: 'Confirm Restriction',
+      deleteUserBtn: 'Delete Account',
+      deleteUserModalTitle: 'Delete User Account Permanently?',
+      deleteUserModalWarning: 'This will permanently delete this account, revoke all active sessions immediately, and erase their quiz attempts, points, messages, and posts.',
+      confirmDeleteUserBtn: 'Delete Account Permanently',
+      deletingUserBtn: 'Deleting...',
+      userDeletedSuccess: 'Account for {name} was permanently deleted and active sessions were revoked.',
+      cannotDeleteSelf: 'You cannot delete your own active account from the admin dashboard.',
+      cannotDeleteMainAdmin: 'The main administrator account cannot be deleted.',
       monitoringTitle: 'Community Monitoring, Activity Logs & Safety Moderation',
       monitoringSub: 'Inspect all private messages, group chats, detailed student activity timestamps, and moderation reports.',
       tabOverview: 'Overview',
@@ -1902,6 +1958,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'ناردن...',
       send: 'ناردن',
       download: 'دابەزاندن',
+      onlineLabel: 'لە هێڵدایە',
+      offlineLabel: 'دەرەوەی هێڵ',
     },
     notifications: {
       title: 'ئاگادارکردنەوەکان',
@@ -2022,6 +2080,24 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'پڕۆفایلەکەت بە سەرکەوتوویی نوێکرایەوە.',
       roleUpdatedMsg: 'دەسەڵاتی {name} گۆڕدرا بۆ {role}.',
       accountRemovedMsg: 'هەژمارەکە سڕایەوە.',
+      cropModalTitle: 'بڕین و ڕێکخستنی وێنەی پڕۆفایل',
+      cropModalSub: 'پێش پاشەکەوتکردن وێنەکە بجوڵێنە، گەورەی بکە یان بیسووڕێنە (256×256).',
+      zoomLabel: 'گەورەکردن',
+      rotateBtn: 'سووڕاندن ٩٠°',
+      resetCropBtn: 'ڕێکخستنەوە',
+      applyCropUploadBtn: 'بڕین و بارکردن',
+      invalidImageType: 'تکایە وێنەیەکی PNG یان JPG یان WebP یان GIF هەڵبژێرە.',
+      imageTooLarge: 'قەبارەی وێنەکە دەبێت لە 15 MB کەمتر بێت.',
+      dangerZoneTitle: 'ناوچەی مەترسیدار · سڕینەوەی هەژمار',
+      dangerZoneDesc: 'هەژمارەکەت، مێژووی تاقیکردنەوەکان، پۆستەکان، نامەکان و خاڵەکانی پێشبڕکێ بە تەواوی بسڕەوە. ئەم کردارە گەڕانەوەی نییە.',
+      deleteAccountBtn: 'سڕینەوەی هەژمارەکەم',
+      deleteAccountModalTitle: 'دڵنیایت لە سڕینەوەی یەکجارەکی هەژمارەکەت؟',
+      deleteAccountWarning: 'هەموو تاقیکردنەوەکانت، خاڵەکانی پێشبڕکێ، گفتوگۆکانی مامۆستا و نامەکان بە یەکجاری دەسڕدرێنەوە و دەستبەجێ دەردەچیت.',
+      deleteAccountTypeLabel: 'وشەی DELETE بنووسە بۆ دڵنیابوون لە سڕینەوەی یەکجاری',
+      deleteAccountPlaceholder: 'DELETE بنووسە',
+      confirmDeleteAccountBtn: 'سڕینەوەی هەژمار بۆ هەمیشە',
+      deletingAccount: 'سڕینەوەی هەژمار...',
+      protectedAdminDeleteNote: 'هەژماری بەڕێوەبەری سەرەکی ناتوانرێت بسڕدرێتەوە بۆ پاراستنی بەردەوامیی سیستەم.',
     },
     settings: {
       title: 'ڕێکخستنەکانی سیستەم و خوێندن',
@@ -2149,6 +2225,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'سنووردارکردنی پەیوەندی قوتابی',
       restrictReasonPlaceholder: 'هۆکاری سنووردارکردن بنووسە (بۆ نموونە وشەی نەشیاو یان سپام)...',
       confirmRestrictBtn: 'جێگیرکردنی سنووردارکردن',
+      deleteUserBtn: 'سڕینەوەی هەژمار',
+      deleteUserModalTitle: 'هەژمارەکە بۆ هەمیشە بسڕدرێتەوە؟',
+      deleteUserModalWarning: 'ئەم کردارە هەژمارەکە بە یەکجاری دەسڕێتەوە، هەموو دانیشتنە چالاکەکان دەستبەجێ دادەخات، و تاقیکردنەوە، خاڵ، نامە و پۆستەکان دەسڕێتەوە.',
+      confirmDeleteUserBtn: 'سڕینەوەی یەکجاری هەژمار',
+      deletingUserBtn: 'سڕینەوە...',
+      userDeletedSuccess: 'هەژماری {name} بە تەواوی سڕایەوە و دانیشتنە چالاکەکانی داخران.',
+      cannotDeleteSelf: 'ناتوانیت هەژماری چالاکی خۆت لە داشبۆردی بەڕێوەبەرەوە بسڕیتەوە.',
+      cannotDeleteMainAdmin: 'هەژماری بەڕێوەبەری سەرەکی ناتوانرێت بسڕدرێتەوە.',
       monitoringTitle: 'چاودێری کۆمەڵگا، تۆماری چالاکی و سەلامەتی',
       monitoringSub: 'پشکنینی هەموو نامە تایبەتەکان، گرووپ چاتەکان، کاتی چوونەژوورەوەی قوتابیان و ڕاپۆرتەکان.',
       tabOverview: 'پوختە',
@@ -2720,6 +2804,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       sending: 'جاري الإرسال...',
       send: 'إرسال',
       download: 'تنزيل',
+      onlineLabel: 'متصل',
+      offlineLabel: 'غير متصل',
     },
     notifications: {
       title: 'الإشعارات',
@@ -2840,6 +2926,24 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       updatedMsg: 'تم تحديث الملف الشخصي بنجاح.',
       roleUpdatedMsg: 'تم تغيير صلاحية {name} إلى {role}.',
       accountRemovedMsg: 'تم حذف الحساب.',
+      cropModalTitle: 'قصّ وتعديل حجم الصورة الشخصية',
+      cropModalSub: 'اسحب للتحريك أو كبّر أو دوّر الصورة قبل حفظها بدقة 256×256.',
+      zoomLabel: 'التكبير',
+      rotateBtn: 'تدوير ٩٠°',
+      resetCropBtn: 'إعادة ضبط',
+      applyCropUploadBtn: 'قصّ ورفع الصورة',
+      invalidImageType: 'يرجى اختيار صورة بصيغة PNG أو JPG أو WebP أو GIF.',
+      imageTooLarge: 'يجب أن يكون حجم الصورة أقل من 15 MB.',
+      dangerZoneTitle: 'منطقة الخطر · حذف الحساب',
+      dangerZoneDesc: 'احذف حسابك وسجل اختباراتك ومنشوراتك ورسائلك ونقاط المسابقة نهائياً. لا يمكن التراجع عن هذا الإجراء.',
+      deleteAccountBtn: 'حذف حسابي نهائياً',
+      deleteAccountModalTitle: 'هل تريد حذف حسابك نهائياً؟',
+      deleteAccountWarning: 'سيتم حذف جميع محاولات الاختبار ونقاط المسابقة ومحادثات المعلم ورسائل المجتمع نهائياً وسيتم تسجيل خروجك فوراً.',
+      deleteAccountTypeLabel: 'اكتب DELETE للتأكيد على الحذف النهائي',
+      deleteAccountPlaceholder: 'اكتب DELETE',
+      confirmDeleteAccountBtn: 'تأكيد حذف الحساب نهائياً',
+      deletingAccount: 'جاري حذف الحساب...',
+      protectedAdminDeleteNote: 'لا يمكن حذف حساب المسؤول الرئيسي حفاظاً على استقرار النظام.',
     },
     settings: {
       title: 'إعدادات النظام والدراسة',
@@ -2967,6 +3071,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       restrictPromptTitle: 'تقييد تواصل الطالب',
       restrictReasonPlaceholder: 'اذكر سبب التقييد (مثلاً لغة غير لائقة أو رسائل مزعجة)...',
       confirmRestrictBtn: 'تأكيد التقييد',
+      deleteUserBtn: 'حذف الحساب',
+      deleteUserModalTitle: 'حذف حساب المستخدم نهائياً؟',
+      deleteUserModalWarning: 'سيؤدي هذا إلى حذف الحساب نهائياً وإلغاء جميع جلساته النشطة فوراً ومسح محاولات الاختبار والنقاط والرسائل والمنشورات.',
+      confirmDeleteUserBtn: 'حذف الحساب نهائياً',
+      deletingUserBtn: 'جاري الحذف...',
+      userDeletedSuccess: 'تم حذف حساب {name} نهائياً وإلغاء جلساته النشطة.',
+      cannotDeleteSelf: 'لا يمكنك حذف حسابك النشط من لوحة تحكم المسؤول.',
+      cannotDeleteMainAdmin: 'لا يمكن حذف حساب المسؤول الرئيسي.',
       monitoringTitle: 'مراقبة المجتمع وسجل النشاطات والسلامة',
       monitoringSub: 'مراجعة جميع المحادثات الخاصة والدردشات الجماعية وأوقات تسجيل الدخول وبلاغات السلامة.',
       tabOverview: 'نظرة عامة',

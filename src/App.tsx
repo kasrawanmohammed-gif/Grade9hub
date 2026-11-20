@@ -599,7 +599,9 @@ export default function App() {
             type?: string;
             payload?: unknown;
           };
-          if (msg.type === 'admin:dashboard' && msg.payload) {
+          if (msg.type === 'auth:force_logout') {
+            void resetClientAuthState(false);
+          } else if (msg.type === 'admin:dashboard' && msg.payload) {
             setAdminSnapshot(msg.payload as AdminDashboardSnapshot);
           } else if (msg.type === 'admin:vault_dirty' && isPrivileged && user?.email) {
             if (vaultDirtyTimerRef.current) {
@@ -675,6 +677,69 @@ export default function App() {
       ws.send(JSON.stringify({ type: 'presence:section', section: activeTab }));
     }
   }, [activeTab]);
+
+  // Keep student live online presence active via WS heartbeat + HTTP heartbeat fallback & offline beacon
+  useEffect(() => {
+    if (!user) return;
+    const currentSection = activeTab;
+
+    const sendPresenceHeartbeat = () => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'presence:heartbeat', section: currentSection }));
+        return;
+      }
+      if (!isStaticHostMode()) {
+        void apiFetch('/api/presence/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({ section: currentSection }),
+        }).catch(() => {});
+      }
+    };
+
+    const sendOfflineSignal = () => {
+      if (isStaticHostMode()) return;
+      try {
+        const token = getStoredSessionToken();
+        if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+          const blob = new Blob([JSON.stringify({ token: token || undefined })], {
+            type: 'application/json',
+          });
+          navigator.sendBeacon('/api/presence/offline', blob);
+        } else {
+          void apiFetch('/api/presence/offline', {
+            method: 'POST',
+            keepalive: true,
+            body: JSON.stringify({ token: token || undefined }),
+          }).catch(() => {});
+        }
+      } catch {
+        // ignore unload errors
+      }
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        sendPresenceHeartbeat();
+      }
+    };
+
+    sendPresenceHeartbeat();
+    const timer = setInterval(sendPresenceHeartbeat, 20000);
+    window.addEventListener('online', sendPresenceHeartbeat);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('beforeunload', sendOfflineSignal);
+    window.addEventListener('pagehide', sendOfflineSignal);
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('online', sendPresenceHeartbeat);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('beforeunload', sendOfflineSignal);
+      window.removeEventListener('pagehide', sendOfflineSignal);
+    };
+  }, [user?.id, activeTab]);
 
   const saveNotificationChoice = useCallback(
     async (targetUserId: number, choice: 'allowed' | 'denied') => {
@@ -905,14 +970,16 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
+  const resetClientAuthState = useCallback(async (callServerLogout: boolean) => {
     explicitSignOutRef.current = true;
     try {
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
       }
-      await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      if (callServerLogout) {
+        await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+      }
       await signOutFirebaseCloud();
       clearStoredSessionToken();
       clearStoredCachedUser();
@@ -930,7 +997,10 @@ export default function App() {
     } finally {
       explicitSignOutRef.current = false;
     }
-  };
+  }, []);
+
+  const handleLogout = () => resetClientAuthState(true);
+  const handleAccountDeleted = () => resetClientAuthState(false);
 
   const navigateTo = (tab: TabId) => {
     setActiveTab(tab);
@@ -1452,12 +1522,14 @@ export default function App() {
                 <CompetitionView
                   user={user}
                   leaderboardVersion={leaderboardVersion}
+                  liveEvent={liveCommunityEvent}
                   onNavigate={navigateTo}
                 />
               )}
 
               {activeTab === 'admin-dashboard' && isPrivileged && (
                 <AdminDashboardView
+                  currentUser={user}
                   snapshot={adminSnapshot}
                   wsConnected={wsConnected}
                   focusSearchTrigger={focusAdminSearchTrigger}
@@ -1501,6 +1573,7 @@ export default function App() {
                 <AskTeacherView
                   user={user}
                   initialStudentId={initialStudentChatId}
+                  liveEvent={liveCommunityEvent}
                   onClearInitialStudentId={() => setInitialStudentChatId(null)}
                   onRefreshNotifications={fetchNotifications}
                 />
@@ -1534,6 +1607,7 @@ export default function App() {
                       void syncAdminVaultsNow(updated.email);
                     }
                   }}
+                  onAccountDeleted={handleAccountDeleted}
                   pushSupported={push.supported}
                   pushSubscribed={push.isSubscribed}
                   pushBusy={push.busy}
