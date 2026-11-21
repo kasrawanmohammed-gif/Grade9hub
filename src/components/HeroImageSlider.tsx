@@ -8,18 +8,14 @@ import { formatMsg } from '../i18n/translations';
 interface HeroImageSliderProps {
   slides?: HeroSlide[];
   intervalMs?: number;
-  heightClassName?: string;
-  featherSidesOnDesktop?: boolean;
-  topBar?: React.ReactNode;
+  pauseOnHover?: boolean;
   className?: string;
 }
 
 export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   slides = HERO_SLIDES,
   intervalMs = 5500,
-  heightClassName = 'min-h-[255px] sm:min-h-[325px] lg:min-h-[375px]',
-  featherSidesOnDesktop = true,
-  topBar,
+  pauseOnHover = true,
   className = '',
 }) => {
   const { t, language, dir } = useLanguage();
@@ -29,7 +25,6 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [prevIndex, setPrevIndex] = useState<number | null>(null);
-  const [direction, setDirection] = useState<'next' | 'prev'>('next');
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isPageHidden, setIsPageHidden] = useState(false);
@@ -41,6 +36,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
 
   const touchStartXRef = useRef<number | null>(null);
   const reduceMotion = systemPrefersReducedMotion || settings.reduceMotion;
+  const isPaused = (pauseOnHover && isHovered) || isFocused || isPageHidden;
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
@@ -69,13 +65,12 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   }, [activeIndex, totalSlides]);
 
   const goToIndex = useCallback(
-    (targetIndex: number, dirHint: 'next' | 'prev') => {
+    (targetIndex: number) => {
       if (totalSlides <= 1) return;
       const normalized = ((targetIndex % totalSlides) + totalSlides) % totalSlides;
       setActiveIndex((current) => {
         if (current === normalized) return current;
         setPrevIndex(current);
-        setDirection(dirHint);
         return normalized;
       });
     },
@@ -83,27 +78,25 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   );
 
   const handleNext = useCallback(() => {
-    goToIndex(activeIndex + 1, 'next');
+    goToIndex(activeIndex + 1);
   }, [activeIndex, goToIndex]);
 
   const handlePrev = useCallback(() => {
-    goToIndex(activeIndex - 1, 'prev');
+    goToIndex(activeIndex - 1);
   }, [activeIndex, goToIndex]);
 
   useEffect(() => {
-    if (reduceMotion || totalSlides <= 1 || isHovered || isFocused || isPageHidden) {
+    if (reduceMotion || totalSlides <= 1 || isPaused) {
       return;
     }
     const timer = window.setInterval(() => {
       setActiveIndex((current) => {
-        const next = (current + 1) % totalSlides;
         setPrevIndex(current);
-        setDirection('next');
-        return next;
+        return (current + 1) % totalSlides;
       });
     }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [reduceMotion, totalSlides, isHovered, isFocused, isPageHidden, intervalMs]);
+  }, [reduceMotion, totalSlides, isPaused, intervalMs]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (totalSlides <= 1) return;
@@ -145,12 +138,16 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   const NextChevron = isRtl ? ChevronLeft : ChevronRight;
 
   return (
-    <div
+    <section
       role="region"
       aria-roledescription="carousel"
       aria-label={t.home.heroSliderLabel}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => {
+        if (pauseOnHover) setIsHovered(true);
+      }}
+      onMouseLeave={() => {
+        if (pauseOnHover) setIsHovered(false);
+      }}
       onFocusCapture={() => setIsFocused(true)}
       onBlurCapture={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
@@ -160,63 +157,39 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
       onKeyDown={handleKeyDown}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`relative w-full overflow-hidden select-none ${heightClassName} ${className}`}
+      className={`relative w-full aspect-[16/9] md:aspect-auto md:h-[310px] lg:h-[360px] rounded-2xl sm:rounded-3xl overflow-hidden border border-[#6B1118]/20 dark:border-white/12 shadow-sm select-none bg-[radial-gradient(ellipse_at_68%_48%,#6B151D_0%,#470A10_58%,#32050A_100%)] dark:bg-[radial-gradient(ellipse_at_68%_48%,#4F0E15_0%,#2E060B_58%,#1F0306_100%)] ${className}`}
     >
-      {/* Masked Slide Stage Blending Smoothly into Crimson/Burgundy Surface */}
-      <div
-        className={`pointer-events-none absolute inset-0 overflow-hidden ${
-          featherSidesOnDesktop ? 'g9-hero-side-feather-lg' : ''
-        }`}
-      >
-        <div className="relative h-full w-full g9-hero-slider-mask">
-        {totalSlides === 0 ? (
-          <div
-            aria-hidden="true"
-            className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_transparent)]"
-          />
-        ) : (
-          slides.map((slide, index) => {
-            const isActive = index === activeIndex;
-            const isExiting = index === prevIndex && !isActive;
-            const copy = getHeroSlideCopy(slide, language);
-            const hasFailed = Boolean(failedIds[slide.id]);
+      {/* Slides Layer */}
+      {totalSlides === 0 ? (
+        <div
+          aria-hidden="true"
+          className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_#32050A)]"
+        />
+      ) : (
+        slides.map((slide, index) => {
+          const isActive = index === activeIndex;
+          const isExiting = index === prevIndex && !isActive;
+          const copy = getHeroSlideCopy(slide, language);
+          const hasFailed = Boolean(failedIds[slide.id]);
 
-            let transformClass = 'translate-x-0 scale-100';
-            if (!reduceMotion) {
-              if (isActive) {
-                transformClass = 'translate-x-0 scale-[1.03]';
-              } else if (isExiting) {
-                const moveBack =
-                  direction === 'next'
-                    ? isRtl
-                      ? 'translate-x-[3%]'
-                      : '-translate-x-[3%]'
-                    : isRtl
-                    ? '-translate-x-[3%]'
-                    : 'translate-x-[3%]';
-                transformClass = `${moveBack} scale-100`;
-              }
-            }
-
-            return (
-              <div
-                key={slide.id}
-                aria-hidden={!isActive}
-                className={`absolute inset-0 will-change-[opacity,transform] ${
-                  reduceMotion
-                    ? 'transition-none'
-                    : 'transition-[opacity,transform] duration-700 ease-out'
-                } ${
-                  isActive
-                    ? 'opacity-100 z-[2]'
-                    : isExiting
-                    ? 'opacity-0 z-[1]'
-                    : 'opacity-0 z-0'
-                } ${transformClass}`}
-              >
-                {hasFailed ? (
-                  <div className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.24),_rgba(107,17,24,0.82)_65%,_transparent)]" />
-                ) : (
+          return (
+            <div
+              key={slide.id}
+              aria-hidden={!isActive}
+              className={`absolute inset-0 flex items-center justify-center ${
+                reduceMotion ? 'transition-none' : 'transition-opacity duration-700 ease-out'
+              } ${
+                isActive ? 'opacity-100 z-[2]' : isExiting ? 'opacity-0 z-[1]' : 'opacity-0 z-0'
+              }`}
+            >
+              {hasFailed ? (
+                <div className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_#32050A)]" />
+              ) : (
+                <div
+                  className={`h-full w-full flex items-center justify-center g9-banner-side-feather-md ${
+                    !reduceMotion && isActive ? 'g9-banner-ken-burns' : ''
+                  } ${isPaused ? 'g9-banner-ken-burns-paused' : ''}`}
+                >
                   <img
                     src={slide.src}
                     alt={copy.alt}
@@ -229,93 +202,91 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
                     style={{
                       objectPosition: slide.objectPosition || 'center center',
                     }}
-                    className="h-full w-full object-cover brightness-[0.94] contrast-[1.04] dark:brightness-[0.84] dark:contrast-[1.08]"
+                    className="h-full w-full object-cover md:object-contain dark:brightness-[0.94] dark:contrast-[1.03]"
                   />
-                )}
-              </div>
-            );
-          })
-        )}
-
-        {/* Top Header Contrast Scrim + Lower Crimson Blend */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 z-[3] g9-hero-slider-scrim"
-        />
-        </div>
-      </div>
-
-      {/* Crisp Top Bar & Clean Lower Slider Controls Above Seamless Edge */}
-      <div
-        className={`relative z-10 flex h-full flex-col justify-between px-4 pt-3.5 pb-9 sm:px-8 sm:pt-5 sm:pb-11 lg:px-10 lg:pb-12 ${heightClassName}`}
-      >
-        <div>{topBar}</div>
-
-        {totalSlides > 1 && (
-          <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-            <div className="min-w-0 flex-1">
-              {currentCopy?.caption && (
-                <p className="truncate text-[11px] sm:text-xs font-medium tracking-wide text-white/90 drop-shadow-[0_1px_4px_rgba(0,0,0,0.65)]">
-                  {currentCopy.caption}
-                </p>
+                </div>
               )}
             </div>
+          );
+        })
+      )}
 
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handlePrev}
-                aria-label={t.home.prevSlideBtn}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
-              >
-                <PrevChevron className="h-4 w-4" />
-              </button>
+      {/* Subtle Ambient Light Sheen */}
+      {!reduceMotion && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-[3] overflow-hidden"
+        >
+          <div
+            className={`g9-banner-sheen h-full w-1/3 bg-gradient-to-r from-transparent via-[#FBF4DF]/10 to-transparent ${
+              isPaused ? 'g9-banner-ken-burns-paused' : ''
+            }`}
+          />
+        </div>
+      )}
 
-              <div
-                className="flex items-center gap-0.5 rounded-lg border border-white/15 bg-black/25 px-2 py-0.5 backdrop-blur-md"
-                role="tablist"
-                aria-label={t.home.heroSliderLabel}
-              >
-                {slides.map((slide, index) => {
-                  const isCurrent = index === activeIndex;
-                  return (
-                    <button
-                      key={slide.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={isCurrent}
-                      aria-label={formatMsg(t.home.goToSlideBtn, { n: index + 1 })}
-                      onClick={() =>
-                        goToIndex(index, index > activeIndex ? 'next' : 'prev')
-                      }
-                      className="inline-flex h-8 min-w-[16px] items-center justify-center px-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#E5B742] rounded-full"
-                    >
-                      <span
-                        className={`block h-1.5 rounded-full ${
-                          reduceMotion ? '' : 'transition-all duration-300'
-                        } ${
-                          isCurrent
-                            ? 'w-5 bg-[#E5B742]'
-                            : 'w-1.5 bg-white/45 hover:bg-white/80'
-                        }`}
-                      />
-                    </button>
-                  );
-                })}
-              </div>
+      {/* Optional Slide Caption (only rendered when slide provides one) */}
+      {currentCopy?.caption && (
+        <div className="pointer-events-none absolute bottom-3 start-4 end-4 z-[4] flex items-center justify-between gap-2">
+          <p className="truncate rounded-lg bg-black/35 backdrop-blur-md border border-white/15 px-3 py-1 text-xs font-medium text-white/95 drop-shadow-xs">
+            {currentCopy.caption}
+          </p>
+        </div>
+      )}
 
-              <button
-                type="button"
-                onClick={handleNext}
-                aria-label={t.home.nextSlideBtn}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
-              >
-                <NextChevron className="h-4 w-4" />
-              </button>
-            </div>
+      {/* Multi-slide Controls & Subtle Indicator Dots (only shown when > 1 slide exists) */}
+      {totalSlides > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={handlePrev}
+            aria-label={t.home.prevSlideBtn}
+            className="absolute start-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
+          >
+            <PrevChevron className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={handleNext}
+            aria-label={t.home.nextSlideBtn}
+            className="absolute end-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
+          >
+            <NextChevron className="h-4 w-4" />
+          </button>
+
+          <div
+            role="tablist"
+            aria-label={t.home.heroSliderLabel}
+            className="absolute bottom-2.5 sm:bottom-3 left-1/2 -translate-x-1/2 z-[5] flex items-center gap-1 rounded-full border border-white/15 bg-black/30 px-2.5 py-1 backdrop-blur-md"
+          >
+            {slides.map((slide, index) => {
+              const isCurrent = index === activeIndex;
+              return (
+                <button
+                  key={slide.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={isCurrent}
+                  aria-label={formatMsg(t.home.goToSlideBtn, { n: index + 1 })}
+                  onClick={() => goToIndex(index)}
+                  className="inline-flex h-6 items-center justify-center px-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#E5B742] rounded-full"
+                >
+                  <span
+                    className={`block h-1.5 rounded-full ${
+                      reduceMotion ? '' : 'transition-all duration-300'
+                    } ${
+                      isCurrent
+                        ? 'w-5 bg-[#E5B742]'
+                        : 'w-1.5 bg-white/45 hover:bg-white/80'
+                    }`}
+                  />
+                </button>
+              );
+            })}
           </div>
-        )}
-      </div>
-    </div>
+        </>
+      )}
+    </section>
   );
 };

@@ -1,8 +1,4 @@
 import type { AppLanguage } from '../i18n/translations';
-import physicsOpticsImg from '../assets/images/physics_optics_prism_hero_1794573933754.jpg';
-import chemistryGlasswareImg from '../assets/images/chemistry_glassware_glow_1795269358476.jpg';
-import mechanicsPendulumImg from '../assets/images/educator_science_desk_1794573934293.jpg';
-import astronomyArmillaryImg from '../assets/images/astronomy_celestial_armillary_1795269358923.jpg';
 
 export interface HeroSlide {
   id: string;
@@ -17,56 +13,21 @@ export interface HeroSlide {
 }
 
 /**
- * Easy-to-extend configuration for the Home hero image slider.
+ * Easy-to-extend configuration for the Home banner slider.
  *
- * To add a new slide:
- * 1. Import an image from `../assets/images/...` (or use a `/assets/...` public path).
- * 2. Append or insert an entry below with `id`, `src`, `alt`, and optional `caption`.
+ * To add more slides in the future, append entries below with:
+ * `{ id: 'unique-id', src: '/assets/...', alt: '...', caption?: '...' }`.
+ * When 2 or more slides exist, smooth auto-advance, prev/next controls,
+ * and indicator dots appear automatically.
  */
 export const HERO_SLIDES: HeroSlide[] = [
   {
-    id: 'physics-optics-prism',
-    src: physicsOpticsImg,
-    alt: 'Optical glass prism splitting warm light into a spectrum on a study table',
-    altKu: 'پریزمێکی شووشەیی کە ڕووناکی گەرم دابەش دەکات بەسەر شەبەنگدا لەسەر مێزی خوێندن',
-    altAr: 'منشور زجاجي بصري يحلل الضوء الدافئ إلى ألوان الطيف على طاولة الدراسة',
-    caption: 'Optics & Light Spectrum',
-    captionKu: 'ڕووناکی و شەبەنگی فیزیا',
-    captionAr: 'البصريات وطيف الضوء',
-    objectPosition: 'center 55%',
-  },
-  {
-    id: 'chemistry-solutions-lab',
-    src: chemistryGlasswareImg,
-    alt: 'Laboratory flasks glowing with amber and ruby solutions under warm sunlight',
-    altKu: 'شوشە و دەفری تاقیگەی کیمیا بە گیراوەی زێڕین و یاقووتی لەژێر تیشکی خۆردا',
-    altAr: 'دوارق مخبرية متوهجة بمحاليل ذهبية وياقوتية تحت ضوء الشمس الدافئ',
-    caption: 'Chemistry & Solutions Lab',
-    captionKu: 'تاقیگەی کیمیا و گیراوەکان',
-    captionAr: 'مختبر الكيمياء والمحاليل',
-    objectPosition: 'center 52%',
-  },
-  {
-    id: 'mechanics-harmonic-pendulum',
-    src: mechanicsPendulumImg,
-    alt: 'Brass harmonic pendulum, physics formulas, and magnifying glass on a study desk',
-    altKu: 'بەندۆڵی مسین و یاساکانی فیزیا و عدەسەی گەورەکەر لەسەر مێزی خوێندن',
-    altAr: 'بندول نحاسي ومعادلات فيزيائية وعدسة مكبرة على مكتب الدراسة',
-    caption: 'Forces & Harmonic Motion',
-    captionKu: 'هێز و جووڵەی هارمۆنی',
-    captionAr: 'القوى والحركة التوافقية',
-    objectPosition: 'center 42%',
-  },
-  {
-    id: 'astronomy-celestial-instruments',
-    src: astronomyArmillaryImg,
-    alt: 'Classic brass telescope, armillary sphere, and open science notebook',
-    altKu: 'تەلسکۆبی مسین و گۆی ئەستێرەناسی و دەفتەری زانست',
-    altAr: 'تلسكوب نحاسي وكرة فلكية ودفتر علوم مفتوح',
-    caption: 'Astronomy & Scientific Discovery',
-    captionKu: 'ئەستێرەناسی و دۆزینەوەی زانستی',
-    captionAr: 'علم الفلك والاكتشاف العلمي',
-    objectPosition: 'center 45%',
+    id: 'science-learning-hub-trilingual',
+    src: '/assets/aistudio/1795270867141_47645629.jpg',
+    alt: 'Grade 9 Hub — Science Learning Hub trilingual banner in English, Kurdish, and Arabic',
+    altKu: 'ناوەندی پۆلی ٩ — پۆستەری ناوەندی فێربوونی زانست بە ئینگلیزی و کوردی و عەرەبی',
+    altAr: 'مركز الصف التاسع — لافتة مركز تعلّم العلوم بالإنجليزية والكردية والعربية',
+    objectPosition: 'center center',
   },
 ];
 

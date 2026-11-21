@@ -1,4 +1,4 @@
-import curriculumData from '../data/curriculumSnapshot.json';
+import curriculumData from './curriculumSnapshot.json';
 import {
   AdminStudentPerformance,
   AdminUserRecord,

@@ -859,6 +859,66 @@ html.dark .g9-hero-slider-scrim {
   will-change: transform, opacity;
 }
 
+@keyframes g9-banner-ken-burns {
+  0%, 100% {
+    transform: translate3d(0%, 0%, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-0.65%, -0.35%, 0) scale(1.038);
+  }
+}
+
+@keyframes g9-banner-sheen {
+  0% {
+    transform: translate3d(-125%, 0, 0) skewX(-18deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.75;
+  }
+  42% {
+    transform: translate3d(135%, 0, 0) skewX(-18deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translate3d(135%, 0, 0) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+.g9-banner-ken-burns {
+  animation: g9-banner-ken-burns 16s ease-in-out infinite;
+  will-change: transform;
+}
+
+.g9-banner-ken-burns-paused {
+  animation-play-state: paused;
+}
+
+.g9-banner-sheen {
+  animation: g9-banner-sheen 9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (min-width: 768px) {
+  .g9-banner-side-feather-md {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 1) 5%,
+      rgba(0, 0, 0, 1) 95%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 1) 5%,
+      rgba(0, 0, 0, 1) 95%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .g9-hero-pan,
   .g9-sun-arc,
@@ -866,7 +926,9 @@ html.dark .g9-hero-slider-scrim {
   .g9-sun-rays,
   .g9-success-sweep,
   .g9-success-rim,
-  .g9-canyon-glow {
+  .g9-canyon-glow,
+  .g9-banner-ken-burns,
+  .g9-banner-sheen {
     animation: none !important;
     transform: none !important;
     will-change: auto !important;
@@ -879,7 +941,9 @@ html.reduce-motion .g9-sun-pulse,
 html.reduce-motion .g9-sun-rays,
 html.reduce-motion .g9-success-sweep,
 html.reduce-motion .g9-success-rim,
-html.reduce-motion .g9-canyon-glow {
+html.reduce-motion .g9-canyon-glow,
+html.reduce-motion .g9-banner-ken-burns,
+html.reduce-motion .g9-banner-sheen {
   animation: none !important;
   transform: none !important;
   will-change: auto !important;
