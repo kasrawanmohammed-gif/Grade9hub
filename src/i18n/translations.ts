@@ -178,10 +178,6 @@ export interface Translations {
     openTextbooksBtn: string;
     textbooksGuidesLabel: string;
     textbooksQaLabel: string;
-    heroSliderLabel: string;
-    prevSlideBtn: string;
-    nextSlideBtn: string;
-    goToSlideBtn: string;
   };
   quiz: {
     mcTitle: string;
@@ -1078,10 +1074,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'Open Textbooks & Q&A',
       textbooksGuidesLabel: 'Chapter Guides & Formulas',
       textbooksQaLabel: 'Solved Study Q&A Bank',
-      heroSliderLabel: 'Featured science showcase',
-      prevSlideBtn: 'Previous slide',
-      nextSlideBtn: 'Next slide',
-      goToSlideBtn: 'Go to slide {n}',
     },
     quiz: {
       mcTitle: 'Multiple Choice · 11 Chapters',
@@ -1981,10 +1973,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'کردنەوەی پەرتووک و وەڵامەکان',
       textbooksGuidesLabel: 'ڕێبەری بەشەکان و هاوکێشەکان',
       textbooksQaLabel: 'بانکی پرسیار و وەڵامی شیکارکراو',
-      heroSliderLabel: 'پێشانگای وێنە زانستییەکان',
-      prevSlideBtn: 'وێنەی پێشوو',
-      nextSlideBtn: 'وێنەی داهاتوو',
-      goToSlideBtn: 'چوون بۆ وێنەی {n}',
     },
     quiz: {
       mcTitle: 'هەڵبژاردنی فرە · ١١ بەش',
@@ -2884,10 +2872,6 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'فتح الكتب والأسئلة والأجوبة',
       textbooksGuidesLabel: 'أدلة الفصول والقوانين',
       textbooksQaLabel: 'بنك الأسئلة المحلولة',
-      heroSliderLabel: 'معرض صور العلوم',
-      prevSlideBtn: 'الشريحة السابقة',
-      nextSlideBtn: 'الشريحة التالية',
-      goToSlideBtn: 'الانتقال إلى الشريحة {n}',
     },
     quiz: {
       mcTitle: 'الاختيار من متعدد · ١١ فصلاً',

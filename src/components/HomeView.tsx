@@ -32,7 +32,7 @@ import {
 } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { RotatingQuote } from './RotatingQuote';
-import { HeroImageSlider } from './HeroImageSlider';
+import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
 import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 import { useStudentGreeting } from '../utils/greeting';
 import { formatUtcDate } from '../utils/dateFormat';
@@ -157,45 +157,46 @@ export const HomeView: React.FC<HomeViewProps> = ({
     <div className="space-y-8">
       {/* Entry Hero Banner */}
       <section className="relative rounded-2xl sm:rounded-3xl overflow-hidden g9-hero-surface text-white border border-[#6B1118]/30 dark:border-white/10 shadow-sm">
-        <HeroImageSlider
-          heightClassName="min-h-[255px] sm:min-h-[325px] lg:min-h-[375px]"
+        <SuccessHeroBackdrop
+          heightClassName="h-[310px] sm:h-[380px] lg:h-[440px]"
+          stageOffsetClassName="mt-[-10%] lg:mt-[-13%]"
           featherSidesOnDesktop={true}
-          topBar={
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
-                  <img
-                    src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
-                    alt="Grade 9 Hub Logo"
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-contain rounded-md"
-                  />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm sm:text-base font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
-                    {t.brand.appName}
-                  </p>
-                  <p className="text-[11px] sm:text-xs text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
-                    {user.name} ·{' '}
-                    {user.isAdmin
-                      ? t.home.mainAdmin
-                      : user.role === 'teacher'
-                      ? t.home.teacherWorkspace
-                      : user.grade || t.home.studentPortal}
-                  </p>
-                </div>
-              </div>
-
-              <span className="hidden sm:inline-flex items-center rounded-full bg-black/25 backdrop-blur-md border border-white/20 px-3 py-1 text-xs font-medium text-white/95 whitespace-nowrap shrink-0">
-                {t.auth.heroBadge}
-              </span>
-            </div>
-          }
         />
 
-        {/* Centered Hero Content Transitioning Smoothly Below Image Slider */}
-        <div className="relative z-20 -mt-5 sm:-mt-7 px-4 pb-6 sm:px-8 sm:pb-8 lg:px-10 lg:pb-9">
-          <div className="max-w-2xl mx-auto w-full flex flex-col items-center text-center gap-3 sm:gap-3.5">
+        <div className="relative z-20 flex flex-col justify-between px-4 pt-3.5 pb-6 sm:px-8 sm:pt-5 sm:pb-8 lg:px-10 lg:pb-9">
+          {/* Crisp Hero Header Bar */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
+                <img
+                  src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
+                  alt="Grade 9 Hub Logo"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain rounded-md"
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm sm:text-base font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                  {t.brand.appName}
+                </p>
+                <p className="text-[11px] sm:text-xs text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                  {user.name} ·{' '}
+                  {user.isAdmin
+                    ? t.home.mainAdmin
+                    : user.role === 'teacher'
+                    ? t.home.teacherWorkspace
+                    : user.grade || t.home.studentPortal}
+                </p>
+              </div>
+            </div>
+
+            <span className="hidden sm:inline-flex items-center rounded-full bg-black/25 backdrop-blur-md border border-white/20 px-3 py-1 text-xs font-medium text-white/95 whitespace-nowrap shrink-0">
+              {t.auth.heroBadge}
+            </span>
+          </div>
+
+          {/* Centered Hero Content Positioned Below Sun & SUCCESS Bridge */}
+          <div className="mt-24 sm:mt-40 lg:mt-56 max-w-2xl mx-auto w-full flex flex-col items-center text-center gap-3 sm:gap-3.5">
             <span className="inline-flex items-center justify-center rounded-full bg-[#240608]/55 backdrop-blur-md border border-white/20 px-4 py-1.5 text-xs sm:text-sm font-medium text-white/95 shadow-xs">
               {studentGreeting}
             </span>
