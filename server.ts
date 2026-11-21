@@ -5445,12 +5445,9 @@ async function startServer() {
   // ---------------- VITE / STATIC SERVING ----------------
   const textbookPdfPath = path.resolve(
     process.cwd(),
-    'public/assets/aistudio/Science_9_Book_2409ed82.pdf'
+    'server/assets/Science_9_Book_2409ed82.pdf'
   );
   app.get('/assets/aistudio/Science_9_Book_2409ed82.pdf', (_req, res) => {
-    if (!fs.existsSync(textbookPdfPath)) {
-      return res.status(404).send('Textbook PDF not found');
-    }
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Cache-Control', 'public, max-age=86400');

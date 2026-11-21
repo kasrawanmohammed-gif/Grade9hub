@@ -28,13 +28,10 @@ import { apiFetch } from '../lib/api';
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
 import {
-  OFFICIAL_BOOK_CHAPTERS,
   OFFICIAL_BOOK_FILENAME,
   OFFICIAL_BOOK_PDF_URL,
   getAttachmentDownloadHref,
-  getOfficialBookChapterMeta,
   getOfficialBookChapterPage,
-  getOfficialBookChapterTitle,
   isPdfAttachment,
 } from '../lib/textbookCatalog';
 import {
@@ -210,41 +207,16 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
   }, [chapters]);
 
   const officialBookResource = useMemo(() => {
-    const matches = (data?.resources || []).filter(
-      (r) => r.chapter_number === null && r.attachment_url === OFFICIAL_BOOK_PDF_URL
-    );
     return (
-      matches.find((r) => (r.raw_title || r.title).includes('306')) ||
-      matches[0] ||
-      null
+      data?.resources.find((r) => r.attachment_url === OFFICIAL_BOOK_PDF_URL) || null
     );
   }, [data]);
-
-  const selectedBookChapterMeta =
-    typeof selectedTab === 'number' ? getOfficialBookChapterMeta(selectedTab) : null;
-  const selectedBookChapterTitle =
-    typeof selectedTab === 'number' ? getOfficialBookChapterTitle(selectedTab, language) : null;
-
-  const filteredOfficialBookChapters = useMemo(() => {
-    const kw = searchQuery.trim().toLowerCase();
-    if (!kw) return OFFICIAL_BOOK_CHAPTERS;
-    return OFFICIAL_BOOK_CHAPTERS.filter((ch) => {
-      const locTitle = getOfficialBookChapterTitle(ch.chapterNumber, language) || ch.titleEn;
-      return (
-        locTitle.toLowerCase().includes(kw) ||
-        ch.titleEn.toLowerCase().includes(kw) ||
-        ch.titleKu.toLowerCase().includes(kw) ||
-        ch.titleAr.toLowerCase().includes(kw) ||
-        String(ch.chapterNumber) === kw
-      );
-    });
-  }, [language, searchQuery]);
 
   const visibleResources = useMemo(() => {
     if (!data) return [];
     const kw = searchQuery.trim().toLowerCase();
     return data.resources.filter((res) => {
-      if (officialBookResource && res.id === officialBookResource.id) {
+      if (res.attachment_url === OFFICIAL_BOOK_PDF_URL) {
         return false;
       }
       const matchesTab =
@@ -261,7 +233,7 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
         res.key_formulas.toLowerCase().includes(kw)
       );
     });
-  }, [data, officialBookResource, selectedTab, searchQuery]);
+  }, [data, selectedTab, searchQuery]);
 
   const visibleMaterials = useMemo(() => {
     if (!data) return [];
@@ -960,24 +932,20 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
             </div>
 
             {/* Official Grade 9 Science Student Textbook Card */}
-            <div className="rounded-xl border border-[#6B1118]/25 bg-[#F9EFF0]/65 p-4 sm:p-5 space-y-3.5">
+            <div className="rounded-xl border border-[#6B1118]/25 bg-[#F9EFF0]/65 p-4 space-y-3">
               <div className="flex items-start gap-3">
                 <div className="w-11 h-14 rounded-lg bg-[#6B1118] text-[#E5B742] flex flex-col items-center justify-center shrink-0 shadow-sm">
                   <BookText className="w-5 h-5" />
                   <span className="text-[9px] font-bold tracking-wide mt-0.5 text-white tabular-nums">
-                    {selectedBookChapterMeta ? `CH${selectedBookChapterMeta.chapterNumber}` : 'G9'}
+                    G9
                   </span>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-semibold text-[#6B1118] tabular-nums">
-                    {selectedBookChapterMeta
-                      ? `${t.home.chapterWord} ${selectedBookChapterMeta.chapterNumber} · ${t.textbooks.pageLabel} ${selectedBookChapterMeta.startPage}–${selectedBookChapterMeta.endPage} · ${t.textbooks.officialBookMeta}`
-                      : t.textbooks.officialBookMeta}
+                  <p className="text-[11px] font-semibold text-[#6B1118]">
+                    {t.textbooks.officialBookMeta}
                   </p>
                   <h4 className="text-sm sm:text-base font-bold text-[#1C1917] leading-snug mt-0.5">
-                    {selectedBookChapterMeta && selectedBookChapterTitle ? (
-                      `${t.home.chapterWord} ${selectedBookChapterMeta.chapterNumber}: ${selectedBookChapterTitle}`
-                    ) : officialBookResource ? (
+                    {officialBookResource ? (
                       <ScientificText text={officialBookResource.title} />
                     ) : (
                       t.textbooks.officialBookTitle
@@ -1007,7 +975,7 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
                       isOfficialBook: true,
                     });
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[40px] whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[40px]"
                 >
                   <BookOpen className="w-4 h-4 text-[#E5B742]" />
                   <span>
@@ -1017,50 +985,10 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
                   </span>
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    setReaderConfig({
-                      url: OFFICIAL_BOOK_PDF_URL,
-                      title:
-                        officialBookResource?.title || t.textbooks.officialBookTitle,
-                      fileName:
-                        officialBookResource?.attachment_name || OFFICIAL_BOOK_FILENAME,
-                      initialPage: 2,
-                      isOfficialBook: true,
-                    })
-                  }
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[40px] whitespace-nowrap shrink-0"
-                >
-                  <BookMarked className="w-3.5 h-3.5 text-[#6B1118]" />
-                  <span>{t.textbooks.contentsJumpBtn}</span>
-                </button>
-
-                {typeof selectedTab === 'number' && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setReaderConfig({
-                        url: OFFICIAL_BOOK_PDF_URL,
-                        title:
-                          officialBookResource?.title || t.textbooks.officialBookTitle,
-                        fileName:
-                          officialBookResource?.attachment_name || OFFICIAL_BOOK_FILENAME,
-                        initialPage: 1,
-                        isOfficialBook: true,
-                      })
-                    }
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[40px] whitespace-nowrap shrink-0"
-                  >
-                    <BookText className="w-3.5 h-3.5 text-[#6B1118]" />
-                    <span>{t.textbooks.fullBookBtn}</span>
-                  </button>
-                )}
-
                 <a
                   href={OFFICIAL_BOOK_PDF_URL}
                   download={officialBookResource?.attachment_name || OFFICIAL_BOOK_FILENAME}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] transition-colors min-h-[40px] whitespace-nowrap shrink-0"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-xs font-semibold text-[#1C1917] hover:border-[#6B1118] transition-colors min-h-[40px]"
                 >
                   <Download className="w-3.5 h-3.5 text-[#6B1118]" />
                   <span>{t.textbooks.downloadBtn} PDF</span>
@@ -1068,77 +996,14 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
               </div>
             </div>
 
-            {/* Official Textbook Chapter Directory (1–11) when viewing All Chapters Overview */}
-            {selectedTab === 'all' && filteredOfficialBookChapters.length > 0 && (
-              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm sm:text-base font-bold text-[#1C1917]">
-                      {t.textbooks.allChaptersTextbookGridTitle}
-                    </h4>
-                    <p className="text-xs text-[#57534E]">
-                      {t.textbooks.allChaptersTextbookGridSub}
-                    </p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {filteredOfficialBookChapters.map((ch) => {
-                    const chTitle =
-                      getOfficialBookChapterTitle(ch.chapterNumber, language) || ch.titleEn;
-                    return (
-                      <button
-                        key={ch.chapterNumber}
-                        type="button"
-                        onClick={() =>
-                          setReaderConfig({
-                            url: OFFICIAL_BOOK_PDF_URL,
-                            title: `${t.home.chapterWord} ${ch.chapterNumber}: ${chTitle}`,
-                            fileName: OFFICIAL_BOOK_FILENAME,
-                            initialPage: ch.startPage,
-                            isOfficialBook: true,
-                          })
-                        }
-                        className="text-start rounded-xl border border-[#E6DFD5] bg-white p-3.5 hover:border-[#6B1118] transition-colors cursor-pointer flex items-center justify-between gap-3 min-h-[68px]"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 text-[11px] font-semibold text-[#6B1118] tabular-nums">
-                            <span>
-                              {t.textbooks.chapterTabPrefix} {ch.chapterNumber}
-                            </span>
-                            <span aria-hidden="true">·</span>
-                            <span>
-                              p.{ch.startPage}–{ch.endPage}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs sm:text-sm font-bold text-[#1C1917] line-clamp-1">
-                            {chTitle}
-                          </p>
-                        </div>
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-[#F9EFF0] border border-[#6B1118]/20 px-2.5 py-1.5 text-[11px] font-semibold text-[#6B1118] whitespace-nowrap shrink-0">
-                          <BookOpen className="w-3.5 h-3.5" />
-                          <span>{t.textbooks.readChapterPdfBtn}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {visibleResources.length === 0 ? (
-              (typeof selectedTab === 'number' || searchQuery.trim().length > 0) && (
-                <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-5 text-center text-xs sm:text-sm text-[#57534E]">
-                  {t.textbooks.noResourcesForChapter}
-                </div>
-              )
+              <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-5 text-center text-xs sm:text-sm text-[#57534E]">
+                {t.textbooks.noResourcesForChapter}
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {visibleResources.map((res: TextbookResource) => {
                   const hasPdf = isPdfAttachment(res.attachment_mime, res.attachment_url);
-                  const isOfficialPdf = res.attachment_url === OFFICIAL_BOOK_PDF_URL;
-                  const targetPage = isOfficialPdf
-                    ? getOfficialBookChapterPage(res.chapter_number)
-                    : 1;
                   return (
                     <article
                       key={res.id}
@@ -1189,18 +1054,15 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
                                   url: res.attachment_url!,
                                   title: res.title,
                                   fileName: res.attachment_name,
-                                  initialPage: targetPage,
-                                  isOfficialBook: isOfficialPdf,
+                                  initialPage: 1,
+                                  isOfficialBook:
+                                    res.attachment_url === OFFICIAL_BOOK_PDF_URL,
                                 })
                               }
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-[#6B1118] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#530D12] cursor-pointer whitespace-nowrap shrink-0 min-h-[36px]"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-[#6B1118] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#530D12] cursor-pointer"
                             >
                               <BookOpen className="w-3.5 h-3.5 text-[#E5B742]" />
-                              <span>
-                                {isOfficialPdf && typeof res.chapter_number === 'number'
-                                  ? `${t.textbooks.previewPdfBtn} · p.${targetPage}`
-                                  : t.textbooks.previewPdfBtn}
-                              </span>
+                              <span>{t.textbooks.previewPdfBtn}</span>
                             </button>
                           )}
                           {res.attachment_url && res.attachment_name && (

@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
-  BookText,
   CheckCircle2,
   Edit3,
   Layers,
@@ -34,15 +33,7 @@ import {
   QuizSubmissionResponse,
   User,
 } from '../types';
-import {
-  OFFICIAL_BOOK_FILENAME,
-  OFFICIAL_BOOK_PDF_URL,
-  getOfficialBookChapterMeta,
-  getOfficialBookChapterPage,
-  getOfficialBookChapterTitle,
-} from '../lib/textbookCatalog';
 import { ScientificText } from './ScientificText';
-import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 
 interface MultipleChoiceViewProps {
   user: User;
@@ -101,10 +92,6 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
   const [bulkChapter, setBulkChapter] = useState<number>(1);
   const [managerMsg, setManagerMsg] = useState<string | null>(null);
   const [managerError, setManagerError] = useState<string | null>(null);
-  const [readerConfig, setReaderConfig] = useState<{
-    title: string;
-    initialPage: number;
-  } | null>(null);
 
   const questionCardRef = useRef<HTMLDivElement | null>(null);
   const explanationRef = useRef<HTMLDivElement | null>(null);
@@ -812,16 +799,9 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
         )}
 
         {/* Featured All Chapters Option */}
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           onClick={() => setSelectedTarget('all')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setSelectedTarget('all');
-            }
-          }}
           className="w-full text-start rounded-2xl bg-[#6B1118] text-white p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-[#530D12] transition-colors cursor-pointer"
         >
           <div className="space-y-1.5">
@@ -832,153 +812,102 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
             <h3 className="text-xl sm:text-2xl font-bold">{t.quiz.allChapters}</h3>
             <p className="text-sm text-[#FBF4DF]/85 max-w-xl">{t.quiz.allChaptersDesc}</p>
           </div>
-          <div className="flex flex-wrap sm:flex-col items-center sm:items-end justify-between gap-3 shrink-0">
-            <div className="text-start sm:text-end">
-              <p className="text-2xl font-bold text-[#E5B742] tabular-nums">{totalAllQuestions}</p>
-              <p className="text-xs text-[#FBF4DF]/80">{t.quiz.totalQuestions}</p>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setReaderConfig({
-                  title: t.textbooks.officialBookTitle,
-                  initialPage: 1,
-                });
-              }}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-white/15 border border-white/25 px-3.5 py-2 text-xs font-semibold text-white hover:bg-white/25 transition-colors cursor-pointer whitespace-nowrap shrink-0 min-h-[40px]"
-            >
-              <BookText className="w-3.5 h-3.5 text-[#E5B742]" />
-              <span>{t.textbooks.readFullTextbookBtn}</span>
-            </button>
+          <div className="shrink-0 text-start sm:text-end">
+            <p className="text-2xl font-bold text-[#E5B742] tabular-nums">{totalAllQuestions}</p>
+            <p className="text-xs text-[#FBF4DF]/80">{t.quiz.totalQuestions}</p>
           </div>
-        </div>
+        </button>
 
         {/* Exactly 11 Chapters Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {chapters.map((ch) => {
-            const chMeta = getOfficialBookChapterMeta(ch.chapter_number);
-            const startPage = getOfficialBookChapterPage(ch.chapter_number);
-            const bookChTitle = getOfficialBookChapterTitle(ch.chapter_number, language);
-            return (
-              <div
-                key={ch.chapter_number}
-                className="rounded-2xl bg-white border border-[#E6DFD5] p-5 flex flex-col justify-between hover:border-[#6B1118]/50 transition-colors"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2 text-xs text-[#57534E]">
-                    <span className="font-semibold text-[#6B1118] tabular-nums">
-                      {t.home.chapterWord} {ch.chapter_number}
-                    </span>
-                    <span className="tabular-nums">
-                      {ch.question_count}{' '}
-                      {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
-                    </span>
-                  </div>
-
-                  {editingChapter?.chapter_number === ch.chapter_number ? (
-                    <form onSubmit={handleSaveChapterTitle} className="mt-3 space-y-2.5">
-                      <input
-                        type="text"
-                        required
-                        value={chapterTitleInput}
-                        onChange={(e) => setChapterTitleInput(e.target.value)}
-                        className="w-full rounded-lg border border-[#E6DFD5] px-3 py-2 text-sm font-semibold"
-                      />
-                      <input
-                        type="text"
-                        value={chapterDescInput}
-                        onChange={(e) => setChapterDescInput(e.target.value)}
-                        className="w-full rounded-lg border border-[#E6DFD5] px-3 py-2 text-xs"
-                      />
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="submit"
-                          className="rounded-lg bg-[#6B1118] px-3 py-1.5 text-xs font-semibold text-white cursor-pointer"
-                        >
-                          {t.quiz.save}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingChapter(null);
-                            setManagerError(null);
-                          }}
-                          className="rounded-lg border border-[#E6DFD5] px-3 py-1.5 text-xs font-semibold text-[#57534E] cursor-pointer"
-                        >
-                          {t.quiz.cancel}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      <h3 className="mt-2 text-lg font-bold text-[#1C1917]">{ch.title}</h3>
-                      {ch.description && (
-                        <p className="mt-1 text-xs text-[#57534E] line-clamp-2">{ch.description}</p>
-                      )}
-                    </>
-                  )}
+          {chapters.map((ch) => (
+            <div
+              key={ch.chapter_number}
+              className="rounded-2xl bg-white border border-[#E6DFD5] p-5 flex flex-col justify-between hover:border-[#6B1118]/50 transition-colors"
+            >
+              <div>
+                <div className="flex items-center justify-between gap-2 text-xs text-[#57534E]">
+                  <span className="font-semibold text-[#6B1118] tabular-nums">
+                    {t.home.chapterWord} {ch.chapter_number}
+                  </span>
+                  <span className="tabular-nums">
+                    {ch.question_count}{' '}
+                    {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
+                  </span>
                 </div>
 
-                <div className="mt-5 pt-4 border-t border-[#E6DFD5] flex items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedTarget(ch.chapter_number)}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#FAF8F5] border border-[#E6DFD5] px-3.5 py-2 text-xs font-semibold text-[#6B1118] hover:bg-[#6B1118] hover:text-white transition-colors cursor-pointer min-h-[40px] whitespace-nowrap shrink-0"
-                    >
-                      <BookOpen className="w-3.5 h-3.5" />
-                      <span>{t.quiz.openChapter}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReaderConfig({
-                          title: `${t.home.chapterWord} ${ch.chapter_number}: ${bookChTitle || ch.title}`,
-                          initialPage: startPage,
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-[#F9EFF0] border border-[#6B1118]/20 px-3 py-2 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[40px] whitespace-nowrap shrink-0 tabular-nums"
-                    >
-                      <BookText className="w-3.5 h-3.5" />
-                      <span>
-                        {t.textbooks.textbookShortLabel} · p.{startPage}
-                        {chMeta ? `–${chMeta.endPage}` : ''}
-                      </span>
-                    </button>
-                  </div>
-
-                  {isPrivileged && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingChapter(ch);
-                        setChapterTitleInput(ch.raw_title || ch.title);
-                        setChapterDescInput(ch.raw_description ?? ch.description);
-                      }}
-                      aria-label={`Rename Chapter ${ch.chapter_number}`}
-                      className="p-2 text-[#57534E] hover:text-[#6B1118] rounded-lg cursor-pointer shrink-0"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+                {editingChapter?.chapter_number === ch.chapter_number ? (
+                  <form onSubmit={handleSaveChapterTitle} className="mt-3 space-y-2.5">
+                    <input
+                      type="text"
+                      required
+                      value={chapterTitleInput}
+                      onChange={(e) => setChapterTitleInput(e.target.value)}
+                      className="w-full rounded-lg border border-[#E6DFD5] px-3 py-2 text-sm font-semibold"
+                    />
+                    <input
+                      type="text"
+                      value={chapterDescInput}
+                      onChange={(e) => setChapterDescInput(e.target.value)}
+                      className="w-full rounded-lg border border-[#E6DFD5] px-3 py-2 text-xs"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="submit"
+                        className="rounded-lg bg-[#6B1118] px-3 py-1.5 text-xs font-semibold text-white cursor-pointer"
+                      >
+                        {t.quiz.save}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingChapter(null);
+                          setManagerError(null);
+                        }}
+                        className="rounded-lg border border-[#E6DFD5] px-3 py-1.5 text-xs font-semibold text-[#57534E] cursor-pointer"
+                      >
+                        {t.quiz.cancel}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <h3 className="mt-2 text-lg font-bold text-[#1C1917]">{ch.title}</h3>
+                    {ch.description && (
+                      <p className="mt-1 text-xs text-[#57534E] line-clamp-2">{ch.description}</p>
+                    )}
+                  </>
+                )}
               </div>
-            );
-          })}
-        </div>
 
-        {readerConfig && (
-          <TextbookPdfViewerModal
-            url={OFFICIAL_BOOK_PDF_URL}
-            title={readerConfig.title}
-            fileName={OFFICIAL_BOOK_FILENAME}
-            initialPage={readerConfig.initialPage}
-            isOfficialBook={true}
-            onClose={() => setReaderConfig(null)}
-          />
-        )}
+              <div className="mt-5 pt-4 border-t border-[#E6DFD5] flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTarget(ch.chapter_number)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#FAF8F5] border border-[#E6DFD5] px-3.5 py-2 text-xs font-semibold text-[#6B1118] hover:bg-[#6B1118] hover:text-white transition-colors cursor-pointer min-h-[40px]"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>{t.quiz.openChapter}</span>
+                </button>
+
+                {isPrivileged && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingChapter(ch);
+                      setChapterTitleInput(ch.raw_title || ch.title);
+                      setChapterDescInput(ch.raw_description ?? ch.description);
+                    }}
+                    aria-label={`Rename Chapter ${ch.chapter_number}`}
+                    className="p-2 text-[#57534E] hover:text-[#6B1118] rounded-lg cursor-pointer"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -1022,62 +951,34 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (selectedTarget === 'all') {
-                setReaderConfig({
-                  title: t.textbooks.officialBookTitle,
-                  initialPage: 1,
-                });
-              } else {
-                const bookTitle = getOfficialBookChapterTitle(selectedTarget, language);
-                setReaderConfig({
-                  title: `${t.home.chapterWord} ${selectedTarget}: ${bookTitle || activeChapterObj?.title || ''}`,
-                  initialPage: getOfficialBookChapterPage(selectedTarget),
-                });
-              }
-            }}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#6B1118]/25 bg-[#F9EFF0] px-3.5 py-2.5 text-xs sm:text-sm font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap shrink-0 tabular-nums"
-          >
-            <BookText className="w-4 h-4" />
-            <span>
-              {selectedTarget === 'all'
-                ? t.textbooks.readFullTextbookBtn
-                : `${t.textbooks.textbookShortLabel} · p.${getOfficialBookChapterPage(selectedTarget)}`}
-            </span>
-          </button>
-
-          {isPrivileged && (
-            <>
-              <button
-                type="button"
-                onClick={() => setManageMode((v) => !v)}
-                className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm font-semibold cursor-pointer min-h-[44px] whitespace-nowrap shrink-0 ${
-                  manageMode
-                    ? 'border-[#6B1118] bg-[#F9EFF0] text-[#6B1118]'
-                    : 'border-[#E6DFD5] bg-white text-[#1C1917] hover:border-[#6B1118]'
-                }`}
-              >
-                <ListChecks className="w-4 h-4" />
-                <span>{manageMode ? t.quiz.backToQuizMode : t.quiz.manageAllQuestions}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  resetQuestionForm();
-                  if (typeof selectedTarget === 'number') setQChapter(selectedTarget);
-                  setShowAddQuestion((v) => !v);
-                }}
-                className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
-              >
-                <Plus className="w-4 h-4 text-[#E5B742]" />
-                <span>{t.quiz.addQuestionHere}</span>
-              </button>
-            </>
-          )}
-        </div>
+        {isPrivileged && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setManageMode((v) => !v)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2.5 text-xs sm:text-sm font-semibold cursor-pointer min-h-[44px] ${
+                manageMode
+                  ? 'border-[#6B1118] bg-[#F9EFF0] text-[#6B1118]'
+                  : 'border-[#E6DFD5] bg-white text-[#1C1917] hover:border-[#6B1118]'
+              }`}
+            >
+              <ListChecks className="w-4 h-4" />
+              <span>{manageMode ? t.quiz.backToQuizMode : t.quiz.manageAllQuestions}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetQuestionForm();
+                if (typeof selectedTarget === 'number') setQChapter(selectedTarget);
+                setShowAddQuestion((v) => !v);
+              }}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] cursor-pointer min-h-[44px]"
+            >
+              <Plus className="w-4 h-4 text-[#E5B742]" />
+              <span>{t.quiz.addQuestionHere}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {managerMsg && (
@@ -1576,16 +1477,6 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
             </div>
           )}
         </div>
-      )}
-      {readerConfig && (
-        <TextbookPdfViewerModal
-          url={OFFICIAL_BOOK_PDF_URL}
-          title={readerConfig.title}
-          fileName={OFFICIAL_BOOK_FILENAME}
-          initialPage={readerConfig.initialPage}
-          isOfficialBook={true}
-          onClose={() => setReaderConfig(null)}
-        />
       )}
     </div>
   );
