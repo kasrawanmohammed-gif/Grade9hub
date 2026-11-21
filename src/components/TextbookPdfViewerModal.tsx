@@ -16,6 +16,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import {
   OFFICIAL_BOOK_CHAPTER_BOOKMARKS,
   OFFICIAL_BOOK_TOTAL_PAGES,
+  getOfficialBookChapterTitle,
 } from '../lib/textbookCatalog';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
@@ -37,7 +38,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
   isOfficialBook = false,
   onClose,
 }) => {
-  const { t, dir } = useLanguage();
+  const { language, t, dir } = useLanguage();
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageContainerRef = useRef<HTMLDivElement | null>(null);
@@ -231,16 +232,21 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [currentPage, dir, goToPage, onClose]);
 
-  const activeBookmarkKey = useMemo(() => {
+  const activeBookmark = useMemo(() => {
     if (!isOfficialBook) return null;
-    let activeKey = OFFICIAL_BOOK_CHAPTER_BOOKMARKS[0].key;
+    let active = OFFICIAL_BOOK_CHAPTER_BOOKMARKS[0];
     for (const item of OFFICIAL_BOOK_CHAPTER_BOOKMARKS) {
       if (currentPage >= item.page) {
-        activeKey = item.key;
+        active = item;
       }
     }
-    return activeKey;
+    return active;
   }, [currentPage, isOfficialBook]);
+
+  const activeBookmarkKey = activeBookmark?.key ?? null;
+  const activeChapterTitle = activeBookmark?.chapterNumber
+    ? getOfficialBookChapterTitle(activeBookmark.chapterNumber, language)
+    : null;
 
   const handlePageJumpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,8 +278,14 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
           </button>
           <div className="min-w-0">
             <h3 className="text-sm sm:text-base font-bold truncate text-white">{title}</h3>
-            <p className="text-[11px] text-white/70 tabular-nums">
+            <p className="text-[11px] text-white/70 tabular-nums truncate">
               {t.textbooks.pageLabel} {currentPage} {t.textbooks.ofPagesLabel} {numPages}
+              {activeBookmark?.chapterNumber ? (
+                <span className="ms-1.5 text-[#E5B742] font-semibold">
+                  · {t.textbooks.chapterTabPrefix} {activeBookmark.chapterNumber}
+                  {activeChapterTitle ? ` — ${activeChapterTitle}` : ''}
+                </span>
+              ) : null}
             </p>
           </div>
         </div>
@@ -344,10 +356,15 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
                 : bm.kind === 'contents'
                 ? t.textbooks.contentsLabel
                 : `${t.textbooks.chapterTabPrefix} ${bm.chapterNumber}`;
+            const chapterTitle =
+              bm.chapterNumber !== null
+                ? getOfficialBookChapterTitle(bm.chapterNumber, language)
+                : null;
             return (
               <button
                 key={bm.key}
                 type="button"
+                title={chapterTitle ? `${label} — ${chapterTitle}` : label}
                 onClick={() => goToPage(bm.page)}
                 className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[34px] ${
                   active

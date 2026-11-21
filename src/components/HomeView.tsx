@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  BookText,
   FileText,
   HelpCircle,
   Library,
@@ -32,9 +33,15 @@ import {
 import { UserAvatar } from './UserAvatar';
 import { RotatingQuote } from './RotatingQuote';
 import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
+import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 import { useStudentGreeting } from '../utils/greeting';
 import { formatUtcDate } from '../utils/dateFormat';
-import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
+import {
+  OFFICIAL_BOOK_FILENAME,
+  OFFICIAL_BOOK_PDF_URL,
+  getAttachmentDownloadHref,
+  getOfficialBookChapterMeta,
+} from '../lib/textbookCatalog';
 
 interface HomeViewProps {
   user: User;
@@ -70,6 +77,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<CompetitionLeaderboardResponse | null>(null);
   const [pendingPoints, setPendingPoints] = useState(0);
+  const [showTextbookPreview, setShowTextbookPreview] = useState(false);
 
   const totalChapterQuestions = chapters.reduce((acc, c) => acc + c.question_count, 0);
   const ForwardIcon = dir === 'rtl' ? ArrowLeft : ArrowRight;
@@ -313,15 +321,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('textbooks-qa')}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap"
-          >
-            <Library className="w-4 h-4 text-[#E5B742]" />
-            <span>{t.home.openTextbooksBtn}</span>
-            <ForwardIcon className="w-4 h-4 text-[#E5B742]" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setShowTextbookPreview(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2.5 text-sm font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
+            >
+              <BookText className="w-4 h-4 text-[#6B1118]" />
+              <span>{t.textbooks.previewTextbookBtn}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('textbooks-qa')}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
+            >
+              <Library className="w-4 h-4 text-[#E5B742]" />
+              <span>{t.home.openTextbooksBtn}</span>
+              <ForwardIcon className="w-4 h-4 text-[#E5B742]" />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -612,30 +630,51 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {chapters.map((ch) => (
-            <button
-              key={ch.chapter_number}
-              type="button"
-              onClick={() => {
-                onSelectChapter(ch.chapter_number);
-                onNavigate('multiple-choice');
-              }}
-              className="text-start rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 hover:border-[#6B1118] hover:bg-white transition-colors cursor-pointer"
-            >
-              <p className="text-xs font-semibold text-[#6B1118] tabular-nums">
-                {t.home.chapterWord} {ch.chapter_number}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-[#1C1917] truncate">
-                {ch.title}
-              </p>
-              <p className="mt-1 text-xs text-[#57534E] tabular-nums">
-                {ch.question_count}{' '}
-                {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
-              </p>
-            </button>
-          ))}
+          {chapters.map((ch) => {
+            const bookMeta = getOfficialBookChapterMeta(ch.chapter_number);
+            return (
+              <button
+                key={ch.chapter_number}
+                type="button"
+                onClick={() => {
+                  onSelectChapter(ch.chapter_number);
+                  onNavigate('multiple-choice');
+                }}
+                className="text-start rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 hover:border-[#6B1118] hover:bg-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <p className="font-semibold text-[#6B1118] tabular-nums">
+                    {t.home.chapterWord} {ch.chapter_number}
+                  </p>
+                  {bookMeta && (
+                    <span className="text-[11px] font-medium text-[#57534E] tabular-nums">
+                      p.{bookMeta.startPage}–{bookMeta.endPage}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm font-semibold text-[#1C1917] truncate">
+                  {ch.title}
+                </p>
+                <p className="mt-1 text-xs text-[#57534E] tabular-nums">
+                  {ch.question_count}{' '}
+                  {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
+                </p>
+              </button>
+            );
+          })}
         </div>
       </section>
+
+      {showTextbookPreview && (
+        <TextbookPdfViewerModal
+          url={OFFICIAL_BOOK_PDF_URL}
+          title={t.textbooks.officialBookTitle}
+          fileName={OFFICIAL_BOOK_FILENAME}
+          initialPage={1}
+          isOfficialBook={true}
+          onClose={() => setShowTextbookPreview(false)}
+        />
+      )}
     </div>
   );
 };
