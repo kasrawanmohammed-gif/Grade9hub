@@ -178,6 +178,10 @@ export interface Translations {
     openTextbooksBtn: string;
     textbooksGuidesLabel: string;
     textbooksQaLabel: string;
+    heroSliderLabel: string;
+    prevSlideBtn: string;
+    nextSlideBtn: string;
+    goToSlideBtn: string;
   };
   quiz: {
     mcTitle: string;
@@ -889,6 +893,14 @@ export interface Translations {
     loadingPageMsg: string;
     pdfLoadErrorMsg: string;
     closeReaderBtn: string;
+    contentsJumpBtn: string;
+    fullBookBtn: string;
+    allChaptersTextbookGridTitle: string;
+    allChaptersTextbookGridSub: string;
+    readChapterPdfBtn: string;
+    textbookShortLabel: string;
+    readFullTextbookBtn: string;
+    previewTextbookBtn: string;
   };
 }
 
@@ -1066,6 +1078,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'Open Textbooks & Q&A',
       textbooksGuidesLabel: 'Chapter Guides & Formulas',
       textbooksQaLabel: 'Solved Study Q&A Bank',
+      heroSliderLabel: 'Featured science showcase',
+      prevSlideBtn: 'Previous slide',
+      nextSlideBtn: 'Next slide',
+      goToSlideBtn: 'Go to slide {n}',
     },
     quiz: {
       mcTitle: 'Multiple Choice · 11 Chapters',
@@ -1782,6 +1798,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loadingPageMsg: 'Loading textbook page...',
       pdfLoadErrorMsg: 'Could not display this PDF inline. Open or download the file directly below.',
       closeReaderBtn: 'Close Reader',
+      contentsJumpBtn: 'Contents (p.2)',
+      fullBookBtn: 'Full Book (p.1)',
+      allChaptersTextbookGridTitle: 'Official Textbook Chapters (1–11)',
+      allChaptersTextbookGridSub: 'Jump straight to any chapter inside Science_9_Book.pdf (306 pages).',
+      readChapterPdfBtn: 'Open Chapter',
+      textbookShortLabel: 'Textbook',
+      readFullTextbookBtn: 'Read Textbook (306p)',
+      previewTextbookBtn: 'Preview Textbook PDF',
     },
   },
 
@@ -1957,6 +1981,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'کردنەوەی پەرتووک و وەڵامەکان',
       textbooksGuidesLabel: 'ڕێبەری بەشەکان و هاوکێشەکان',
       textbooksQaLabel: 'بانکی پرسیار و وەڵامی شیکارکراو',
+      heroSliderLabel: 'پێشانگای وێنە زانستییەکان',
+      prevSlideBtn: 'وێنەی پێشوو',
+      nextSlideBtn: 'وێنەی داهاتوو',
+      goToSlideBtn: 'چوون بۆ وێنەی {n}',
     },
     quiz: {
       mcTitle: 'هەڵبژاردنی فرە · ١١ بەش',
@@ -2673,6 +2701,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loadingPageMsg: 'بارکردنی لاپەڕەی پەرتووک...',
       pdfLoadErrorMsg: 'نەتوانرا فایلەکە لێرە پیشان بدرێت. دەتوانیت لە خوارەوە بیکەیتەوە یان دایبەزێنیت.',
       closeReaderBtn: 'داخستنی خوێنەر',
+      contentsJumpBtn: 'پێڕست (ل.٢)',
+      fullBookBtn: 'تەواوی پەرتووک (ل.١)',
+      allChaptersTextbookGridTitle: 'بەشەکانی پەرتووکی فەرمی (١–١١)',
+      allChaptersTextbookGridSub: 'ڕاستەوخۆ بچۆ ناو هەر بەشێکی پەرتووکی Science_9_Book.pdf (٣٠٦ لاپەڕە).',
+      readChapterPdfBtn: 'کردنەوەی بەش',
+      textbookShortLabel: 'پەرتووک',
+      readFullTextbookBtn: 'خوێندنەوەی پەرتووک (٣٠٦ ل.)',
+      previewTextbookBtn: 'بینینی پەرتووکی PDF',
     },
   },
 
@@ -2848,6 +2884,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       openTextbooksBtn: 'فتح الكتب والأسئلة والأجوبة',
       textbooksGuidesLabel: 'أدلة الفصول والقوانين',
       textbooksQaLabel: 'بنك الأسئلة المحلولة',
+      heroSliderLabel: 'معرض صور العلوم',
+      prevSlideBtn: 'الشريحة السابقة',
+      nextSlideBtn: 'الشريحة التالية',
+      goToSlideBtn: 'الانتقال إلى الشريحة {n}',
     },
     quiz: {
       mcTitle: 'الاختيار من متعدد · ١١ فصلاً',
@@ -3564,6 +3604,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       loadingPageMsg: 'جاري تحميل صفحة الكتاب...',
       pdfLoadErrorMsg: 'تعذّر عرض ملف PDF داخل التطبيق. يمكنك فتح الملف أو تنزيله مباشرة أدناه.',
       closeReaderBtn: 'إغلاق القارئ',
+      contentsJumpBtn: 'الفهرس (ص.٢)',
+      fullBookBtn: 'الكتاب الكامل (ص.١)',
+      allChaptersTextbookGridTitle: 'فصول الكتاب الرسمي (١–١١)',
+      allChaptersTextbookGridSub: 'انتقل مباشرة إلى أي فصل داخل كتاب Science_9_Book.pdf (٣٠٦ صفحة).',
+      readChapterPdfBtn: 'فتح الفصل',
+      textbookShortLabel: 'الكتاب',
+      readFullTextbookBtn: 'قراءة الكتاب (٣٠٦ ص.)',
+      previewTextbookBtn: 'معاينة الكتاب PDF',
     },
   },
 };

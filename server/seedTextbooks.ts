@@ -57,55 +57,203 @@ const SEED_RESOURCES: SeedTextbookResource[] = [
     titleKu: 'ڕێبەری تەواوی پەرتووکی زانستی پۆلی ٩ (بەشەکانی ١–١١)',
     titleAr: 'دليل كتاب العلوم الشامل للصف التاسع (الفصول ١–١١)',
     summary:
-      'Master reference for Grade 9 Science covering mechanics, simple machines, forms of energy, thermal transfer, and upcoming curriculum chapters. All physical quantities use strict international SI symbols (N, kg, m, s, m/s, m/s², J, W, °C, K).',
+      'Master reference for Grade 9 Science covering mechanics, simple machines, energy, heat, light, astronomy, genetics, human body systems, reproduction, acids & bases, and atomic energy. All physical quantities use strict international SI symbols (N, kg, m, s, m/s, m/s², J, W, °C, K).',
     summaryKu:
-      'سەرچاوەی سەرەکی بۆ زانستی پۆلی ٩ کە میکانیک، ئامێرە سادەکان، جۆرەکانی وزە، گواستنەوەی گەرمی و بەشەکانی تری پڕۆگرام دەگرێتەوە. هەموو یەکە زانستییەکان بە هێمای نێودەوڵەتی ستاندارد (N, kg, m, s, m/s, m/s², J, W, °C, K) نووسراون.',
+      'سەرچاوەی سەرەکی بۆ زانستی پۆلی ٩ کە میکانیک، ئامێرە سادەکان، وزە، گەرمی، ڕووناکی، ئەستێرەناسی، بۆماوەزانی، کۆئەندامەکانی لەش، زۆربوون، ترش و تفتەکان و وزەی ئەتۆمی دەگرێتەوە.',
     summaryAr:
-      'المرجع الشامل لعلوم الصف التاسع، يغطي الميكانيكا والآلات البسيطة وأشكال الطاقة وانتقال الحرارة وبقية فصول المنهج. جميع الكميات الفيزيائية تستخدم رموز الوحدات الدولية القياسية (N, kg, m, s, m/s, m/s², J, W, °C, K).',
+      'المرجع الشامل لعلوم الصف التاسع، يغطي الميكانيكا والآلات البسيطة والطاقة والحرارة والضوء والفلك والوراثة وأجهزة الجسم والتكاثر والأحماض والقواعد والطاقة الذرية.',
     keyFormulas: 'W = F · d (J)  |  P = W / Δt (W)  |  KE = ½ m v² (J)  |  GPE = m g h (J)  |  Q = m c ΔT (J)',
     resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
   },
   {
     chapterNumber: 1,
-    title: 'Chapter 1 Textbook Guide: Work, Power & Simple Machines',
-    titleKu: 'پەرتووکی بەشی ١: ئیش، توانا و ئامێرە سادەکان',
-    titleAr: 'دليل الفصل ١: الشغل والقدرة والآلات البسيطة',
+    title: 'Chapter 1 Textbook: Work and Machines (PDF Pages 6–43)',
+    titleKu: 'پەرتووکی بەشی ١: ئیش و ئامێرەکان (لاپەڕە ٦–٤٣)',
+    titleAr: 'كتاب الفصل ١: الشغل والآلات (صفحات ٦–٤٣)',
     summary:
       'Section 1 covers scientific work (force acting along displacement), power as the rate of work or energy transfer, and SI units (1 J = 1 N·m, 1 W = 1 J/s). Section 2 explains simple machines (levers of classes 1, 2, 3, pulleys, inclined planes, wheel & axle, wedge, screw), mechanical advantage (MA = F_out / F_in), and machine efficiency.',
     summaryKu:
-      'بەشی یەکەم باس لە ئیشی زانستی (هێز بە ئاراستەی لادان)، توانا وەک تێکڕای ئیش یان گواستنەوەی وزە، و یەکە نێودەوڵەتییەکان (1 J = 1 N·m, 1 W = 1 J/s) دەکات. بەشی دووەم ئامێرە سادەکان (نوێڵی جۆری ١ و ٢ و ٣، خلیسکە، ڕووی لار، پێچ، پەڕە و تایە)، سوودی میکانیکی (MA = F_out / F_in) و چوستی ئامێر ڕوون دەکاتەوە.',
+      'بەشی یەکەم باس لە ئیشی زانستی (هێز بە ئاراستەی لادان)، توانا وەک تێکڕای ئیش یان گواستنەوەی وزە، و یەکە نێودەوڵەتییەکان (1 J = 1 N·m, 1 W = 1 J/s) دەکات. بەشی دووەم ئامێرە سادەکان، سوودی میکانیکی و چوستی ئامێر ڕوون دەکاتەوە.',
     summaryAr:
-      'يتناول القسم الأول الشغل العلمي (القوة المؤثرة باتجاه الإزاحة) والقدرة كمعدل بذل الشغل، مع الوحدات الدولية (1 J = 1 N·m, 1 W = 1 J/s). ويوضح القسم الثاني الآلات البسيطة (الروافع بأنواعها الثلاثة، البكرات، المستوى المائل، العجلة والمحور، الإسفين، البرغي) والفائدة الميكانيكية وكفاءة الآلة.',
+      'يتناول القسم الأول الشغل العلمي والقدرة كمعدل بذل الشغل مع الوحدات الدولية (1 J = 1 N·m, 1 W = 1 J/s). ويوضح القسم الثاني الآلات البسيطة والفائدة الميكانيكية وكفاءة الآلة.',
     keyFormulas: 'W = F · d (J)  |  P = W / Δt (W)  |  MA = F_out / F_in  |  Efficiency = (W_out / W_in) × 100%',
     resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
   },
   {
     chapterNumber: 2,
-    title: 'Chapter 2 Textbook Guide: Kinetic, Potential & Conservation of Energy',
-    titleKu: 'پەرتووکی بەشی ٢: وزەی جووڵە، وزەی شاراوە و پاراستنی وزە',
-    titleAr: 'دليل الفصل ٢: الطاقة الحركية والكامنة وحفظ الطاقة',
+    title: 'Chapter 2 Textbook: Energy (PDF Pages 44–76)',
+    titleKu: 'پەرتووکی بەشی ٢: وزە (لاپەڕە ٤٤–٧٦)',
+    titleAr: 'كتاب الفصل ٢: الطاقة (صفحات ٤٤–٧٦)',
     summary:
-      'Explores kinetic energy (motion depending on mass in kg and speed squared in m/s), gravitational potential energy (GPE = m·g·h with g = 9.8 m/s²), elastic potential energy, total mechanical energy (ME = KE + PE), energy transformations, and the Law of Conservation of Energy.',
+      'Explores kinetic energy (motion depending on mass in kg and speed squared in m/s), gravitational potential energy (GPE = m·g·h with g = 9.8 m/s²), elastic potential energy, total mechanical energy (ME = KE + PE), energy transformations, and energy resources.',
     summaryKu:
-      'ڕوونکردنەوەی وزەی جووڵە (پشت دەبەستێت بە بارستایی بە kg و دووجای خێرایی بە m/s)، وزەی شاراوەی کێشکردن (GPE = m·g·h کاتێک g = 9.8 m/s²)، وزەی شاراوەی لاستیکی، کۆی وزەی میکانیکی (ME = KE + PE)، گۆڕانی وزە و یاسای پاراستنی وزە.',
+      'ڕوونکردنەوەی وزەی جووڵە (پشت دەبەستێت بە بارستایی بە kg و دووجای خێرایی بە m/s)، وزەی شاراوەی کێشکردن (GPE = m·g·h کاتێک g = 9.8 m/s²)، کۆی وزەی میکانیکی و یاسای پاراستنی وزە.',
     summaryAr:
-      'يستعرض الطاقة الحركية (المعتمدة على الكتلة بـ kg ومربع السرعة بـ m/s)، والطاقة الكامنة الجاذبية (GPE = m·g·h حيث g = 9.8 m/s²)، والطاقة الميكانيكية الكلية (ME = KE + PE)، وتحولات الطاقة وقانون حفظ الطاقة.',
+      'يستعرض الطاقة الحركية والطاقة الكامنة الجاذبية (GPE = m·g·h حيث g = 9.8 m/s²) والطاقة الميكانيكية الكلية وتحولات الطاقة وقانون حفظ الطاقة.',
     keyFormulas: 'KE = ½ · m · v² (J)  |  GPE = m · g · h (J)  |  ME = KE + PE (J)  |  g = 9.8 m/s²',
     resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
   },
   {
     chapterNumber: 3,
-    title: 'Chapter 3 Textbook Guide: Heat, Temperature & Specific Heat Capacity',
-    titleKu: 'پەرتووکی بەشی ٣: گەرمی، پلەی گەرمی و گەرمی جۆری',
-    titleAr: 'دليل الفصل ٣: الحرارة ودرجة الحرارة والسعة الحرارية النوعية',
+    title: 'Chapter 3 Textbook: Heat & Temperature (PDF Pages 77–102)',
+    titleKu: 'پەرتووکی بەشی ٣: گەرمی و پلەی گەرمی (لاپەڕە ٧٧–١٠٢)',
+    titleAr: 'كتاب الفصل ٣: الحرارة ودرجة الحرارة (صفحات ٧٧–١٠٢)',
     summary:
-      'Distinguishes temperature (average kinetic energy of particles measured in °C, °F, K) from thermal energy and heat flow (high to low temperature). Covers conduction, convection, radiation, thermal conductors vs. insulators, and calorimetry calculations using specific heat Q = m·c·ΔT.',
+      'Distinguishes temperature (average kinetic energy of particles measured in °C, °F, K) from thermal energy and heat flow. Covers conduction, convection, radiation, thermal conductors vs. insulators, and calorimetry calculations using specific heat Q = m·c·ΔT.',
     summaryKu:
-      'جیاوازی نێوان پلەی گەرمی (ناوەندی وزەی جووڵەی گەردیلەکان بە °C, °F, K) و وزەی گەرمی و ڕۆیشتنی گەرمی (لە گەرمەوە بۆ سارد). هەروەها گەیاندن، هەڵگرتن و تیشکدانەوە، گەیەنەر و نەگەیەنەری گەرمی و هاوکێشەی گەرمی جۆری Q = m·c·ΔT دەگرێتەوە.',
+      'جیاوازی نێوان پلەی گەرمی (°C, °F, K) و وزەی گەرمی، گەیاندن، هەڵگرتن و تیشکدانەوە، و هاوکێشەی گەرمی جۆری Q = m·c·ΔT.',
     summaryAr:
-      'يميز بين درجة الحرارة (متوسط الطاقة الحركية للجسيمات بـ °C, °F, K) والطاقة الحرارية وانتقال الحرارة من الجسم الأعلى إلى الأقل حرارة. ويشمل التوصيل والحمل والإشعاع، والموصلات والعوازل، وحسابات السعة الحرارية النوعية Q = m·c·ΔT.',
+      'يميز بين درجة الحرارة (°C, °F, K) والطاقة الحرارية، ويشمل التوصيل والحمل والإشعاع، وحسابات السعة الحرارية النوعية Q = m·c·ΔT.',
     keyFormulas: 'Q = m · c · ΔT (J)  |  T(K) = T(°C) + 273  |  T(°F) = (9/5)·T(°C) + 32  |  c_water = 4,184 J/(kg·°C)',
     resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 4,
+    title: 'Chapter 4 Textbook: Light (PDF Pages 103–132)',
+    titleKu: 'پەرتووکی بەشی ٤: ڕووناکی (لاپەڕە ١٠٣–١٣٢)',
+    titleAr: 'كتاب الفصل ٤: الضوء (صفحات ١٠٣–١٣٢)',
+    summary:
+      'Covers the nature of light as electromagnetic waves, the electromagnetic spectrum, reflection and mirrors, refraction and lenses, color mixing and pigments, and optical instruments.',
+    summaryKu:
+      'باس لە سروشتی ڕووناکی وەک شەپۆلی کارۆموگناتیسی، شەبەنگی کارۆموگناتیسی، دانەوە و ئاوێنەکان، شکانەوە و هاوێنەکان و پێکهاتەی ڕەنگەکان دەکات.',
+    summaryAr:
+      'يتناول طبيعة الضوء كموجات كهرومغناطيسية، والطيف الكهرومغناطيسي، والانعكاس والمرايا، والانكسار والعدسات، وتكوّن الألوان.',
+    keyFormulas: 'c = λ · f (3.0 × 10⁸ m/s)  |  θ_i = θ_r',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 5,
+    title: 'Chapter 5 Textbook: Astronomy (PDF Pages 133–159)',
+    titleKu: 'پەرتووکی بەشی ٥: ئەستێرەناسی (لاپەڕە ١٣٣–١٥٩)',
+    titleAr: 'كتاب الفصل ٥: علم الفلك (صفحات ١٣٣–١٥٩)',
+    summary:
+      'Explores Earth in space, telescopes and space exploration, stars, galaxies, constellations, the life cycle of stars, and the formation and motion of the solar system.',
+    summaryKu:
+      'لێکۆڵینەوە لە زەوی لە بۆشایی ئاسماندا، تەلەسکۆپەکان، ئەستێرە و گەلەستێرەکان، سوڕی ژیانی ئەستێرەکان و پێکهاتنی کۆمەڵەی خۆر دەکات.',
+    summaryAr:
+      'يستعرض الأرض في الفضاء، والتلسكوبات، والنجوم والمجرات، ودورة حياة النجوم، وتكوّن المجموعة الشمسية.',
+    keyFormulas: 'v = d / t  |  1 AU ≈ 1.50 × 10¹¹ m',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 6,
+    title: 'Chapter 6 Textbook: Mendel and the Principles of Genetics (PDF Pages 160–190)',
+    titleKu: 'پەرتووکی بەشی ٦: مەندڵ و بنەماکانی بۆماوەزانی (لاپەڕە ١٦٠–١٩٠)',
+    titleAr: 'كتاب الفصل ٦: مندل ومبادئ علم الوراثة (صفحات ١٦٠–١٩٠)',
+    summary:
+      'Introduces Gregor Mendel’s pea-plant experiments, dominant and recessive traits, alleles, Punnett squares and genetic probability, meiosis, and how DNA and genes direct protein synthesis.',
+    summaryKu:
+      'تاقیکردنەوەکانی مەندڵ، سیفەتە زاڵ و بەزیوەکان، ئەلیلەکان، چوارگۆشەی پانێت، دابەشبوونی میۆزی و ڕۆڵی DNA لە بۆماوەزانیدا ڕوون دەکاتەوە.',
+    summaryAr:
+      'يقدم تجارب مندل الوراثية، والصفات السائدة والمتنحية، والأليلات، ومربع بانيت، والانقسام المنصف، ودور الحمض النووي DNA.',
+    keyFormulas: 'Genotype · Phenotype · Punnett Probability Ratio (3:1, 1:2:1)',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 7,
+    title: 'Chapter 7 Textbook: Body Organization and Structure (PDF Pages 191–217)',
+    titleKu: 'پەرتووکی بەشی ٧: ڕێکخستن و پێکهاتەی لەش (لاپەڕە ١٩١–٢١٧)',
+    titleAr: 'كتاب الفصل ٧: تنظيم الجسم وبنيته (صفحات ١٩١–٢١٧)',
+    summary:
+      'Covers levels of body organization (cells, tissues, organs, organ systems), homeostasis, the skeletal system (bones and joints), and the muscular system (skeletal, smooth, and cardiac muscles).',
+    summaryKu:
+      'ئاستەکانی ڕێکخستنی لەش (خانە، شانە، ئەندام، کۆئەندام)، هاوسەنگی ناوەکی، کۆئەندامی ئێسک و جومگەکان و کۆئەندامی ماسولکە دەگرێتەوە.',
+    summaryAr:
+      'يغطي مستويات تنظيم الجسم (الخلية، النسيج، العضو، الجهاز)، والاتزان الداخلي، والجهاز الهيكلي، والجهاز العضلي.',
+    keyFormulas: 'Cells → Tissues → Organs → Organ Systems → Organism',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 8,
+    title: 'Chapter 8 Textbook: Urinary & Nervous Systems (PDF Pages 218–238)',
+    titleKu: 'پەرتووکی بەشی ٨: کۆئەندامی میز و کۆئەندامی دەمار (لاپەڕە ٢١٨–٢٣٨)',
+    titleAr: 'كتاب الفصل ٨: الجهاز البولي والجهاز العصبي (صفحات ٢١٨–٢٣٨)',
+    summary:
+      'Examines kidney filtration, nephrons, and fluid balance in the urinary system, alongside neurons, nerve impulses, the central and peripheral nervous systems, and sensory organs.',
+    summaryKu:
+      'پاڵاوتنی گورچیلە و نیفرۆنەکان لە کۆئەندامی میزدا، لەگەڵ دەمارەخانە، ڕاگەیاندنی دەمار، کۆئەندامی دەماری ناوەندی و چێوەیی و هەستەوەرەکان.',
+    summaryAr:
+      'يتناول عمل الكليتين والنيفرونات في الجهاز البولي، والخلية العصبية، والسيال العصبي، والجهاز العصبي المركزي والطرفي وأعضاء الحس.',
+    keyFormulas: 'Nephron Filtration · Neuron (Dendrite → Cell Body → Axon)',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 9,
+    title: 'Chapter 9 Textbook: Reproduction and Development (PDF Pages 239–255)',
+    titleKu: 'پەرتووکی بەشی ٩: زۆربوون و گەشەکردن (لاپەڕە ٢٣٩–٢٥٥)',
+    titleAr: 'كتاب الفصل ٩: التكاثر والنمو (صفحات ٢٣٩–٢٥٥)',
+    summary:
+      'Compares asexual and sexual reproduction, examines male and female human reproductive systems, fertilization, embryonic and fetal development, and life stages.',
+    summaryKu:
+      'بەراوردکردنی زۆربوونی ناتۆخمە و تۆخمە، کۆئەندامی زاوزێی مرۆڤ، پیتاندن و قۆناغەکانی گەشەکردنی کۆرپەلە.',
+    summaryAr:
+      'يقارن بين التكاثر اللاجنسي والجنسي، ويشرح الجهاز التناسلي والإخصاب ومراحل نمو الجنين.',
+    keyFormulas: 'Gametes (n) → Fertilization → Zygote (2n) → Embryo',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 10,
+    title: 'Chapter 10 Textbook: Acids and Bases (PDF Pages 256–284)',
+    titleKu: 'پەرتووکی بەشی ١٠: ترش و تفتەکان (لاپەڕە ٢٥٦–٢٨٤)',
+    titleAr: 'كتاب الفصل ١٠: الأحماض والقواعد (صفحات ٢٥٦–٢٨٤)',
+    summary:
+      'Explores properties of acids and bases, hydrogen ions (H⁺) and hydroxide ions (OH⁻), the pH scale (0–14) and acid-base indicators, neutralization reactions, salts, and organic compounds.',
+    summaryKu:
+      'تایبەتمەندییەکانی ترش و تفت، ئایۆنەکانی H⁺ و OH⁻، پێوەری pH (٠–١٤)، کارلێکی هاوتابوون و خوێیەکان دەگرێتەوە.',
+    summaryAr:
+      'يستعرض خصائص الأحماض والقواعد، وأيونات H⁺ و OH⁻، ومقياس الرقم الهيدروجيني pH (0–14)، وتفاعلات التعادل والأملاح.',
+    keyFormulas: 'pH < 7 (Acid)  |  pH = 7 (Neutral)  |  pH > 7 (Base)  |  Acid + Base → Salt + H₂O',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
+  },
+  {
+    chapterNumber: 11,
+    title: 'Chapter 11 Textbook: Atomic Energy (PDF Pages 285–305)',
+    titleKu: 'پەرتووکی بەشی ١١: وزەی ئەتۆمی (لاپەڕە ٢٨٥–٣٠٥)',
+    titleAr: 'كتاب الفصل ١١: الطاقة الذرية (صفحات ٢٨٥–٣٠٥)',
+    summary:
+      'Covers radioactivity, alpha/beta/gamma decay, half-life calculations, nuclear fission and fusion reactions, nuclear reactors, and mass-energy equivalence.',
+    summaryKu:
+      'تیشکچالاکی، تیشکی ئەلفا و بێتا و گاما، نیوەتەمەن، کەرتبوون و یەکگرتنی ناوکی و هاوکێشەی وزە و بارستایی E = mc² ڕوون دەکاتەوە.',
+    summaryAr:
+      'يتناول النشاط الإشعاعي، وأشعة ألفا وبيتا وغاما، وعمر النصف، والانشطار والاندماج النووي، وتكافؤ الكتلة والطاقة.',
+    keyFormulas: 'E = m · c² (J)  |  Half-life: N = N₀ · (½)^n',
+    resourceType: 'textbook',
+    attachmentName: 'Science_9_Book.pdf',
+    attachmentUrl: OFFICIAL_SCIENCE_TEXTBOOK_URL,
+    attachmentMime: 'application/pdf',
   },
 ];
 
@@ -209,49 +357,24 @@ const SEED_QA: SeedStudyQA[] = [
 ];
 
 export function seedTextbooksIfNeeded(): void {
-  const existingResources = db
-    .prepare('SELECT COUNT(*) AS count FROM textbook_resources')
-    .get() as { count: number };
   const existingQa = db
     .prepare('SELECT COUNT(*) AS count FROM textbook_study_qa')
     .get() as { count: number };
 
-  if (existingResources.count === 0) {
-    const insertRes = db.prepare(
-      `INSERT INTO textbook_resources
-       (chapter_number, title, title_ku, title_ar, summary, summary_ku, summary_ar, key_formulas, resource_type, attachment_name, attachment_url, attachment_mime)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    );
-    const txRes = db.transaction(() => {
-      for (const r of SEED_RESOURCES) {
-        insertRes.run(
-          r.chapterNumber,
-          r.title,
-          r.titleKu,
-          r.titleAr,
-          r.summary,
-          r.summaryKu,
-          r.summaryAr,
-          r.keyFormulas,
-          r.resourceType,
-          r.attachmentName ?? null,
-          r.attachmentUrl ?? null,
-          r.attachmentMime ?? null
-        );
-      }
-    });
-    txRes();
-  } else {
-    const existingOfficial = db
-      .prepare('SELECT id FROM textbook_resources WHERE attachment_url = ? LIMIT 1')
+  const insertRes = db.prepare(
+    `INSERT INTO textbook_resources
+     (chapter_number, title, title_ku, title_ar, summary, summary_ku, summary_ar, key_formulas, resource_type, attachment_name, attachment_url, attachment_mime)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  const txRes = db.transaction(() => {
+    // 1. Ensure the full textbook resource (chapter_number IS NULL with PDF attachment) exists
+    const existingGlobalPdf = db
+      .prepare('SELECT id FROM textbook_resources WHERE chapter_number IS NULL AND attachment_url = ? LIMIT 1')
       .get(OFFICIAL_SCIENCE_TEXTBOOK_URL) as { id: number } | undefined;
 
-    if (!existingOfficial) {
-      db.prepare(
-        `INSERT INTO textbook_resources
-         (chapter_number, title, title_ku, title_ar, summary, summary_ku, summary_ar, key_formulas, resource_type, attachment_name, attachment_url, attachment_mime)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+    if (!existingGlobalPdf) {
+      insertRes.run(
         OFFICIAL_SCIENCE_TEXTBOOK_RESOURCE.chapterNumber,
         OFFICIAL_SCIENCE_TEXTBOOK_RESOURCE.title,
         OFFICIAL_SCIENCE_TEXTBOOK_RESOURCE.titleKu,
@@ -266,7 +389,83 @@ export function seedTextbooksIfNeeded(): void {
         OFFICIAL_SCIENCE_TEXTBOOK_RESOURCE.attachmentMime ?? null
       );
     }
-  }
+
+    // 2. Ensure the Complete Curriculum Guide (chapter_number IS NULL) also links the official PDF
+    const nullGuideRows = db
+      .prepare('SELECT id, attachment_url FROM textbook_resources WHERE chapter_number IS NULL')
+      .all() as Array<{ id: number; attachment_url: string | null }>;
+
+    if (nullGuideRows.length === 1) {
+      const guide = SEED_RESOURCES[1];
+      insertRes.run(
+        guide.chapterNumber,
+        guide.title,
+        guide.titleKu,
+        guide.titleAr,
+        guide.summary,
+        guide.summaryKu,
+        guide.summaryAr,
+        guide.keyFormulas,
+        guide.resourceType,
+        guide.attachmentName ?? null,
+        guide.attachmentUrl ?? null,
+        guide.attachmentMime ?? null
+      );
+    } else {
+      for (const row of nullGuideRows) {
+        if (!row.attachment_url) {
+          db.prepare(
+            `UPDATE textbook_resources
+             SET attachment_name = ?, attachment_url = ?, attachment_mime = ?
+             WHERE id = ?`
+          ).run('Science_9_Book.pdf', OFFICIAL_SCIENCE_TEXTBOOK_URL, 'application/pdf', row.id);
+        }
+      }
+    }
+
+    // 3. Ensure every Chapter 1–11 has its official textbook resource pointing to Science_9_Book.pdf
+    for (const r of SEED_RESOURCES) {
+      if (typeof r.chapterNumber !== 'number') continue;
+      const existingCh = db
+        .prepare(
+          `SELECT id, attachment_url
+           FROM textbook_resources
+           WHERE chapter_number = ? AND resource_type = 'textbook'
+           ORDER BY id ASC
+           LIMIT 1`
+        )
+        .get(r.chapterNumber) as { id: number; attachment_url: string | null } | undefined;
+
+      if (!existingCh) {
+        insertRes.run(
+          r.chapterNumber,
+          r.title,
+          r.titleKu,
+          r.titleAr,
+          r.summary,
+          r.summaryKu,
+          r.summaryAr,
+          r.keyFormulas,
+          r.resourceType,
+          r.attachmentName ?? null,
+          r.attachmentUrl ?? null,
+          r.attachmentMime ?? null
+        );
+      } else if (!existingCh.attachment_url) {
+        db.prepare(
+          `UPDATE textbook_resources
+           SET attachment_name = ?, attachment_url = ?, attachment_mime = ?
+           WHERE id = ?`
+        ).run(
+          r.attachmentName ?? 'Science_9_Book.pdf',
+          r.attachmentUrl ?? OFFICIAL_SCIENCE_TEXTBOOK_URL,
+          r.attachmentMime ?? 'application/pdf',
+          existingCh.id
+        );
+      }
+    }
+  });
+  txRes();
 
   if (existingQa.count === 0) {
     const insertQa = db.prepare(

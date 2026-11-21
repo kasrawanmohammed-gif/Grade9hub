@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  BookText,
   FileText,
   HelpCircle,
   Library,
@@ -31,10 +32,16 @@ import {
 } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { RotatingQuote } from './RotatingQuote';
-import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
+import { HeroImageSlider } from './HeroImageSlider';
+import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 import { useStudentGreeting } from '../utils/greeting';
 import { formatUtcDate } from '../utils/dateFormat';
-import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
+import {
+  OFFICIAL_BOOK_FILENAME,
+  OFFICIAL_BOOK_PDF_URL,
+  getAttachmentDownloadHref,
+  getOfficialBookChapterMeta,
+} from '../lib/textbookCatalog';
 
 interface HomeViewProps {
   user: User;
@@ -70,6 +77,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<CompetitionLeaderboardResponse | null>(null);
   const [pendingPoints, setPendingPoints] = useState(0);
+  const [showTextbookPreview, setShowTextbookPreview] = useState(false);
 
   const totalChapterQuestions = chapters.reduce((acc, c) => acc + c.question_count, 0);
   const ForwardIcon = dir === 'rtl' ? ArrowLeft : ArrowRight;
@@ -149,46 +157,45 @@ export const HomeView: React.FC<HomeViewProps> = ({
     <div className="space-y-8">
       {/* Entry Hero Banner */}
       <section className="relative rounded-2xl sm:rounded-3xl overflow-hidden g9-hero-surface text-white border border-[#6B1118]/30 dark:border-white/10 shadow-sm">
-        <SuccessHeroBackdrop
-          heightClassName="h-[310px] sm:h-[380px] lg:h-[440px]"
-          stageOffsetClassName="mt-[-10%] lg:mt-[-13%]"
+        <HeroImageSlider
+          heightClassName="min-h-[255px] sm:min-h-[325px] lg:min-h-[375px]"
           featherSidesOnDesktop={true}
+          topBar={
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
+                  <img
+                    src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
+                    alt="Grade 9 Hub Logo"
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-contain rounded-md"
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm sm:text-base font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                    {t.brand.appName}
+                  </p>
+                  <p className="text-[11px] sm:text-xs text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                    {user.name} ·{' '}
+                    {user.isAdmin
+                      ? t.home.mainAdmin
+                      : user.role === 'teacher'
+                      ? t.home.teacherWorkspace
+                      : user.grade || t.home.studentPortal}
+                  </p>
+                </div>
+              </div>
+
+              <span className="hidden sm:inline-flex items-center rounded-full bg-black/25 backdrop-blur-md border border-white/20 px-3 py-1 text-xs font-medium text-white/95 whitespace-nowrap shrink-0">
+                {t.auth.heroBadge}
+              </span>
+            </div>
+          }
         />
 
-        <div className="relative z-20 flex flex-col justify-between px-4 pt-3.5 pb-6 sm:px-8 sm:pt-5 sm:pb-8 lg:px-10 lg:pb-9">
-          {/* Crisp Hero Header Bar */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
-                <img
-                  src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
-                  alt="Grade 9 Hub Logo"
-                  referrerPolicy="no-referrer"
-                  className="w-full h-full object-contain rounded-md"
-                />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm sm:text-base font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
-                  {t.brand.appName}
-                </p>
-                <p className="text-[11px] sm:text-xs text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
-                  {user.name} ·{' '}
-                  {user.isAdmin
-                    ? t.home.mainAdmin
-                    : user.role === 'teacher'
-                    ? t.home.teacherWorkspace
-                    : user.grade || t.home.studentPortal}
-                </p>
-              </div>
-            </div>
-
-            <span className="hidden sm:inline-flex items-center rounded-full bg-black/25 backdrop-blur-md border border-white/20 px-3 py-1 text-xs font-medium text-white/95 whitespace-nowrap shrink-0">
-              {t.auth.heroBadge}
-            </span>
-          </div>
-
-          {/* Centered Hero Content Positioned Below Sun & SUCCESS Bridge */}
-          <div className="mt-24 sm:mt-40 lg:mt-56 max-w-2xl mx-auto w-full flex flex-col items-center text-center gap-3 sm:gap-3.5">
+        {/* Centered Hero Content Transitioning Smoothly Below Image Slider */}
+        <div className="relative z-20 -mt-5 sm:-mt-7 px-4 pb-6 sm:px-8 sm:pb-8 lg:px-10 lg:pb-9">
+          <div className="max-w-2xl mx-auto w-full flex flex-col items-center text-center gap-3 sm:gap-3.5">
             <span className="inline-flex items-center justify-center rounded-full bg-[#240608]/55 backdrop-blur-md border border-white/20 px-4 py-1.5 text-xs sm:text-sm font-medium text-white/95 shadow-xs">
               {studentGreeting}
             </span>
@@ -313,15 +320,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('textbooks-qa')}
-            className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap"
-          >
-            <Library className="w-4 h-4 text-[#E5B742]" />
-            <span>{t.home.openTextbooksBtn}</span>
-            <ForwardIcon className="w-4 h-4 text-[#E5B742]" />
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => setShowTextbookPreview(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2.5 text-sm font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
+            >
+              <BookText className="w-4 h-4 text-[#6B1118]" />
+              <span>{t.textbooks.previewTextbookBtn}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate('textbooks-qa')}
+              className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[44px] whitespace-nowrap shrink-0"
+            >
+              <Library className="w-4 h-4 text-[#E5B742]" />
+              <span>{t.home.openTextbooksBtn}</span>
+              <ForwardIcon className="w-4 h-4 text-[#E5B742]" />
+            </button>
+          </div>
         </div>
       </section>
 
@@ -612,30 +629,51 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          {chapters.map((ch) => (
-            <button
-              key={ch.chapter_number}
-              type="button"
-              onClick={() => {
-                onSelectChapter(ch.chapter_number);
-                onNavigate('multiple-choice');
-              }}
-              className="text-start rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 hover:border-[#6B1118] hover:bg-white transition-colors cursor-pointer"
-            >
-              <p className="text-xs font-semibold text-[#6B1118] tabular-nums">
-                {t.home.chapterWord} {ch.chapter_number}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-[#1C1917] truncate">
-                {ch.title}
-              </p>
-              <p className="mt-1 text-xs text-[#57534E] tabular-nums">
-                {ch.question_count}{' '}
-                {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
-              </p>
-            </button>
-          ))}
+          {chapters.map((ch) => {
+            const bookMeta = getOfficialBookChapterMeta(ch.chapter_number);
+            return (
+              <button
+                key={ch.chapter_number}
+                type="button"
+                onClick={() => {
+                  onSelectChapter(ch.chapter_number);
+                  onNavigate('multiple-choice');
+                }}
+                className="text-start rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4 hover:border-[#6B1118] hover:bg-white transition-colors cursor-pointer"
+              >
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <p className="font-semibold text-[#6B1118] tabular-nums">
+                    {t.home.chapterWord} {ch.chapter_number}
+                  </p>
+                  {bookMeta && (
+                    <span className="text-[11px] font-medium text-[#57534E] tabular-nums">
+                      p.{bookMeta.startPage}–{bookMeta.endPage}
+                    </span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm font-semibold text-[#1C1917] truncate">
+                  {ch.title}
+                </p>
+                <p className="mt-1 text-xs text-[#57534E] tabular-nums">
+                  {ch.question_count}{' '}
+                  {ch.question_count === 1 ? t.home.questionSingular : t.home.questionPlural}
+                </p>
+              </button>
+            );
+          })}
         </div>
       </section>
+
+      {showTextbookPreview && (
+        <TextbookPdfViewerModal
+          url={OFFICIAL_BOOK_PDF_URL}
+          title={t.textbooks.officialBookTitle}
+          fileName={OFFICIAL_BOOK_FILENAME}
+          initialPage={1}
+          isOfficialBook={true}
+          onClose={() => setShowTextbookPreview(false)}
+        />
+      )}
     </div>
   );
 };

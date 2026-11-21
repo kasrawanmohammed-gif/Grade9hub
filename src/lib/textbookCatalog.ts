@@ -9,28 +9,138 @@ export interface BookChapterBookmark {
   kind: 'cover' | 'contents' | 'chapter';
 }
 
+export interface BookChapterMetadata {
+  chapterNumber: number;
+  startPage: number;
+  endPage: number;
+  titleEn: string;
+  titleKu: string;
+  titleAr: string;
+}
+
+export const OFFICIAL_BOOK_CHAPTERS: BookChapterMetadata[] = [
+  {
+    chapterNumber: 1,
+    startPage: 6,
+    endPage: 43,
+    titleEn: 'Work and Machines',
+    titleKu: 'ئیش و ئامێرەکان',
+    titleAr: 'الشغل والآلات',
+  },
+  {
+    chapterNumber: 2,
+    startPage: 44,
+    endPage: 76,
+    titleEn: 'Energy',
+    titleKu: 'وزە',
+    titleAr: 'الطاقة',
+  },
+  {
+    chapterNumber: 3,
+    startPage: 77,
+    endPage: 102,
+    titleEn: 'Heat',
+    titleKu: 'گەرمی',
+    titleAr: 'الحرارة',
+  },
+  {
+    chapterNumber: 4,
+    startPage: 103,
+    endPage: 132,
+    titleEn: 'Light',
+    titleKu: 'ڕووناکی',
+    titleAr: 'الضوء',
+  },
+  {
+    chapterNumber: 5,
+    startPage: 133,
+    endPage: 159,
+    titleEn: 'Astronomy',
+    titleKu: 'ئەستێرەناسی',
+    titleAr: 'علم الفلك',
+  },
+  {
+    chapterNumber: 6,
+    startPage: 160,
+    endPage: 190,
+    titleEn: 'Mendel and the Principles of Genetics',
+    titleKu: 'مەندڵ و بنەماکانی بۆماوەزانی',
+    titleAr: 'مندل ومبادئ علم الوراثة',
+  },
+  {
+    chapterNumber: 7,
+    startPage: 191,
+    endPage: 217,
+    titleEn: 'Body Organization and Structure',
+    titleKu: 'ڕێکخستن و پێکهاتەی لەش',
+    titleAr: 'تنظيم الجسم وبنيته',
+  },
+  {
+    chapterNumber: 8,
+    startPage: 218,
+    endPage: 238,
+    titleEn: 'The Urinary System and the Nervous Systems',
+    titleKu: 'کۆئەندامی میز و کۆئەندامی دەمار',
+    titleAr: 'الجهاز البولي والجهاز العصبي',
+  },
+  {
+    chapterNumber: 9,
+    startPage: 239,
+    endPage: 255,
+    titleEn: 'Reproduction and Development',
+    titleKu: 'زۆربوون و گەشەکردن',
+    titleAr: 'التكاثر والنمو',
+  },
+  {
+    chapterNumber: 10,
+    startPage: 256,
+    endPage: 284,
+    titleEn: 'Acids and Bases',
+    titleKu: 'ترش و تفتەکان',
+    titleAr: 'الأحماض والقواعد',
+  },
+  {
+    chapterNumber: 11,
+    startPage: 285,
+    endPage: 305,
+    titleEn: 'Atomic Energy',
+    titleKu: 'وزەی ئەتۆمی',
+    titleAr: 'الطاقة الذرية',
+  },
+];
+
 export const OFFICIAL_BOOK_CHAPTER_BOOKMARKS: BookChapterBookmark[] = [
   { key: 'cover', chapterNumber: null, page: 1, kind: 'cover' },
   { key: 'contents', chapterNumber: null, page: 2, kind: 'contents' },
-  { key: 'ch-1', chapterNumber: 1, page: 6, kind: 'chapter' },
-  { key: 'ch-2', chapterNumber: 2, page: 44, kind: 'chapter' },
-  { key: 'ch-3', chapterNumber: 3, page: 77, kind: 'chapter' },
-  { key: 'ch-4', chapterNumber: 4, page: 103, kind: 'chapter' },
-  { key: 'ch-5', chapterNumber: 5, page: 133, kind: 'chapter' },
-  { key: 'ch-6', chapterNumber: 6, page: 160, kind: 'chapter' },
-  { key: 'ch-7', chapterNumber: 7, page: 191, kind: 'chapter' },
-  { key: 'ch-8', chapterNumber: 8, page: 218, kind: 'chapter' },
-  { key: 'ch-9', chapterNumber: 9, page: 239, kind: 'chapter' },
-  { key: 'ch-10', chapterNumber: 10, page: 256, kind: 'chapter' },
-  { key: 'ch-11', chapterNumber: 11, page: 285, kind: 'chapter' },
+  ...OFFICIAL_BOOK_CHAPTERS.map((ch) => ({
+    key: `ch-${ch.chapterNumber}`,
+    chapterNumber: ch.chapterNumber,
+    page: ch.startPage,
+    kind: 'chapter' as const,
+  })),
 ];
 
+export function getOfficialBookChapterMeta(
+  chapterNumber: number | null | undefined
+): BookChapterMetadata | null {
+  if (typeof chapterNumber !== 'number') return null;
+  return OFFICIAL_BOOK_CHAPTERS.find((item) => item.chapterNumber === chapterNumber) || null;
+}
+
 export function getOfficialBookChapterPage(chapterNumber: number | null | undefined): number {
-  if (typeof chapterNumber !== 'number') return 1;
-  const match = OFFICIAL_BOOK_CHAPTER_BOOKMARKS.find(
-    (item) => item.chapterNumber === chapterNumber
-  );
-  return match ? match.page : 1;
+  const match = getOfficialBookChapterMeta(chapterNumber);
+  return match ? match.startPage : 1;
+}
+
+export function getOfficialBookChapterTitle(
+  chapterNumber: number | null | undefined,
+  lang: 'en' | 'ku' | 'ar' = 'en'
+): string | null {
+  const match = getOfficialBookChapterMeta(chapterNumber);
+  if (!match) return null;
+  if (lang === 'ku') return match.titleKu;
+  if (lang === 'ar') return match.titleAr;
+  return match.titleEn;
 }
 
 export function isPdfAttachment(mime?: string | null, url?: string | null): boolean {
