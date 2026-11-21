@@ -21,6 +21,7 @@ export default defineConfig(() => {
           'pwa-512x512.png',
           'pwa-maskable-512x512.png',
           'assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg',
+          'assets/aistudio/1795193684825_08209d2b.jpg',
         ],
         manifest: {
           id: '/',

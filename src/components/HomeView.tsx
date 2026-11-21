@@ -30,7 +30,9 @@ import {
   User,
 } from '../types';
 import { UserAvatar } from './UserAvatar';
-import { AllScienceVisual } from './AllScienceVisual';
+import { RotatingQuote } from './RotatingQuote';
+import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
+import { useStudentGreeting } from '../utils/greeting';
 import { formatUtcDate } from '../utils/dateFormat';
 import { getAttachmentDownloadHref } from '../lib/textbookCatalog';
 
@@ -58,6 +60,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onRefreshAnnouncements,
 }) => {
   const { t, dir } = useLanguage();
+  const studentGreeting = useStudentGreeting(t);
   const [showPublisher, setShowPublisher] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -144,48 +147,87 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="space-y-8">
-      {/* Hero Banner */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 rounded-2xl overflow-hidden bg-white border border-[#E6DFD5]">
-        <div className="lg:col-span-7 p-6 sm:p-8 flex flex-col justify-between">
-          <div>
-            <p className="text-xs font-semibold text-[#6B1118]">
-              {t.home.welcome}, {user.name} ·{' '}
-              {user.isAdmin
-                ? t.home.mainAdmin
-                : user.role === 'teacher'
-                ? t.home.teacherWorkspace
-                : user.grade || t.home.studentPortal}
-            </p>
-            <h2 className="mt-2 text-2xl sm:text-3xl font-bold text-[#1C1917] [text-wrap:balance]">
-              {t.home.heroTitle}
+      {/* Entry Hero Banner */}
+      <section className="relative rounded-2xl sm:rounded-3xl overflow-hidden g9-hero-surface text-white border border-[#6B1118]/30 dark:border-white/10 shadow-sm">
+        <SuccessHeroBackdrop
+          heightClassName="h-[310px] sm:h-[380px] lg:h-[440px]"
+          stageOffsetClassName="mt-[-10%] lg:mt-[-13%]"
+          featherSidesOnDesktop={true}
+        />
+
+        <div className="relative z-20 flex flex-col justify-between px-4 pt-3.5 pb-6 sm:px-8 sm:pt-5 sm:pb-8 lg:px-10 lg:pb-9">
+          {/* Crisp Hero Header Bar */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
+                <img
+                  src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
+                  alt="Grade 9 Hub Logo"
+                  referrerPolicy="no-referrer"
+                  className="w-full h-full object-contain rounded-md"
+                />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm sm:text-base font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                  {t.brand.appName}
+                </p>
+                <p className="text-[11px] sm:text-xs text-white/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
+                  {user.name} ·{' '}
+                  {user.isAdmin
+                    ? t.home.mainAdmin
+                    : user.role === 'teacher'
+                    ? t.home.teacherWorkspace
+                    : user.grade || t.home.studentPortal}
+                </p>
+              </div>
+            </div>
+
+            <span className="hidden sm:inline-flex items-center rounded-full bg-black/25 backdrop-blur-md border border-white/20 px-3 py-1 text-xs font-medium text-white/95 whitespace-nowrap shrink-0">
+              {t.auth.heroBadge}
+            </span>
+          </div>
+
+          {/* Centered Hero Content Positioned Below Sun & SUCCESS Bridge */}
+          <div className="mt-24 sm:mt-40 lg:mt-56 max-w-2xl mx-auto w-full flex flex-col items-center text-center gap-3 sm:gap-3.5">
+            <span className="inline-flex items-center justify-center rounded-full bg-[#240608]/55 backdrop-blur-md border border-white/20 px-4 py-1.5 text-xs sm:text-sm font-medium text-white/95 shadow-xs">
+              {studentGreeting}
+            </span>
+
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-white leading-[1.15] [text-wrap:balance] drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
+              {t.auth.heroTitle}
             </h2>
-            <p className="mt-3 text-sm sm:text-base text-[#57534E] leading-relaxed max-w-xl">
-              {t.home.heroDesc}
+
+            <p className="text-xs sm:text-sm lg:text-base text-white/90 leading-relaxed max-w-xl">
+              {t.brand.heroJourneySubtitle}
             </p>
-          </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => onNavigate('multiple-choice')}
-              className="inline-flex items-center gap-2 rounded-xl bg-[#6B1118] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#530D12] transition-colors cursor-pointer min-h-[44px]"
-            >
-              <span>{t.home.openChaptersBtn}</span>
-              <ForwardIcon className="w-4 h-4 text-[#E5B742]" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('ask-teacher')}
-              className="inline-flex items-center gap-2 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2.5 text-sm font-semibold text-[#1C1917] hover:border-[#6B1118]/40 transition-colors cursor-pointer min-h-[44px]"
-            >
-              <MessageSquare className="w-4 h-4 text-[#6B1118]" />
-              <span>{t.home.askTeacherBtn}</span>
-            </button>
-          </div>
-        </div>
+            <RotatingQuote
+              quotes={t.brand.motivationalQuotes}
+              dir={dir}
+              intervalMs={3500}
+              className="mt-0.5 text-xs sm:text-sm font-medium text-[#FBF4DF]/95 leading-snug tracking-wide max-w-xl"
+              iconClassName="w-4 h-4 text-[#E5B742] shrink-0"
+            />
 
-        <div className="lg:col-span-5 min-h-[220px] sm:min-h-[250px] lg:min-h-full relative overflow-hidden bg-[#F4EFE8] border-t lg:border-t-0 lg:border-s border-[#E6DFD5]">
-          <AllScienceVisual />
+            <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => onNavigate('multiple-choice')}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#E5B742] px-5 py-2.5 text-sm font-semibold text-[#2A0609] hover:bg-[#EFC65B] transition-colors cursor-pointer min-h-[44px] shadow-xs"
+              >
+                <span>{t.home.openChaptersBtn}</span>
+                <ForwardIcon className="w-4 h-4 text-[#2A0609]" />
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigate('ask-teacher')}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/12 hover:bg-white/20 backdrop-blur-md px-4 py-2.5 text-sm font-semibold text-white transition-colors cursor-pointer min-h-[44px]"
+              >
+                <MessageSquare className="w-4 h-4 text-[#E5B742]" />
+                <span>{t.home.askTeacherBtn}</span>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

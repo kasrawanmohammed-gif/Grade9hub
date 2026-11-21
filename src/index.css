@@ -614,4 +614,235 @@ html.reduce-motion *::after {
   animation: g9-science-particles 12s ease-in-out infinite;
 }
 
+/* ==========================================================================
+   Success Bridge Hero Surface, Seamless Blending & Synchronized Motion
+   ========================================================================== */
+
+.g9-hero-surface {
+  background: linear-gradient(180deg, #6b1118 0%, #5b0e14 58%, #42090e 100%);
+}
+
+html.dark .g9-hero-surface {
+  background: linear-gradient(180deg, #4c0c11 0%, #37070b 58%, #230407 100%);
+}
+
+.g9-hero-backdrop-mask {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 46%,
+    rgba(0, 0, 0, 0.84) 64%,
+    rgba(0, 0, 0, 0.36) 80%,
+    rgba(0, 0, 0, 0) 97%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 46%,
+    rgba(0, 0, 0, 0.84) 64%,
+    rgba(0, 0, 0, 0.36) 80%,
+    rgba(0, 0, 0, 0) 97%
+  );
+}
+
+@media (min-width: 1024px) {
+  .g9-hero-side-feather-lg {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 1) 7%,
+      rgba(0, 0, 0, 1) 93%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 1) 7%,
+      rgba(0, 0, 0, 1) 93%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+
+.g9-hero-crimson-fade {
+  background: linear-gradient(
+    180deg,
+    rgba(28, 6, 8, 0.28) 0%,
+    rgba(28, 6, 8, 0.04) 22%,
+    rgba(107, 17, 24, 0.14) 48%,
+    rgba(91, 14, 20, 0.72) 74%,
+    #5b0e14 96%
+  );
+}
+
+html.dark .g9-hero-crimson-fade {
+  background: linear-gradient(
+    180deg,
+    rgba(14, 3, 5, 0.42) 0%,
+    rgba(14, 3, 5, 0.1) 24%,
+    rgba(76, 12, 17, 0.28) 48%,
+    rgba(55, 7, 11, 0.82) 74%,
+    #37070b 96%
+  );
+}
+
+@keyframes g9-hero-pan {
+  0%, 100% {
+    transform: translate3d(-2.1%, 0, 0) scale(1.02);
+  }
+  50% {
+    transform: translate3d(2.1%, 0, 0) scale(1.03);
+  }
+}
+
+@keyframes g9-sun-arc {
+  0%, 100% {
+    transform: translate3d(-2%, 1.4%, 0);
+  }
+  25% {
+    transform: translate3d(0%, -1.8%, 0);
+  }
+  50% {
+    transform: translate3d(2%, 1.4%, 0);
+  }
+  75% {
+    transform: translate3d(0%, -1.8%, 0);
+  }
+}
+
+@keyframes g9-sun-pulse {
+  0%, 100% {
+    transform: scale(0.94);
+    opacity: 0.76;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+}
+
+@keyframes g9-sun-rays {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0.2;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.07);
+    opacity: 0.34;
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+    opacity: 0.2;
+  }
+}
+
+@keyframes g9-success-sweep {
+  0%, 100% {
+    transform: translate3d(-34%, 2%, 0) scale(0.95);
+    opacity: 0.62;
+  }
+  25% {
+    transform: translate3d(0%, -4%, 0) scale(1.06);
+    opacity: 1;
+  }
+  50% {
+    transform: translate3d(34%, 2%, 0) scale(0.95);
+    opacity: 0.62;
+  }
+  75% {
+    transform: translate3d(0%, -4%, 0) scale(1.06);
+    opacity: 1;
+  }
+}
+
+@keyframes g9-success-rim {
+  0%, 100% {
+    transform: translate3d(-28%, 0, 0) scaleX(0.92);
+    opacity: 0.52;
+  }
+  25% {
+    transform: translate3d(0%, -2%, 0) scaleX(1.05);
+    opacity: 0.92;
+  }
+  50% {
+    transform: translate3d(28%, 0, 0) scaleX(0.92);
+    opacity: 0.52;
+  }
+  75% {
+    transform: translate3d(0%, -2%, 0) scaleX(1.05);
+    opacity: 0.92;
+  }
+}
+
+@keyframes g9-canyon-glow {
+  0%, 100% {
+    transform: translate3d(-6%, 0, 0) scale(0.98);
+    opacity: 0.34;
+  }
+  50% {
+    transform: translate3d(6%, 0, 0) scale(1.04);
+    opacity: 0.52;
+  }
+}
+
+.g9-hero-pan {
+  animation: g9-hero-pan 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.g9-sun-arc {
+  animation: g9-sun-arc 18s ease-in-out infinite;
+  will-change: transform;
+}
+
+.g9-sun-pulse {
+  animation: g9-sun-pulse 6s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.g9-sun-rays {
+  animation: g9-sun-rays 34s linear infinite;
+  will-change: transform, opacity;
+}
+
+.g9-success-sweep {
+  animation: g9-success-sweep 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.g9-success-rim {
+  animation: g9-success-rim 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.g9-canyon-glow {
+  animation: g9-canyon-glow 18s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .g9-hero-pan,
+  .g9-sun-arc,
+  .g9-sun-pulse,
+  .g9-sun-rays,
+  .g9-success-sweep,
+  .g9-success-rim,
+  .g9-canyon-glow {
+    animation: none !important;
+    transform: none !important;
+    will-change: auto !important;
+  }
+}
+
+html.reduce-motion .g9-hero-pan,
+html.reduce-motion .g9-sun-arc,
+html.reduce-motion .g9-sun-pulse,
+html.reduce-motion .g9-sun-rays,
+html.reduce-motion .g9-success-sweep,
+html.reduce-motion .g9-success-rim,
+html.reduce-motion .g9-canyon-glow {
+  animation: none !important;
+  transform: none !important;
+  will-change: auto !important;
+}
 

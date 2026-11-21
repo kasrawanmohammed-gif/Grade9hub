@@ -1477,16 +1477,18 @@ export default function App() {
 
         {/* Scrollable Workspace Content */}
         <main className="flex-1 px-4 sm:px-6 lg:px-10 py-5 sm:py-7 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
-          <div
-            role="status"
-            className="mb-5 rounded-xl border border-[#E6DFD5] bg-[#FBF4DF]/65 px-4 py-2.5 flex items-center gap-2.5 text-xs sm:text-sm text-[#1C1917]"
-          >
-            <Sparkles className="w-4 h-4 text-[#6B1118] shrink-0" aria-hidden="true" />
-            <span>
-              <strong className="font-semibold text-[#6B1118]">{studentGreeting}</strong>
-              <span className="text-[#57534E]"> — {t.brand.heroJourneySubtitle}</span>
-            </span>
-          </div>
+          {activeTab !== 'home' && (
+            <div
+              role="status"
+              className="mb-5 rounded-xl border border-[#E6DFD5] bg-[#FBF4DF]/65 px-4 py-2.5 flex items-center gap-2.5 text-xs sm:text-sm text-[#1C1917]"
+            >
+              <Sparkles className="w-4 h-4 text-[#6B1118] shrink-0" aria-hidden="true" />
+              <span>
+                <strong className="font-semibold text-[#6B1118]">{studentGreeting}</strong>
+                <span className="text-[#57534E]"> — {t.brand.heroJourneySubtitle}</span>
+              </span>
+            </div>
+          )}
 
           {appSettings?.maintenanceMessage?.trim() && (
             <div

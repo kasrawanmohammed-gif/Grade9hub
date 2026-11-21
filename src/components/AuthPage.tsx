@@ -48,6 +48,7 @@ import { LanguageSwitcher, useLanguage } from '../contexts/LanguageContext';
 import { ThemeToggleButton } from '../contexts/SettingsContext';
 import { PWAInstallButton } from './PWAInstallButton';
 import { RotatingQuote } from './RotatingQuote';
+import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
 
 interface AuthPageProps {
   onAuthenticated: (user: User) => void;
@@ -448,14 +449,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
     <div className="min-h-dvh flex flex-col bg-[#FAF8F5] text-[#1C1917]">
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 items-stretch">
         {/* Left Editorial Brand Showcase */}
-        <div className="lg:col-span-6 relative flex flex-col justify-between gap-4 sm:gap-5 lg:gap-8 bg-gradient-to-br from-[#7A131C] via-[#6B1118] to-[#3B080C] text-white px-5 py-3.5 sm:px-8 sm:py-5 lg:p-11 overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_22%_18%,rgba(229,183,66,0.16),transparent_55%)] pointer-events-none" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_82%_85%,rgba(255,255,255,0.08),transparent_50%)] pointer-events-none" />
+        <div className="lg:col-span-6 relative flex flex-col justify-between gap-4 sm:gap-5 lg:gap-6 g9-hero-surface text-white px-5 py-3.5 sm:px-8 sm:py-5 lg:p-10 overflow-hidden">
+          <SuccessHeroBackdrop
+            heightClassName="h-[290px] sm:h-[360px] lg:h-[420px]"
+            stageOffsetClassName="mt-[-10%] lg:mt-[-11%]"
+          />
 
           {/* Top Bar on Left Showcase */}
           <div className="relative z-30 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-              <div className="w-7 h-7 sm:w-9 sm:h-9 lg:w-12 lg:h-12 rounded-lg sm:rounded-xl bg-white p-0.5 sm:p-1.5 shadow-sm shrink-0">
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-8 h-8 sm:w-9 sm:h-9 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl bg-[#FFFFFF] p-0.5 sm:p-1 shadow-sm shrink-0">
                 <img
                   src="/assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg"
                   alt="Grade 9 Hub Logo"
@@ -463,7 +466,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
                   className="w-full h-full object-contain rounded-md sm:rounded-lg"
                 />
               </div>
-              <p className="text-sm sm:text-base lg:text-lg font-bold tracking-tight text-white truncate">
+              <p className="text-sm sm:text-base lg:text-lg font-bold tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.55)] truncate">
                 {t.brand.appName}
               </p>
             </div>
@@ -478,15 +481,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
           </div>
 
           {/* Dominant Centered Hero Content (Mobile / Tablet) */}
-          <div className="lg:hidden relative z-20 flex flex-col items-center text-center gap-2.5 px-1">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 backdrop-blur-xs px-3 py-1 text-[11px] font-medium text-white/95">
+          <div className="lg:hidden relative z-20 mt-20 sm:mt-32 flex flex-col items-center text-center gap-2.5 px-1 pb-1">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#240608]/55 border border-white/20 backdrop-blur-md px-3.5 py-1 text-[11px] sm:text-xs font-medium text-white/95 shadow-xs">
               {studentGreeting}
             </span>
-            <div className="space-y-1 max-w-md mx-auto">
-              <h1 className="text-[19px] sm:text-2xl font-extrabold tracking-tight text-white leading-[1.16] [text-wrap:balance]">
+            <div className="space-y-1.5 max-w-md mx-auto">
+              <h1 className="text-[20px] sm:text-2xl font-extrabold tracking-tight text-white leading-[1.16] [text-wrap:balance] drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
                 {t.auth.heroTitle}
               </h1>
-              <p className="text-[11px] sm:text-xs text-white/80 leading-relaxed max-w-sm mx-auto">
+              <p className="text-[11px] sm:text-xs text-white/85 leading-relaxed max-w-sm mx-auto">
                 {t.brand.heroJourneySubtitle}
               </p>
             </div>
@@ -500,15 +503,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
           </div>
 
           {/* Dominant Centered Hero Content (Desktop / Laptop Showcase) */}
-          <div className="hidden lg:flex flex-col items-center justify-center relative z-10 my-auto max-w-xl mx-auto text-center px-2 gap-6">
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/15 backdrop-blur-xs px-4 py-1.5 text-xs font-medium text-white/95">
+          <div className="hidden lg:flex flex-col items-center justify-center relative z-20 mt-44 xl:mt-48 mb-auto max-w-xl mx-auto text-center px-2 gap-5">
+            <span className="inline-flex items-center gap-2 rounded-full bg-[#240608]/55 border border-white/20 backdrop-blur-md px-4 py-1.5 text-xs font-medium text-white/95 shadow-xs">
               {studentGreeting}
             </span>
             <div className="space-y-3">
-              <h1 className="text-4xl xl:text-[42px] font-extrabold leading-[1.12] tracking-tight text-white [text-wrap:balance]">
+              <h1 className="text-3xl xl:text-[40px] font-extrabold leading-[1.14] tracking-tight text-white [text-wrap:balance] drop-shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
                 {t.auth.heroTitle}
               </h1>
-              <p className="text-base text-white/80 leading-relaxed max-w-md mx-auto">
+              <p className="text-sm xl:text-base text-white/85 leading-relaxed max-w-md mx-auto">
                 {t.brand.heroJourneySubtitle}
               </p>
             </div>
@@ -529,7 +532,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
           </div>
 
           {/* Bottom Separated Glass Rotating Quote Card (Desktop) & Footer Tag */}
-          <div className="hidden lg:flex flex-col items-center gap-4 relative z-10 max-w-xl w-full mx-auto">
+          <div className="hidden lg:flex flex-col items-center gap-3.5 relative z-20 max-w-xl w-full mx-auto">
             <RotatingQuote
               quotes={t.brand.motivationalQuotes}
               dir={dir}
