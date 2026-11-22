@@ -1,5 +1,6 @@
 import {
   getRedirectResult,
+  onAuthStateChanged,
   signInWithPopup,
   signOut as firebaseSignOut,
   User as FirebaseUser,
@@ -16,7 +17,9 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
+import type { HeroSlide } from '../config/heroSlides';
 import { AppSettings, User } from '../types';
+import { sanitizeHeroSlidesList } from './heroSlidesStore';
 import {
   applyFirebaseAuthPersistence,
   auth,
@@ -179,6 +182,7 @@ function isTrustedCloudAuthUser(fbUser: FirebaseUser | null): fbUser is Firebase
 }
 
 async function isCurrentUserCloudAdmin(): Promise<boolean> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!fbUser || !fbUser.emailVerified) return false;
   if ((fbUser.email || '').trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
@@ -189,6 +193,18 @@ async function isCurrentUserCloudAdmin(): Promise<boolean> {
   try {
     const adminDoc = await getDoc(doc(db, 'admins', fbUser.uid));
     return adminDoc.exists();
+  } catch {
+    return false;
+  }
+}
+
+async function isCurrentUserCloudAdminOrTeacher(): Promise<boolean> {
+  if (await isCurrentUserCloudAdmin()) return true;
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) return false;
+  try {
+    const userDoc = await getDoc(doc(db, 'users', fbUser.uid));
+    return userDoc.exists() && userDoc.data()?.role === 'teacher';
   } catch {
     return false;
   }
@@ -435,6 +451,7 @@ export async function syncCloudPeerPresence(
 }
 
 export async function pullAllPeerPresence(): Promise<CloudPeerPresence[]> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!isTrustedCloudAuthUser(fbUser)) {
     return [];
@@ -480,6 +497,7 @@ export async function syncCurrentUserToFirestore(
   appUser: User,
   stats?: { totalPoints?: number; quizzesCompleted?: number; correctAnswers?: number }
 ): Promise<void> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!isTrustedCloudAuthUser(fbUser) || !fbUser.email) return;
   if (fbUser.email.trim().toLowerCase() !== appUser.email.trim().toLowerCase()) return;
@@ -784,6 +802,160 @@ export async function fetchCloudRegisteredUsersAsAdmin(): Promise<CloudRegistere
   return Array.from(byEmail.values());
 }
 
+export function subscribeCloudRegisteredUsersAsAdmin(
+  onChange: (accounts: CloudRegisteredAccount[]) => void
+): () => void {
+  let disposed = false;
+  let unsubUsers: (() => void) | null = null;
+  let unsubAccounts: (() => void) | null = null;
+  let usersDocs: CloudRegisteredAccount[] = [];
+  let accountDocs: CloudRegisteredAccount[] = [];
+
+  const emitMerged = () => {
+    if (disposed) return;
+    const byEmail = new Map<string, CloudRegisteredAccount>();
+    for (const u of usersDocs) {
+      byEmail.set(u.email, { ...u });
+    }
+    for (const a of accountDocs) {
+      const existing = byEmail.get(a.email);
+      if (existing) {
+        existing.accountKey = a.accountKey;
+        if (!existing.grade && a.grade) existing.grade = a.grade;
+        if (!existing.bio && a.bio) existing.bio = a.bio;
+        if (!existing.birthday && a.birthday) existing.birthday = a.birthday;
+        if (!existing.avatarUrl && a.avatarUrl) existing.avatarUrl = a.avatarUrl;
+      } else {
+        byEmail.set(a.email, { ...a });
+      }
+    }
+    onChange(Array.from(byEmail.values()));
+  };
+
+  const stopSnap = () => {
+    if (unsubUsers) {
+      try {
+        unsubUsers();
+      } catch {
+        // ignore unsubscribe error
+      }
+      unsubUsers = null;
+    }
+    if (unsubAccounts) {
+      try {
+        unsubAccounts();
+      } catch {
+        // ignore unsubscribe error
+      }
+      unsubAccounts = null;
+    }
+  };
+
+  const attachForCurrentAdmin = async () => {
+    stopSnap();
+    if (disposed) return;
+    if (!(await isCurrentUserCloudAdmin()) || disposed) return;
+
+    try {
+      const qUsers = query(
+        collection(db, 'users'),
+        where('role', 'in', ['student', 'teacher'])
+      );
+      unsubUsers = onSnapshot(
+        qUsers,
+        (snaps) => {
+          const list: CloudRegisteredAccount[] = [];
+          snaps.forEach((docSnap) => {
+            const d = docSnap.data();
+            const email = clampStr(d.email, 180).toLowerCase();
+            if (!email) return;
+            const isMain = email === MAIN_ADMIN_EMAIL;
+            list.push({
+              uid: clampStr(d.uid || docSnap.id, 128),
+              name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+              email,
+              role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
+              isAdmin: isMain || Boolean(d.isAdmin),
+              grade: clampStr(d.grade || '', 40),
+              bio: clampStr(d.bio || '', 500),
+              birthday: clampStr(d.birthday || '', 20),
+              avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+              isRestricted: !isMain && Boolean(d.isRestricted),
+              restrictionReason: clampStr(d.restrictionReason || '', 300),
+              totalPoints: clampNonNegInt(d.totalPoints, 1000000),
+              quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
+              correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
+              lastLoginAt: clampStr(d.lastLoginAt || '', 64),
+              lastActiveAt:
+                clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
+              createdAtIso: toIsoFromTimestampOrString(d.createdAt) || new Date().toISOString(),
+            });
+          });
+          usersDocs = list;
+          emitMerged();
+        },
+        () => {}
+      );
+    } catch {
+      // ignore non-fatal /users snapshot failure
+    }
+
+    try {
+      const qAccounts = query(
+        collection(db, 'school_accounts'),
+        where('role', 'in', ['student', 'teacher'])
+      );
+      unsubAccounts = onSnapshot(
+        qAccounts,
+        (snaps) => {
+          const list: CloudRegisteredAccount[] = [];
+          snaps.forEach((docSnap) => {
+            const d = docSnap.data();
+            const email = clampStr(d.email, 180).toLowerCase();
+            if (!email) return;
+            const isMain = email === MAIN_ADMIN_EMAIL;
+            list.push({
+              accountKey: clampStr(d.accountKey || docSnap.id, 128),
+              name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+              email,
+              role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
+              isAdmin: isMain || Boolean(d.isAdmin),
+              grade: clampStr(d.grade || '', 40),
+              bio: clampStr(d.bio || '', 500),
+              birthday: clampStr(d.birthday || '', 20),
+              avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+              isRestricted: false,
+              restrictionReason: '',
+              totalPoints: 0,
+              quizzesCompleted: 0,
+              correctAnswers: 0,
+              lastLoginAt: '',
+              lastActiveAt: toIsoFromTimestampOrString(d.updatedAt),
+              createdAtIso: clampStr(d.createdAtIso || '', 64) || new Date().toISOString(),
+            });
+          });
+          accountDocs = list;
+          emitMerged();
+        },
+        () => {}
+      );
+    } catch {
+      // ignore non-fatal /school_accounts snapshot failure
+    }
+  };
+
+  void attachForCurrentAdmin();
+  const unsubAuth = onAuthStateChanged(auth, () => {
+    void attachForCurrentAdmin();
+  });
+
+  return () => {
+    disposed = true;
+    stopSnap();
+    unsubAuth();
+  };
+}
+
 export async function updateCloudUserAsAdmin(params: {
   email: string;
   uid?: string;
@@ -1037,6 +1209,7 @@ export interface CloudLeaderboardRow {
 }
 
 export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!isTrustedCloudAuthUser(fbUser)) {
     return [];
@@ -1107,6 +1280,137 @@ export async function saveCloudAppSettings(settings: AppSettings): Promise<boole
   } catch {
     return false;
   }
+}
+
+function mapBannerDocsToSlides(docs: Array<{ id: string; data: Record<string, unknown> }>): HeroSlide[] {
+  const ordered = docs
+    .map((entry, idx) => {
+      const d = entry.data;
+      return {
+        sortOrder:
+          typeof d.sortOrder === 'number' && Number.isFinite(d.sortOrder) ? d.sortOrder : idx,
+        slide: {
+          id: clampStr(d.bannerId || entry.id, 128),
+          src: String(d.src || '').trim(),
+          alt: clampStr(d.alt || 'Grade 9 Hub science showcase banner', 180),
+          ...(d.altKu ? { altKu: clampStr(d.altKu, 180) } : {}),
+          ...(d.altAr ? { altAr: clampStr(d.altAr, 180) } : {}),
+          ...(d.caption ? { caption: clampStr(d.caption, 140) } : {}),
+          ...(d.captionKu ? { captionKu: clampStr(d.captionKu, 140) } : {}),
+          ...(d.captionAr ? { captionAr: clampStr(d.captionAr, 140) } : {}),
+          ...(d.objectPosition ? { objectPosition: clampStr(d.objectPosition, 40) } : {}),
+        } as HeroSlide,
+      };
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((item) => item.slide);
+
+  return sanitizeHeroSlidesList(ordered);
+}
+
+export async function fetchCloudHeroBanners(): Promise<HeroSlide[] | null> {
+  try {
+    const q = query(collection(db, 'hero_banners'), where('scope', '==', 'public'));
+    const snaps = await getDocs(q);
+    if (snaps.empty) return null;
+    const docsList: Array<{ id: string; data: Record<string, unknown> }> = [];
+    snaps.forEach((docSnap) => {
+      docsList.push({ id: docSnap.id, data: docSnap.data() });
+    });
+    const clean = mapBannerDocsToSlides(docsList);
+    return clean.length > 0 ? clean : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCloudHeroBanners(slides: HeroSlide[]): Promise<boolean> {
+  if (!(await isCurrentUserCloudAdminOrTeacher())) return false;
+  const clean = sanitizeHeroSlidesList(slides);
+  if (clean.length === 0) return false;
+
+  try {
+    const q = query(collection(db, 'hero_banners'), where('scope', '==', 'public'));
+    const existingSnaps = await getDocs(q).catch(() => null);
+    const desiredIds = new Set<string>();
+
+    for (let i = 0; i < clean.length; i += 1) {
+      const slide = clean[i];
+      const safeId =
+        slide.id.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128) || `slide-${i + 1}`;
+      desiredIds.add(safeId);
+      const srcStr = slide.src.trim();
+      if (srcStr.length > 278_000) {
+        return false;
+      }
+
+      const payload: Record<string, unknown> = {
+        bannerId: safeId,
+        sortOrder: i,
+        scope: 'public',
+        src: srcStr,
+        alt: clampStr(slide.alt || 'Grade 9 Hub science showcase banner', 180) || 'Grade 9 Hub banner',
+        updatedAt: serverTimestamp(),
+      };
+      if (slide.altKu) payload.altKu = clampStr(slide.altKu, 180);
+      if (slide.altAr) payload.altAr = clampStr(slide.altAr, 180);
+      if (slide.caption) payload.caption = clampStr(slide.caption, 140);
+      if (slide.captionKu) payload.captionKu = clampStr(slide.captionKu, 140);
+      if (slide.captionAr) payload.captionAr = clampStr(slide.captionAr, 140);
+      if (slide.objectPosition) payload.objectPosition = clampStr(slide.objectPosition, 40);
+
+      await setDoc(doc(db, 'hero_banners', safeId), payload);
+    }
+
+    if (existingSnaps) {
+      for (const existingDoc of existingSnaps.docs) {
+        if (!desiredIds.has(existingDoc.id)) {
+          await deleteDoc(existingDoc.ref).catch(() => {});
+        }
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function subscribeCloudHeroBanners(
+  onBannersChanged: (slides: HeroSlide[]) => void
+): () => void {
+  let disposed = false;
+  let unsubSnap: (() => void) | null = null;
+  try {
+    const q = query(collection(db, 'hero_banners'), where('scope', '==', 'public'));
+    unsubSnap = onSnapshot(
+      q,
+      (snaps) => {
+        if (disposed || snaps.empty) return;
+        const docsList: Array<{ id: string; data: Record<string, unknown> }> = [];
+        snaps.forEach((docSnap) => {
+          docsList.push({ id: docSnap.id, data: docSnap.data() });
+        });
+        const clean = mapBannerDocsToSlides(docsList);
+        if (clean.length > 0) {
+          onBannersChanged(clean);
+        }
+      },
+      () => {}
+    );
+  } catch {
+    // ignore snapshot setup error
+  }
+
+  return () => {
+    disposed = true;
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+    }
+  };
 }
 
 export async function deleteOwnCloudAccountData(expectedEmail?: string): Promise<void> {
@@ -1472,7 +1776,31 @@ export interface CloudAnnouncementRecord {
   created_at: string;
 }
 
+function mapDocToCloudAnnouncement(
+  docId: string,
+  d: Record<string, unknown>
+): CloudAnnouncementRecord {
+  const createdAt =
+    clampStr(d.createdAtIso || '', 64) ||
+    toIsoFromTimestampOrString(d.createdAt) ||
+    new Date().toISOString();
+  return {
+    announcementId: clampStr(d.announcementId || docId, 128),
+    id: Number(d.numericId) || stableNumericId(docId),
+    title: clampStr(d.title || '', 200),
+    content: clampStr(d.content || '', 8000),
+    type: d.type === 'material' ? 'material' : 'announcement',
+    authorUid: clampStr(d.authorUid || '', 128),
+    author_name: clampStr(d.authorName || 'Mr. Kasrawan', 120) || 'Mr. Kasrawan',
+    attachment_name: d.attachmentName ? clampStr(d.attachmentName, 200) : null,
+    attachment_url: d.attachmentUrl ? clampStr(d.attachmentUrl, 260000) : null,
+    attachment_mime: d.attachmentMime ? clampStr(d.attachmentMime, 120) : null,
+    created_at: createdAt,
+  };
+}
+
 export async function fetchCloudAnnouncements(): Promise<CloudAnnouncementRecord[]> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!isTrustedCloudAuthUser(fbUser)) {
     return [];
@@ -1485,30 +1813,76 @@ export async function fetchCloudAnnouncements(): Promise<CloudAnnouncementRecord
     const snaps = await getDocs(q);
     const list: CloudAnnouncementRecord[] = [];
     snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      const createdAt =
-        clampStr(d.createdAtIso || '', 64) ||
-        toIsoFromTimestampOrString(d.createdAt) ||
-        new Date().toISOString();
-      list.push({
-        announcementId: clampStr(d.announcementId || docSnap.id, 128),
-        id: Number(d.numericId) || stableNumericId(docSnap.id),
-        title: clampStr(d.title || '', 200),
-        content: clampStr(d.content || '', 8000),
-        type: d.type === 'material' ? 'material' : 'announcement',
-        authorUid: clampStr(d.authorUid || '', 128),
-        author_name: clampStr(d.authorName || 'Mr. Kasrawan', 120) || 'Mr. Kasrawan',
-        attachment_name: d.attachmentName ? clampStr(d.attachmentName, 200) : null,
-        attachment_url: d.attachmentUrl ? clampStr(d.attachmentUrl, 260000) : null,
-        attachment_mime: d.attachmentMime ? clampStr(d.attachmentMime, 120) : null,
-        created_at: createdAt,
-      });
+      list.push(mapDocToCloudAnnouncement(docSnap.id, docSnap.data()));
     });
     list.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id);
     return list;
   } catch {
     return [];
   }
+}
+
+export function subscribeCloudAnnouncements(
+  onAnnouncementsChanged: (list: CloudAnnouncementRecord[]) => void
+): () => void {
+  let disposed = false;
+  let unsubSnap: (() => void) | null = null;
+
+  const attach = async () => {
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+      unsubSnap = null;
+    }
+    await auth.authStateReady().catch(() => {});
+    if (disposed) return;
+    const fbUser = auth.currentUser;
+    if (!isTrustedCloudAuthUser(fbUser)) return;
+
+    try {
+      const q = query(
+        collection(db, 'announcements'),
+        where('scope', '==', 'school')
+      );
+      unsubSnap = onSnapshot(
+        q,
+        (snaps) => {
+          if (disposed) return;
+          const list: CloudAnnouncementRecord[] = [];
+          snaps.forEach((docSnap) => {
+            list.push(mapDocToCloudAnnouncement(docSnap.id, docSnap.data()));
+          });
+          list.sort(
+            (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+          );
+          onAnnouncementsChanged(list);
+        },
+        () => {}
+      );
+    } catch {
+      // ignore non-fatal announcements snapshot setup error
+    }
+  };
+
+  void attach();
+  const unsubAuth = onAuthStateChanged(auth, () => {
+    void attach();
+  });
+
+  return () => {
+    disposed = true;
+    unsubAuth();
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+    }
+  };
 }
 
 export async function createCloudAnnouncement(params: {
@@ -1522,6 +1896,7 @@ export async function createCloudAnnouncement(params: {
     attachmentMime: string;
   } | null;
 }): Promise<CloudAnnouncementRecord | null> {
+  await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
   if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) {
     return null;

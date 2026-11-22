@@ -1,13 +1,15 @@
 import { HERO_SLIDES, type HeroSlide } from '../config/heroSlides';
 
 export const HERO_SLIDES_STORAGE_KEY = 'grade9hub_hero_slides_v1';
+export const HERO_BANNERS_UPDATED_EVENT = 'grade9hub:hero-banners-updated';
+export const HERO_BANNERS_CHANNEL_NAME = 'grade9hub-banners';
 export const MAX_HERO_SLIDES = 12;
-const MAX_DATA_URL_LENGTH = 900_000;
+export const MAX_HERO_DATA_URL_LENGTH = 260_000;
 
 export function isSafeHeroSlideSrc(src: unknown): src is string {
   if (typeof src !== 'string') return false;
   const trimmed = src.trim();
-  if (!trimmed || trimmed.length > MAX_DATA_URL_LENGTH) return false;
+  if (!trimmed || trimmed.length > MAX_HERO_DATA_URL_LENGTH) return false;
   if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
     return !/[\s<>"'`]/.test(trimmed);
   }
@@ -119,6 +121,28 @@ export function resetLocalHeroSlides(): HeroSlide[] {
   return defaults;
 }
 
+export function broadcastHeroBannersUpdated(slides: HeroSlide[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(HERO_BANNERS_UPDATED_EVENT, {
+        detail: { slides },
+      })
+    );
+  } catch {
+    // ignore CustomEvent errors
+  }
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(HERO_BANNERS_CHANNEL_NAME);
+      channel.postMessage({ type: 'HERO_BANNERS_UPDATED', slides });
+      channel.close();
+    }
+  } catch {
+    // ignore BroadcastChannel failures on Safari
+  }
+}
+
 export function readAndCompressBannerFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
@@ -126,22 +150,22 @@ export function readAndCompressBannerFile(file: File): Promise<string> {
       reject(new Error('INVALID_IMAGE_TYPE'));
       return;
     }
-    if (file.size > 12 * 1024 * 1024) {
+    if (file.size > 16 * 1024 * 1024) {
       reject(new Error('IMAGE_TOO_LARGE'));
       return;
     }
 
-    // Preserve animated GIFs or compact PNG/WebP files directly when well under quota
+    // Preserve compact GIFs or tiny images verbatim if already safely within cloud/local budget
     if (
-      (file.type === 'image/gif' && file.size <= 550 * 1024) ||
-      (file.type !== 'image/gif' && file.size <= 160 * 1024)
+      (file.type === 'image/gif' && file.size <= 180 * 1024) ||
+      (file.type !== 'image/gif' && file.size <= 130 * 1024)
     ) {
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result === 'string' && isSafeHeroSlideSrc(reader.result)) {
           resolve(reader.result);
         } else {
-          reject(new Error('IMAGE_READ_FAILED'));
+          reject(new Error('IMAGE_TOO_LARGE'));
         }
       };
       reader.onerror = () => reject(new Error('IMAGE_READ_FAILED'));
@@ -153,35 +177,61 @@ export function readAndCompressBannerFile(file: File): Promise<string> {
     const img = new Image();
     img.onload = () => {
       try {
-        const maxWidth = 1440;
-        const maxHeight = 760;
-        const ratio = Math.min(1, maxWidth / img.width, maxHeight / img.height);
-        const targetW = Math.max(1, Math.round(img.width * ratio));
-        const targetH = Math.max(1, Math.round(img.height * ratio));
+        const sizeSteps = [
+          { maxW: 1280, maxH: 680 },
+          { maxW: 1080, maxH: 580 },
+          { maxW: 880, maxH: 480 },
+        ];
+        const qualitySteps = [0.82, 0.72, 0.6, 0.48];
+        let bestDataUrl = '';
 
-        const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          URL.revokeObjectURL(objectUrl);
-          reject(new Error('IMAGE_READ_FAILED'));
-          return;
+        for (const dims of sizeSteps) {
+          const ratio = Math.min(
+            1,
+            dims.maxW / Math.max(1, img.width),
+            dims.maxH / Math.max(1, img.height)
+          );
+          const targetW = Math.max(1, Math.round(img.width * ratio));
+          const targetH = Math.max(1, Math.round(img.height * ratio));
+
+          const canvas = document.createElement('canvas');
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            URL.revokeObjectURL(objectUrl);
+            reject(new Error('IMAGE_READ_FAILED'));
+            return;
+          }
+          ctx.fillStyle = '#470A10';
+          ctx.fillRect(0, 0, targetW, targetH);
+          ctx.drawImage(img, 0, 0, targetW, targetH);
+
+          for (const quality of qualitySteps) {
+            const webpCandidate = canvas.toDataURL('image/webp', quality);
+            if (
+              webpCandidate.startsWith('data:image/webp;') &&
+              webpCandidate.length <= MAX_HERO_DATA_URL_LENGTH - 8000
+            ) {
+              bestDataUrl = webpCandidate;
+              break;
+            }
+            const jpegCandidate = canvas.toDataURL('image/jpeg', quality);
+            if (jpegCandidate.length <= MAX_HERO_DATA_URL_LENGTH - 8000) {
+              bestDataUrl = jpegCandidate;
+              break;
+            }
+          }
+          if (bestDataUrl) break;
         }
-        ctx.fillStyle = '#470A10';
-        ctx.fillRect(0, 0, targetW, targetH);
-        ctx.drawImage(img, 0, 0, targetW, targetH);
+
         URL.revokeObjectURL(objectUrl);
 
-        let dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-        if (dataUrl.length > MAX_DATA_URL_LENGTH) {
-          dataUrl = canvas.toDataURL('image/jpeg', 0.72);
-        }
-        if (!isSafeHeroSlideSrc(dataUrl)) {
+        if (!bestDataUrl || !isSafeHeroSlideSrc(bestDataUrl)) {
           reject(new Error('IMAGE_TOO_LARGE'));
           return;
         }
-        resolve(dataUrl);
+        resolve(bestDataUrl);
       } catch {
         URL.revokeObjectURL(objectUrl);
         reject(new Error('IMAGE_READ_FAILED'));

@@ -217,6 +217,14 @@ export interface Translations {
     announcementDeletedMsg: string;
     announcementValidationErr: string;
     announcementAttachmentTooLargeCloud: string;
+    bannerEditSlide: string;
+    bannerEditingTitle: string;
+    bannerReplacePhoto: string;
+    bannerUpdateSlideBtn: string;
+    bannerCancelEditBtn: string;
+    bannerMaxSlidesErr: string;
+    bannerSaveFailedErr: string;
+    announcementLiveDelivered: string;
   };
   quiz: {
     mcTitle: string;
@@ -1163,6 +1171,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       announcementValidationErr: 'Please enter both a title and a message before publishing.',
       announcementAttachmentTooLargeCloud:
         'Attachment is too large for cloud sync. Please upload a smaller image or file (under 180 KB).',
+      bannerEditSlide: 'Edit / Replace',
+      bannerEditingTitle: 'Editing Slide',
+      bannerReplacePhoto: 'Replace Photo',
+      bannerUpdateSlideBtn: 'Apply Changes',
+      bannerCancelEditBtn: 'Cancel Edit',
+      bannerMaxSlidesErr: 'Maximum of {max} banner slides reached. Remove or edit an existing slide.',
+      bannerSaveFailedErr: 'Could not save banners. Remove an oversized image or try signing in again.',
+      announcementLiveDelivered: 'Delivered live to all accounts and notification feeds.',
     },
     quiz: {
       mcTitle: 'Multiple Choice · 11 Chapters',
@@ -2115,6 +2131,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       announcementValidationErr: 'تکایە هەم ناونیشان و هەم ناوەڕۆکی پەیام بنووسە پێش بڵاوکردنەوە.',
       announcementAttachmentTooLargeCloud:
         'قەبارەی فایلەکە زۆر گەورەیە بۆ هاوکاتکردنی هەور. تکایە وێنە یان فایلێکی بچووکتر لە 180 KB هەڵبژێرە.',
+      bannerEditSlide: 'دەستکاری / گۆڕین',
+      bannerEditingTitle: 'دەستکاریکردنی سلاید',
+      bannerReplacePhoto: 'گۆڕینی وێنە',
+      bannerUpdateSlideBtn: 'جێبەجێکردنی گۆڕانکاری',
+      bannerCancelEditBtn: 'پاشگەزبوونەوە لە دەستکاری',
+      bannerMaxSlidesErr: 'گەیشتوویتە زۆرترین ژمارەی سلاید ({max}). سلایدێک بسڕەوە یان دەستکاری بکە.',
+      bannerSaveFailedErr: 'پاشەکەوتکردنی پۆستەرەکان سەرکەوتوو نەبوو. وێنەیەکی قورس لاببە یان دووبارە بچۆرە ژوورەوە.',
+      announcementLiveDelivered: 'بە شێوەی ڕاستەوخۆ گەیشتە هەموو هەژمارەکان و ئاگادارکردنەوەکان.',
     },
     quiz: {
       mcTitle: 'هەڵبژاردنی فرە · ١١ بەش',
@@ -3067,6 +3091,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       announcementValidationErr: 'يرجى كتابة العنوان ونص الرسالة قبل النشر.',
       announcementAttachmentTooLargeCloud:
         'حجم المرفق كبير جداً للمزامنة السحابية. يرجى اختيار صورة أو ملف أصغر من 180 كيلوبايت.',
+      bannerEditSlide: 'تعديل / استبدال',
+      bannerEditingTitle: 'تعديل الشريحة',
+      bannerReplacePhoto: 'استبدال الصورة',
+      bannerUpdateSlideBtn: 'تطبيق التعديلات',
+      bannerCancelEditBtn: 'إلغاء التعديل',
+      bannerMaxSlidesErr: 'تم بلوغ الحد الأقصى وهو {max} شريحة. احذف شريحة أو عدّل شريحة حالية.',
+      bannerSaveFailedErr: 'تعذّر حفظ الشرائح. أزل الصور كبيرة الحجم أو أعد تسجيل الدخول وحاول مجدداً.',
+      announcementLiveDelivered: 'تم الإرسال مباشرة إلى جميع الحسابات وصناديق الإشعارات.',
     },
     quiz: {
       mcTitle: 'الاختيار من متعدد · ١١ فصلاً',

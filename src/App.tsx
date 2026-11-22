@@ -83,13 +83,22 @@ import { UserAvatar } from './components/UserAvatar';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
 import { useStudentGreeting } from './utils/greeting';
+import { showDeviceScreenNotification } from './utils/deviceNotifications';
 import {
+  broadcastHeroBannersUpdated,
+  sanitizeHeroSlidesList,
+  saveLocalHeroSlides,
+} from './lib/heroSlidesStore';
+import {
+  fetchCloudHeroBanners,
   MAIN_ADMIN_EMAIL,
   pullAllSchoolAccountsAsAdmin,
   pullCloudUserProfile,
   pushSchoolAccountsAsAdmin,
   SchoolAccountMirrorRow,
   signOutFirebaseCloud,
+  subscribeCloudAnnouncements,
+  subscribeCloudHeroBanners,
   subscribeCurrentUserAccountValidity,
   syncCurrentUserToFirestore,
 } from './lib/cloudAccounts';
@@ -184,6 +193,16 @@ export default function App() {
     try {
       const data = await apiFetch<{ settings: AppSettings }>('/api/settings/public');
       if (data?.settings) {
+        const sanitized = sanitizeHeroSlidesList(data.settings.heroSlides);
+        if (sanitized.length === 0) {
+          const cloudSlides = await fetchCloudHeroBanners().catch(() => null);
+          if (cloudSlides && cloudSlides.length > 0) {
+            saveLocalHeroSlides(cloudSlides);
+            broadcastHeroBannersUpdated(cloudSlides);
+            setAppSettings({ ...data.settings, heroSlides: cloudSlides });
+            return;
+          }
+        }
         setAppSettings(data.settings);
       }
     } catch {
@@ -194,6 +213,29 @@ export default function App() {
   useEffect(() => {
     void fetchPublicSettings();
   }, [fetchPublicSettings]);
+
+  // Real-time cloud hero banner synchronization across devices & tabs
+  useEffect(() => {
+    const unsubBanners = subscribeCloudHeroBanners((cloudSlides) => {
+      if (cloudSlides.length === 0) return;
+      saveLocalHeroSlides(cloudSlides);
+      broadcastHeroBannersUpdated(cloudSlides);
+      setAppSettings((prev) =>
+        prev
+          ? { ...prev, heroSlides: cloudSlides }
+          : {
+              allowStudentRegistration: true,
+              communityEnabled: true,
+              communityPostingEnabled: true,
+              aiTutorEnabled: true,
+              defaultLanguage: 'en',
+              maintenanceMessage: '',
+              heroSlides: cloudSlides,
+            }
+      );
+    });
+    return () => unsubBanners();
+  }, []);
 
   const fetchAdminDashboard = useCallback(async () => {
     if (!isPrivileged) return;
@@ -253,21 +295,13 @@ export default function App() {
             );
             if (
               newUnread.length > 0 &&
-              user.notifications_enabled !== false &&
-              typeof window !== 'undefined' &&
-              'Notification' in window &&
-              Notification.permission === 'granted'
+              user.notifications_enabled !== false
             ) {
               const latest = newUnread[0];
-              try {
-                new Notification(latest.title, {
-                  body: latest.body,
-                  icon: '/pwa-192x192.png',
-                  tag: `grade9hub-notif-${latest.id}`,
-                });
-              } catch {
-                // ignore browsers requiring SW-only showNotification
-              }
+              void showDeviceScreenNotification(latest.title, latest.body, {
+                tag: `grade9hub-notif-${latest.id}`,
+                tab: latest.link_tab || 'notifications',
+              });
             }
           }
         }
@@ -679,6 +713,65 @@ export default function App() {
             void resetClientAuthState(false, reason);
           } else if (msg.type === 'admin:dashboard' && msg.payload) {
             setAdminSnapshot(msg.payload as AdminDashboardSnapshot);
+          } else if (msg.type === 'admin:users_updated') {
+            wsEventSeqRef.current += 1;
+            setLiveCommunityEvent({
+              seq: wsEventSeqRef.current,
+              type: 'admin:users_updated',
+              payload: msg.payload,
+            });
+            if (isPrivileged) {
+              void fetchAdminDashboard();
+            }
+          } else if (msg.type === 'announcement:created') {
+            void fetchAnnouncements();
+            void fetchNotifications();
+            const p = (msg.payload || {}) as {
+              id?: number;
+              title?: string;
+              content?: string;
+              type?: 'announcement' | 'material';
+              created_by?: number;
+            };
+            const activeUser = userRef.current;
+            if (
+              activeUser &&
+              activeUser.notifications_enabled !== false &&
+              p.created_by !== activeUser.id &&
+              p.title
+            ) {
+              const notifTitle =
+                p.type === 'material'
+                  ? `New Study Material: ${p.title}`
+                  : `Announcement: ${p.title}`;
+              void showDeviceScreenNotification(notifTitle, (p.content || '').slice(0, 140), {
+                tag: `grade9hub-ann-${p.id ?? Date.now()}`,
+                tab: 'home',
+              });
+            }
+          } else if (msg.type === 'announcement:deleted') {
+            void fetchAnnouncements();
+            void fetchNotifications();
+          } else if (msg.type === 'notification:new') {
+            void fetchNotifications();
+            const p = (msg.payload || {}) as {
+              title?: string;
+              body?: string;
+              linkTab?: string;
+              createdBy?: number;
+            };
+            const activeUser = userRef.current;
+            if (
+              activeUser &&
+              activeUser.notifications_enabled !== false &&
+              p.createdBy !== activeUser.id &&
+              p.title
+            ) {
+              void showDeviceScreenNotification(p.title, (p.body || '').slice(0, 140), {
+                tag: `grade9hub-ws-${Date.now()}`,
+                tab: p.linkTab || 'notifications',
+              });
+            }
           } else if (msg.type === 'admin:vault_dirty' && isPrivileged && user?.email) {
             if (vaultDirtyTimerRef.current) {
               clearTimeout(vaultDirtyTimerRef.current);
@@ -713,7 +806,13 @@ export default function App() {
           } else if (msg.type === 'leaderboard:update') {
             setLeaderboardVersion((v) => v + 1);
           } else if (msg.type === 'app:settings' && msg.payload) {
-            setAppSettings(msg.payload as AppSettings);
+            const nextSettings = msg.payload as AppSettings;
+            const nextSlides = sanitizeHeroSlidesList(nextSettings.heroSlides);
+            if (nextSlides.length > 0) {
+              saveLocalHeroSlides(nextSlides);
+              broadcastHeroBannersUpdated(nextSlides);
+            }
+            setAppSettings(nextSettings);
           }
         } catch {
           // ignore malformed messages
@@ -1154,6 +1253,111 @@ export default function App() {
       clearInterval(intervalId);
     };
   }, [user?.id, user?.email, resetClientAuthState]);
+
+  // Real-time Firestore Announcements & Screen/Device Notification listener across devices
+  useEffect(() => {
+    if (!user) return;
+    const seenKey = `grade9hub_seen_cloud_ann_${user.id}`;
+    let hasSeeded = false;
+    const seenIds = new Set<string>();
+    try {
+      const raw = window.localStorage.getItem(seenKey);
+      if (raw) {
+        hasSeeded = true;
+        const parsed = JSON.parse(raw) as unknown;
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            if (typeof entry === 'string') seenIds.add(entry);
+          }
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+
+    const persistSeen = () => {
+      try {
+        window.localStorage.setItem(seenKey, JSON.stringify(Array.from(seenIds).slice(-200)));
+      } catch {
+        // ignore storage errors
+      }
+    };
+
+    const unsub = subscribeCloudAnnouncements((cloudList) => {
+      if (!hasSeeded) {
+        for (const item of cloudList) {
+          seenIds.add(item.announcementId);
+        }
+        hasSeeded = true;
+        persistSeen();
+      } else {
+        const myFbUid = auth.currentUser?.uid || '';
+        const newlyArrived = cloudList.filter(
+          (item) => !seenIds.has(item.announcementId)
+        );
+        if (newlyArrived.length > 0) {
+          for (const item of newlyArrived) {
+            seenIds.add(item.announcementId);
+          }
+          persistSeen();
+
+          const fromOthers = newlyArrived.filter(
+            (item) => !myFbUid || item.authorUid !== myFbUid
+          );
+          if (fromOthers.length > 0 && user.notifications_enabled !== false) {
+            const latest = fromOthers[0];
+            const notifTitle =
+              latest.type === 'material'
+                ? `New Study Material: ${latest.title}`
+                : `Announcement: ${latest.title}`;
+            void showDeviceScreenNotification(
+              notifTitle,
+              (latest.content || '').slice(0, 140),
+              {
+                tag: `grade9hub-ann-${latest.announcementId}`,
+                tab: 'home',
+              }
+            );
+          }
+        }
+      }
+
+      if (isStaticHostMode()) {
+        void fetchAnnouncements();
+        void fetchNotifications();
+      } else if (cloudList.length > 0) {
+        setAnnouncements((prev) => {
+          const existingKeys = new Set(prev.map((a) => `${a.title.trim()}::${a.content.trim()}`));
+          const additions: Announcement[] = [];
+          for (const item of cloudList) {
+            const key = `${item.title.trim()}::${item.content.trim()}`;
+            if (existingKeys.has(key) || prev.some((a) => a.id === item.id)) {
+              continue;
+            }
+            existingKeys.add(key);
+            additions.push({
+              id: item.id,
+              title: item.title,
+              content: item.content,
+              type: item.type,
+              attachment_name: item.attachment_name,
+              attachment_url: item.attachment_url,
+              attachment_mime: item.attachment_mime,
+              created_at: item.created_at,
+              author_name: item.author_name,
+            });
+          }
+          if (additions.length === 0) return prev;
+          return [...additions, ...prev].sort(
+            (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+          );
+        });
+        void fetchNotifications();
+      }
+    });
+
+    return () => unsub();
+  }, [user?.id, user?.notifications_enabled, fetchAnnouncements, fetchNotifications]);
 
   // Listen to Service Worker notification clicks & background push broadcasts
   useEffect(() => {

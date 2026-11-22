@@ -14,13 +14,19 @@ import {
   Trash2,
   Trophy,
 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { apiFetch, isStaticBackendActive } from '../lib/api';
 import {
   COMPETITION_UPDATED_EVENT,
   getCachedLeaderboard,
   getQueuedPointsSummary,
   saveCachedLeaderboard,
 } from '../lib/competitionQueue';
+import {
+  createCloudAnnouncement,
+  deleteCloudAnnouncement,
+  saveCloudHeroBanners,
+  subscribeCloudHeroBanners,
+} from '../lib/cloudAccounts';
 import { useLanguage } from '../contexts/LanguageContext';
 import {
   Announcement,
@@ -31,6 +37,9 @@ import {
 } from '../types';
 import { HERO_SLIDES, type HeroSlide } from '../config/heroSlides';
 import {
+  HERO_BANNERS_CHANNEL_NAME,
+  HERO_BANNERS_UPDATED_EVENT,
+  broadcastHeroBannersUpdated,
   loadLocalHeroSlides,
   sanitizeHeroSlidesList,
   saveLocalHeroSlides,
@@ -110,41 +119,100 @@ export const HomeView: React.FC<HomeViewProps> = ({
     }
   }, [appSettings?.heroSlides]);
 
+  useEffect(() => {
+    const unsubCloud = subscribeCloudHeroBanners((cloudSlides) => {
+      if (cloudSlides.length > 0) {
+        setHeroSlides(cloudSlides);
+        saveLocalHeroSlides(cloudSlides);
+      }
+    });
+
+    const handleCustomUpdate = (e: Event) => {
+      const detailSlides = sanitizeHeroSlidesList(
+        (e as CustomEvent<{ slides?: HeroSlide[] }>)?.detail?.slides
+      );
+      if (detailSlides.length > 0) {
+        setHeroSlides(detailSlides);
+      }
+    };
+    window.addEventListener(HERO_BANNERS_UPDATED_EVENT, handleCustomUpdate);
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        channel = new BroadcastChannel(HERO_BANNERS_CHANNEL_NAME);
+        channel.onmessage = (msg) => {
+          const incomingSlides = sanitizeHeroSlidesList(msg.data?.slides);
+          if (incomingSlides.length > 0) {
+            setHeroSlides(incomingSlides);
+            saveLocalHeroSlides(incomingSlides);
+          }
+        };
+      }
+    } catch {
+      // ignore BroadcastChannel failures on Safari
+    }
+
+    return () => {
+      unsubCloud();
+      window.removeEventListener(HERO_BANNERS_UPDATED_EVENT, handleCustomUpdate);
+      if (channel) {
+        try {
+          channel.close();
+        } catch {
+          // ignore close error
+        }
+      }
+    };
+  }, []);
+
   const handleSaveHeroSlides = async (
     nextSlides: HeroSlide[]
   ): Promise<{ ok: boolean; notice?: string }> => {
-    const cleanSlides =
-      sanitizeHeroSlidesList(nextSlides).length > 0
-        ? sanitizeHeroSlidesList(nextSlides)
-        : [...HERO_SLIDES];
+    const sanitized = sanitizeHeroSlidesList(nextSlides);
+    const cleanSlides = sanitized.length > 0 ? sanitized : [...HERO_SLIDES];
 
     try {
-      const res = await apiFetch<{ ok: boolean; settings: AppSettings }>(
-        '/api/admin/settings',
-        {
-          method: 'PUT',
-          body: JSON.stringify({ heroSlides: cleanSlides }),
-        }
-      );
+      const res = await apiFetch<{
+        ok: boolean;
+        cloudSynced?: boolean;
+        settings: AppSettings;
+      }>('/api/admin/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ heroSlides: cleanSlides }),
+      });
       const savedList = sanitizeHeroSlidesList(res?.settings?.heroSlides);
       const finalSlides = savedList.length > 0 ? savedList : cleanSlides;
+
+      if (!isStaticBackendActive()) {
+        await saveCloudHeroBanners(finalSlides).catch(() => false);
+      }
+
       setHeroSlides(finalSlides);
       saveLocalHeroSlides(finalSlides);
+      broadcastHeroBannersUpdated(finalSlides);
       if (res?.settings && onAppSettingsUpdated) {
         onAppSettingsUpdated(res.settings);
       }
       setBannerStatusNotice(t.home.bannerSavedMsg);
       return { ok: true };
     } catch {
-      const localResult = saveLocalHeroSlides(cleanSlides);
+      const [cloudOk, localResult] = await Promise.all([
+        saveCloudHeroBanners(cleanSlides).catch(() => false),
+        Promise.resolve(saveLocalHeroSlides(cleanSlides)),
+      ]);
+      if (!cloudOk && !localResult.ok) {
+        return { ok: false, notice: t.home.bannerSaveFailedErr };
+      }
       setHeroSlides(localResult.slides);
+      broadcastHeroBannersUpdated(localResult.slides);
       if (onAppSettingsUpdated && appSettings) {
         onAppSettingsUpdated({
           ...appSettings,
           heroSlides: localResult.slides,
         });
       }
-      setBannerStatusNotice(t.home.bannerStorageFallbackMsg);
+      setBannerStatusNotice(cloudOk ? t.home.bannerSavedMsg : t.home.bannerStorageFallbackMsg);
       return { ok: true };
     }
   };
@@ -205,6 +273,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
         method: 'POST',
         body: formData,
       });
+      if (!isStaticBackendActive()) {
+        void createCloudAnnouncement({
+          title: trimmedTitle,
+          content: trimmedContent,
+          type,
+          authorName: user.name || 'Mr. Kasrawan',
+        }).catch(() => null);
+      }
       setTitle('');
       setContent('');
       setFile(null);
@@ -212,7 +288,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
         fileInputRef.current.value = '';
       }
       setShowPublisher(false);
-      setAnnouncementNotice(t.home.announcementPublishedMsg);
+      setAnnouncementNotice(
+        `${t.home.announcementPublishedMsg} ${t.home.announcementLiveDelivered}`
+      );
       await onRefreshAnnouncements();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to publish update.');
@@ -226,6 +304,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
     setAnnouncementNotice(null);
     try {
       await apiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
+      if (!isStaticBackendActive()) {
+        void deleteCloudAnnouncement(id).catch(() => {});
+      }
       setAnnouncementNotice(t.home.announcementDeletedMsg);
       await onRefreshAnnouncements();
     } catch (err) {

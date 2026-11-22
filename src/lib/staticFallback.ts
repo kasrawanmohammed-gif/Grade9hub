@@ -1,5 +1,8 @@
 import curriculumData from './curriculumSnapshot.json';
-import { sanitizeHeroSlidesList } from './heroSlidesStore';
+import {
+  broadcastHeroBannersUpdated,
+  sanitizeHeroSlidesList,
+} from './heroSlidesStore';
 import {
   AdminStudentPerformance,
   AdminUserRecord,
@@ -41,6 +44,7 @@ import {
   fetchCloudAnnouncements,
   fetchCloudAppSettings,
   fetchCloudDirectMessages,
+  fetchCloudHeroBanners,
   fetchCloudRegisteredUsersAsAdmin,
   fetchFirestoreLeaderboard,
   isCurrentUserCloudRevoked,
@@ -50,6 +54,7 @@ import {
   recordFreshLoginTimestamp,
   recordQuizAttemptToCloud,
   saveCloudAppSettings,
+  saveCloudHeroBanners,
   sendCloudDirectMessage,
   syncCloudPeerPresence,
   syncCurrentUserToFirestore,
@@ -68,6 +73,7 @@ const STATIC_SETTINGS_KEY = 'grade9hub_static_settings_v1';
 const STATIC_COMMUNITY_KEY = 'grade9hub_static_community_v1';
 const STATIC_ANNOUNCEMENTS_KEY = 'grade9hub_static_announcements_v1';
 const STATIC_NOTIFICATIONS_KEY = 'grade9hub_static_notifications_v1';
+const STATIC_READ_ANNOUNCEMENTS_KEY = 'grade9hub_static_read_ann_ids_v1';
 const PRESENCE_TTL_MS = 90_000;
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -260,12 +266,13 @@ function readLocalJson<T>(key: string, fallback: T): T {
   }
 }
 
-function writeLocalJson(key: string, value: unknown): void {
+function writeLocalJson(key: string, value: unknown): boolean {
   try {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') return false;
     window.localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // ignore quota errors
+    return false;
   }
 }
 
@@ -588,9 +595,9 @@ function getLocalAppSettings(): AppSettings {
   };
 }
 
-function saveLocalAppSettings(
+function saveLocalAppSettingsWithStatus(
   patch: Partial<AppSettings> & { heroSlides?: AppSettings['heroSlides'] | null }
-): AppSettings {
+): { ok: boolean; settings: AppSettings } {
   const cur = getLocalAppSettings();
   let nextSlides = cur.heroSlides;
   if (patch.heroSlides === null) {
@@ -626,8 +633,14 @@ function saveLocalAppSettings(
     ...(nextSlides ? { heroSlides: nextSlides } : {}),
     updatedAt: new Date().toISOString(),
   };
-  writeLocalJson(STATIC_SETTINGS_KEY, next);
-  return next;
+  const ok = writeLocalJson(STATIC_SETTINGS_KEY, next);
+  return { ok, settings: next };
+}
+
+function saveLocalAppSettings(
+  patch: Partial<AppSettings> & { heroSlides?: AppSettings['heroSlides'] | null }
+): AppSettings {
+  return saveLocalAppSettingsWithStatus(patch).settings;
 }
 
 interface StaticCommunityStore {
@@ -704,13 +717,32 @@ async function buildMergedAccountsRegistry(): Promise<{
     created_at?: string;
   }) => {
     const normEmail = (entry.email || '').trim().toLowerCase();
-    const existingId =
+    let existingId =
       (normEmail && emailToId.get(normEmail)) ||
       (entry.cloudUid && uidToId.get(entry.cloudUid)) ||
       entry.id;
-    const id =
+    if (existingId && byId.has(existingId)) {
+      const collisionCandidate = byId.get(existingId)!;
+      const emailMismatch =
+        Boolean(normEmail && collisionCandidate.email && collisionCandidate.email !== normEmail);
+      const uidMismatch =
+        Boolean(entry.cloudUid && collisionCandidate.cloudUid && collisionCandidate.cloudUid !== entry.cloudUid);
+      if (emailMismatch || uidMismatch) {
+        existingId = undefined;
+      }
+    }
+    let id =
       existingId ||
       stableNumericId(normEmail || entry.cloudUid || entry.name || String(Math.random()));
+    while (byId.has(id)) {
+      const candidate = byId.get(id)!;
+      const sameEmail = Boolean(normEmail && candidate.email === normEmail);
+      const sameUid = Boolean(entry.cloudUid && candidate.cloudUid === entry.cloudUid);
+      const noDistinctId =
+        (!normEmail || !candidate.email) && (!entry.cloudUid || !candidate.cloudUid);
+      if (sameEmail || sameUid || noDistinctId) break;
+      id += 1;
+    }
     if (normEmail) emailToId.set(normEmail, id);
     if (entry.cloudUid) uidToId.set(entry.cloudUid, id);
 
@@ -844,13 +876,14 @@ async function buildMergedAccountsRegistry(): Promise<{
     });
   }
 
-  for (const lp of Object.values(localProfiles)) {
-    if (!lp?.email) continue;
+  for (const [profileKey, lp] of Object.entries(localProfiles)) {
+    const resolvedEmail = (lp?.email || profileKey || '').trim().toLowerCase();
+    if (!lp || !resolvedEmail) continue;
     upsertProfile({
       id: lp.id,
-      name: lp.name,
-      email: lp.email,
-      role: lp.role,
+      name: lp.name || formatDisplayNameFromEmail(resolvedEmail),
+      email: resolvedEmail,
+      role: lp.role === 'teacher' ? 'teacher' : 'student',
       isAdmin: Boolean(lp.isAdmin),
       grade: lp.grade,
       bio: lp.bio,
@@ -1826,11 +1859,16 @@ export async function handleStaticApiFallback(
   // 14b. App Settings (/api/settings/public, /api/admin/settings)
   if (pathname === '/api/settings/public' && method === 'GET') {
     const localSettings = getLocalAppSettings();
-    const cloud = await fetchCloudAppSettings().catch(() => null);
-    if (cloud) {
-      const merged = {
-        ...cloud,
-        ...(localSettings.heroSlides ? { heroSlides: localSettings.heroSlides } : {}),
+    const [cloud, cloudBanners] = await Promise.all([
+      fetchCloudAppSettings().catch(() => null),
+      fetchCloudHeroBanners().catch(() => null),
+    ]);
+    const resolvedSlides =
+      cloudBanners && cloudBanners.length > 0 ? cloudBanners : localSettings.heroSlides;
+    if (cloud || (resolvedSlides && resolvedSlides.length > 0)) {
+      const merged: AppSettings = {
+        ...(cloud || localSettings),
+        ...(resolvedSlides && resolvedSlides.length > 0 ? { heroSlides: resolvedSlides } : {}),
       };
       writeLocalJson(STATIC_SETTINGS_KEY, merged);
       return { settings: merged };
@@ -1842,11 +1880,16 @@ export async function handleStaticApiFallback(
       throw new StaticFallbackHttpError('Administrator privileges required.', 403);
     }
     const localSettings = getLocalAppSettings();
-    const cloud = await fetchCloudAppSettings().catch(() => null);
-    if (cloud) {
-      const merged = {
-        ...cloud,
-        ...(localSettings.heroSlides ? { heroSlides: localSettings.heroSlides } : {}),
+    const [cloud, cloudBanners] = await Promise.all([
+      fetchCloudAppSettings().catch(() => null),
+      fetchCloudHeroBanners().catch(() => null),
+    ]);
+    const resolvedSlides =
+      cloudBanners && cloudBanners.length > 0 ? cloudBanners : localSettings.heroSlides;
+    if (cloud || (resolvedSlides && resolvedSlides.length > 0)) {
+      const merged: AppSettings = {
+        ...(cloud || localSettings),
+        ...(resolvedSlides && resolvedSlides.length > 0 ? { heroSlides: resolvedSlides } : {}),
       };
       writeLocalJson(STATIC_SETTINGS_KEY, merged);
       return { settings: merged };
@@ -1857,9 +1900,32 @@ export async function handleStaticApiFallback(
     if (!isPrivilegedCachedUser()) {
       throw new StaticFallbackHttpError('Administrator privileges required.', 403);
     }
-    const updated = saveLocalAppSettings(body as Partial<AppSettings>);
-    await saveCloudAppSettings(updated).catch(() => false);
-    return { ok: true, settings: updated };
+    const patch = body as Partial<AppSettings>;
+    const hasHeroPatch = Object.prototype.hasOwnProperty.call(patch, 'heroSlides');
+    const localResult = saveLocalAppSettingsWithStatus(patch);
+    const updated = localResult.settings;
+
+    const [cloudSettingsOk, cloudBannersOk] = await Promise.all([
+      saveCloudAppSettings(updated).catch(() => false),
+      hasHeroPatch && updated.heroSlides && updated.heroSlides.length > 0
+        ? saveCloudHeroBanners(updated.heroSlides).catch(() => false)
+        : Promise.resolve(true),
+    ]);
+
+    if (hasHeroPatch && !localResult.ok && !cloudBannersOk) {
+      throw new StaticFallbackHttpError(
+        'Could not save banner slides (storage quota exceeded or permission denied).',
+        500
+      );
+    }
+    if (hasHeroPatch && updated.heroSlides) {
+      broadcastHeroBannersUpdated(updated.heroSlides);
+    }
+    return {
+      ok: true,
+      cloudSynced: hasHeroPatch ? cloudBannersOk : cloudSettingsOk,
+      settings: updated,
+    };
   }
 
   // 15. Cloud & Local Fallbacks for Announcements / Notifications / Messages
@@ -1994,9 +2060,55 @@ export async function handleStaticApiFallback(
   }
 
   if (pathname === '/api/notifications' && method === 'GET') {
-    const items = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []);
-    const unreadCount = items.filter((n) => n.is_read === 0).length;
-    return { notifications: items, unreadCount };
+    const localItems = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []);
+    const readAnnIds = new Set(readLocalJson<number[]>(STATIC_READ_ANNOUNCEMENTS_KEY, []));
+    const localAnnouncements = readLocalJson<Announcement[]>(STATIC_ANNOUNCEMENTS_KEY, []);
+    const cloudAnnouncements = await fetchCloudAnnouncements().catch(() => []);
+
+    const byAnnId = new Map<number, Announcement>();
+    for (const a of localAnnouncements) byAnnId.set(a.id, a);
+    for (const a of cloudAnnouncements) {
+      byAnnId.set(a.id, {
+        id: a.id,
+        title: a.title,
+        content: a.content,
+        type: a.type,
+        attachment_name: a.attachment_name,
+        attachment_url: a.attachment_url,
+        attachment_mime: a.attachment_mime,
+        created_at: a.created_at,
+        author_name: a.author_name,
+      });
+    }
+
+    const viewer = getCachedUserLocal();
+    const existingIds = new Set(localItems.map((n) => n.id));
+    const existingKeys = new Set(localItems.map((n) => `${n.title}::${n.body}`));
+    const synthesized: NotificationItem[] = [];
+    for (const ann of byAnnId.values()) {
+      const notifTitle =
+        ann.type === 'material' ? `New Study Material: ${ann.title}` : `Announcement: ${ann.title}`;
+      const notifBody = (ann.content || '').slice(0, 140);
+      if (existingIds.has(ann.id) || existingKeys.has(`${notifTitle}::${notifBody}`)) {
+        continue;
+      }
+      synthesized.push({
+        id: ann.id,
+        user_id: viewer?.id || 0,
+        title: notifTitle,
+        body: notifBody,
+        category: ann.type === 'material' ? 'material' : 'announcement',
+        link_tab: 'home',
+        is_read: readAnnIds.has(ann.id) ? 1 : 0,
+        created_at: ann.created_at,
+      });
+    }
+
+    const merged = [...synthesized, ...localItems]
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id)
+      .slice(0, 60);
+    const unreadCount = merged.filter((n) => n.is_read === 0).length;
+    return { notifications: merged, unreadCount };
   }
   if (pathname === '/api/notifications/read-all' && method === 'POST') {
     const items = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []).map((n) => ({
@@ -2004,6 +2116,13 @@ export async function handleStaticApiFallback(
       is_read: 1,
     }));
     writeLocalJson(STATIC_NOTIFICATIONS_KEY, items);
+    const localAnnouncements = readLocalJson<Announcement[]>(STATIC_ANNOUNCEMENTS_KEY, []);
+    const prevRead = new Set(readLocalJson<number[]>(STATIC_READ_ANNOUNCEMENTS_KEY, []));
+    for (const n of items) prevRead.add(n.id);
+    for (const a of localAnnouncements) prevRead.add(a.id);
+    const cloudAnnouncements = await fetchCloudAnnouncements().catch(() => []);
+    for (const a of cloudAnnouncements) prevRead.add(a.id);
+    writeLocalJson(STATIC_READ_ANNOUNCEMENTS_KEY, Array.from(prevRead).slice(-200));
     return { ok: true };
   }
   const staticNotifReadMatch = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
@@ -2013,6 +2132,9 @@ export async function handleStaticApiFallback(
       n.id === targetId ? { ...n, is_read: 1 } : n
     );
     writeLocalJson(STATIC_NOTIFICATIONS_KEY, items);
+    const prevRead = new Set(readLocalJson<number[]>(STATIC_READ_ANNOUNCEMENTS_KEY, []));
+    prevRead.add(targetId);
+    writeLocalJson(STATIC_READ_ANNOUNCEMENTS_KEY, Array.from(prevRead).slice(-200));
     return { ok: true };
   }
   if (pathname.startsWith('/api/notifications/') && method === 'POST') {

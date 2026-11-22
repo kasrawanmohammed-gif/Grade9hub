@@ -24,4 +24,5 @@
 13. **Restricted & Main Admin Protection**: Non-admin user updating `isRestricted` on themselves, or any admin deleting/demoting/restricting `mohamdm791@gmail.com` -> DENIED.
 14. **Cross-User DM Snooping or Impersonation**: Reading `/direct_messages` where `request.auth.uid` is not in `participants`, listing without `participants` filter, or sending a DM with `senderUid != request.auth.uid` -> DENIED.
 15. **Unauthorized Announcement Creation or Revocation Forgery**: Non-teacher student creating/deleting `/announcements/{id}` or forging `createdAt != request.time`, or non-admin writing `/account_revocations/{id}` -> DENIED.
+16. **Unauthorized Hero Banner Write or Oversized Payload**: Non-admin student writing, updating, or deleting `/hero_banners/{bannerId}`, injecting unknown fields, or exceeding 280KB banner `src` size -> DENIED (`isAdmin() || isTeacherUser()` + `isValidHeroBanner` required).
 

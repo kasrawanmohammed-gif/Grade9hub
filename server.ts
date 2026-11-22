@@ -1287,10 +1287,18 @@ function notifyAllStudents(params: {
   body: string;
   category: 'announcement' | 'question' | 'chapter' | 'material';
   linkTab: string;
+  excludeUserId?: number;
+  includeTeachers?: boolean;
 }): void {
-  const students = db
-    .prepare("SELECT id FROM users WHERE role = 'student'")
-    .all() as Array<{ id: number }>;
+  const recipients = (
+    params.includeTeachers
+      ? db
+          .prepare('SELECT id FROM users WHERE id != ?')
+          .all(params.excludeUserId ?? -1)
+      : db
+          .prepare("SELECT id FROM users WHERE role = 'student' AND id != ?")
+          .all(params.excludeUserId ?? -1)
+  ) as Array<{ id: number }>;
 
   const insertNotif = db.prepare(
     `INSERT INTO notifications (user_id, title, body, category, link_tab)
@@ -1298,7 +1306,7 @@ function notifyAllStudents(params: {
   );
 
   const tx = db.transaction(() => {
-    for (const st of students) {
+    for (const st of recipients) {
       insertNotif.run(st.id, params.title, params.body, params.category, params.linkTab);
     }
   });
@@ -1738,6 +1746,9 @@ async function startServer() {
     setSessionCookie(req, res, token, expiresAt);
     checkpointDatabase();
     writeRecoverySnapshotSync('user-register');
+    broadcastAdminDashboard();
+    broadcastToAdmins({ type: 'admin:users_updated' });
+    broadcastToAdmins({ type: 'admin:vault_dirty', payload: { reason: 'user-register' } });
 
     res.status(201).json({
       user,
@@ -1920,6 +1931,9 @@ async function startServer() {
       .get(row.id) as DbUserRow;
     checkpointDatabase();
     writeRecoverySnapshotSync('user-login');
+    broadcastAdminDashboard();
+    broadcastToAdmins({ type: 'admin:users_updated' });
+    broadcastToAdmins({ type: 'admin:vault_dirty', payload: { reason: 'user-login' } });
 
     res.json({
       user: serializeAuthUser(freshRow),
@@ -2150,6 +2164,9 @@ async function startServer() {
       .get(userId) as DbUserRow;
     checkpointDatabase();
     writeRecoverySnapshotSync('firebase-google-login');
+    broadcastAdminDashboard();
+    broadcastToAdmins({ type: 'admin:users_updated' });
+    broadcastToAdmins({ type: 'admin:vault_dirty', payload: { reason: 'firebase-google-login' } });
 
     const compTotal = getUserCompetitionTotal(userId);
     const quizStatsRow = db
@@ -3321,6 +3338,7 @@ async function startServer() {
     checkpointDatabase();
     writeRecoverySnapshotSync('admin-user-update');
     broadcastAdminDashboard();
+    broadcastToAdmins({ type: 'admin:users_updated' });
 
     const updated = db
       .prepare(`SELECT ${USER_SELECT_COLS} FROM users WHERE id = ?`)
@@ -3380,6 +3398,7 @@ async function startServer() {
     checkpointDatabase();
     writeRecoverySnapshotSync('admin-role-update');
     broadcastAdminDashboard();
+    broadcastToAdmins({ type: 'admin:users_updated' });
 
     res.json({ ok: true, role: nextRole, isAdmin: Boolean(nextAdmin) });
   });
@@ -3403,6 +3422,7 @@ async function startServer() {
       res.status(result.status).json({ error: result.error });
       return;
     }
+    broadcastToAdmins({ type: 'admin:users_updated' });
 
     res.json({ ok: true, deletedUserId: targetId, deletedEmail: result.deletedEmail });
   });
@@ -4332,11 +4352,17 @@ async function startServer() {
         )
         .run(title, content, type, attachmentName, attachmentUrl, attachmentMime, user.id);
 
+      const notifTitle =
+        type === 'material' ? `New Study Material: ${title}` : `Announcement: ${title}`;
+      const notifBody = content.slice(0, 140);
+
       notifyAllStudents({
-        title: type === 'material' ? `New Study Material: ${title}` : `Announcement: ${title}`,
-        body: content.slice(0, 140),
+        title: notifTitle,
+        body: notifBody,
         category: type === 'material' ? 'material' : 'announcement',
         linkTab: 'home',
+        excludeUserId: user.id,
+        includeTeachers: true,
       });
 
       const created = db
@@ -4347,6 +4373,20 @@ async function startServer() {
            WHERE a.id = ?`
         )
         .get(result.lastInsertRowid);
+      broadcastToAllUsers({
+        type: 'announcement:created',
+        payload: created,
+      });
+      broadcastToAllUsers({
+        type: 'notification:new',
+        payload: {
+          title: notifTitle,
+          body: notifBody,
+          category: type === 'material' ? 'material' : 'announcement',
+          linkTab: 'home',
+          createdBy: user.id,
+        },
+      });
       res.status(201).json({ announcement: created });
     }
   );
@@ -4354,6 +4394,7 @@ async function startServer() {
   app.delete('/api/announcements/:id', requireTeacher, (req: AuthenticatedRequest, res: Response) => {
     const id = Number(req.params.id);
     db.prepare('DELETE FROM announcements WHERE id = ?').run(id);
+    broadcastToAllUsers({ type: 'announcement:deleted', payload: { id } });
     res.json({ ok: true });
   });
 

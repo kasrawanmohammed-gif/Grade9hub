@@ -125,6 +125,13 @@ export const DIRTY_DOZEN_PAYLOAD_TESTS: DirtyDozenCase[] = [
     attackVector: 'Non-admin attempting to revoke another user account',
     expectedOutcome: 'PERMISSION_DENIED',
   },
+  {
+    id: 'DD-17',
+    collection: '/hero_banners/{bannerId}',
+    operation: 'create',
+    attackVector: 'Student role attempting to publish or overwrite homepage hero banner',
+    expectedOutcome: 'PERMISSION_DENIED',
+  },
 ];
 
 export const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;

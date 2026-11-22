@@ -33,8 +33,19 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { apiFetch, getStoredSessionToken } from '../lib/api';
-import { deleteCloudUserAsAdmin, MAIN_ADMIN_EMAIL } from '../lib/cloudAccounts';
+import { onAuthStateChanged } from 'firebase/auth';
+import { ApiError, apiFetch, getStoredSessionToken, isStaticBackendActive } from '../lib/api';
+import { auth } from '../lib/firebase';
+import {
+  CloudRegisteredAccount,
+  createCloudAnnouncement,
+  deleteCloudAnnouncement,
+  deleteCloudUserAsAdmin,
+  fetchCloudRegisteredUsersAsAdmin,
+  MAIN_ADMIN_EMAIL,
+  subscribeCloudRegisteredUsersAsAdmin,
+  updateCloudUserAsAdmin,
+} from '../lib/cloudAccounts';
 import { syncAdminVaultWithStoredKey, syncSessionBoundVault } from '../lib/recoveryVault';
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
@@ -90,6 +101,62 @@ type MonitoringTab =
   | 'content'
   | 'settings'
   | 'backups';
+
+function stableCloudNumericId(seed: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (Math.abs(hash) % 900000000) + 100000;
+}
+
+function mergeRegisteredAccountsWithCloud(
+  serverUsers: AdminUserRecord[],
+  cloudUsers: CloudRegisteredAccount[]
+): AdminUserRecord[] {
+  const merged = [...serverUsers];
+  const seenEmails = new Set(
+    merged.map((u) => u.email.trim().toLowerCase()).filter(Boolean)
+  );
+  const usedIds = new Set(merged.map((u) => u.id));
+
+  for (const c of cloudUsers) {
+    const normEmail = c.email.trim().toLowerCase();
+    if (!normEmail || seenEmails.has(normEmail)) continue;
+    seenEmails.add(normEmail);
+    let candidateId = stableCloudNumericId(c.uid || normEmail);
+    while (usedIds.has(candidateId)) {
+      candidateId += 1;
+    }
+    usedIds.add(candidateId);
+    const isMain = normEmail === MAIN_ADMIN_EMAIL;
+    merged.push({
+      id: candidateId,
+      name: c.name || 'Grade 9 Student',
+      email: c.email,
+      role: isMain || c.role === 'teacher' ? 'teacher' : 'student',
+      isAdmin: isMain || Boolean(c.isAdmin),
+      grade: c.grade || '',
+      bio: c.bio || '',
+      birthday: c.birthday || '',
+      avatar_url: c.avatarUrl || '',
+      online: false,
+      currentSection: '',
+      lastActiveAt: c.lastActiveAt || '',
+      lastLoginAt: c.lastLoginAt || '',
+      isRestricted: !isMain && Boolean(c.isRestricted),
+      restrictionReason: c.restrictionReason || '',
+      createdAt: c.createdAtIso || '',
+      quizzesCompleted: c.quizzesCompleted || 0,
+      questionsAnswered: c.quizzesCompleted ? c.correctAnswers : 0,
+      correctAnswers: c.correctAnswers || 0,
+      avgScorePercent: 0,
+      aiTutorTurns: 0,
+    });
+  }
+  return merged;
+}
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   currentUser,
@@ -292,8 +359,14 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setLoadingAccounts(true);
     setAccountsError(null);
     try {
-      const data = await apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users');
-      setRegisteredUsers(Array.isArray(data.users) ? data.users : []);
+      const [data, cloudUsers] = await Promise.all([
+        apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users'),
+        isStaticBackendActive()
+          ? Promise.resolve([] as CloudRegisteredAccount[])
+          : fetchCloudRegisteredUsersAsAdmin().catch(() => [] as CloudRegisteredAccount[]),
+      ]);
+      const baseList = Array.isArray(data.users) ? data.users : [];
+      setRegisteredUsers(mergeRegisteredAccountsWithCloud(baseList, cloudUsers));
     } catch (err) {
       setAccountsError(err instanceof Error ? err.message : t.profile.loadAccountsError);
     } finally {
@@ -345,6 +418,17 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       fetchAdminSettings(),
       fetchBackups(),
     ]);
+
+    const unsubAuth = onAuthStateChanged(auth, () => {
+      void fetchRegisteredUsers();
+    });
+    const unsubCloudUsers = subscribeCloudRegisteredUsersAsAdmin(() => {
+      void fetchRegisteredUsers();
+    });
+    return () => {
+      unsubAuth();
+      unsubCloudUsers();
+    };
   }, []);
 
   useEffect(() => {
@@ -361,6 +445,10 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
   useEffect(() => {
     if (!liveEvent) return;
+    if (liveEvent.type === 'admin:users_updated' || liveEvent.type === 'admin:dashboard') {
+      void Promise.all([fetchRegisteredUsers(), onRefreshDashboard()]);
+      return;
+    }
     if (liveEvent.type === 'community:presence' && liveEvent.payload) {
       const p = liveEvent.payload as {
         userId?: number;
@@ -562,19 +650,46 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         payload.role = editRole;
         payload.isAdmin = editRole === 'teacher';
       }
-      const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${editUserTarget.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
-      setEditUserTarget(res.user);
+      let updatedRecord: AdminUserRecord = {
+        ...editUserTarget,
+        name: String(payload.name || editUserTarget.name),
+        grade: String(payload.grade ?? editUserTarget.grade),
+        birthday: String(payload.birthday ?? editUserTarget.birthday ?? ''),
+        bio: String(payload.bio ?? editUserTarget.bio ?? ''),
+        role: isTargetProtected ? editUserTarget.role : editRole,
+        isAdmin: isTargetProtected ? editUserTarget.isAdmin : editRole === 'teacher',
+      };
+      try {
+        const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${editUserTarget.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        updatedRecord = res.user;
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
+      if (!isStaticBackendActive()) {
+        await updateCloudUserAsAdmin({
+          email: updatedRecord.email,
+          name: updatedRecord.name,
+          grade: updatedRecord.grade,
+          birthday: updatedRecord.birthday || '',
+          bio: updatedRecord.bio || '',
+          role: updatedRecord.role,
+          isAdmin: updatedRecord.isAdmin,
+        }).catch(() => {});
+      }
+      setEditUserTarget(updatedRecord);
       setRegisteredUsers((prev) =>
-        prev.map((u) => (u.id === res.user.id ? { ...u, ...res.user } : u))
+        prev.map((u) => (u.id === updatedRecord.id ? { ...u, ...updatedRecord } : u))
       );
       setAccountActionMsg(t.profile.accountUpdatedMsg);
       await Promise.all([onRefreshDashboard(), fetchRegisteredUsers()]);
-      if (selectedStudentId === res.user.id) {
+      if (selectedStudentId === updatedRecord.id) {
         const detail = await apiFetch<AdminStudentDetailResponse>(
-          `/api/admin/students/${res.user.id}/stats?lang=${language}`
+          `/api/admin/students/${updatedRecord.id}/stats?lang=${language}`
         ).catch(() => null);
         if (detail) setStudentDetail(detail);
       }
@@ -591,10 +706,23 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setAccountActionError(null);
     const nextRole = target.role === 'teacher' ? 'student' : 'teacher';
     try {
-      await apiFetch(`/api/admin/users/${target.id}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({ role: nextRole, isAdmin: nextRole === 'teacher' }),
-      });
+      try {
+        await apiFetch(`/api/admin/users/${target.id}/role`, {
+          method: 'PUT',
+          body: JSON.stringify({ role: nextRole, isAdmin: nextRole === 'teacher' }),
+        });
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
+      if (!isStaticBackendActive()) {
+        await updateCloudUserAsAdmin({
+          email: target.email,
+          role: nextRole,
+          isAdmin: nextRole === 'teacher',
+        }).catch(() => {});
+      }
       setAccountActionMsg(
         formatMsg(t.profile.roleUpdatedMsg, {
           name: target.name,
@@ -612,15 +740,25 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     if (!annTitle.trim() || !annContent.trim() || annSaving) return;
     setAnnSaving(true);
     setAnnError(null);
+    const trimmedTitle = annTitle.trim();
+    const trimmedContent = annContent.trim();
     try {
       const fd = new FormData();
-      fd.append('title', annTitle.trim());
-      fd.append('content', annContent.trim());
+      fd.append('title', trimmedTitle);
+      fd.append('content', trimmedContent);
       fd.append('type', annType);
       const res = await apiFetch<{ announcement: Announcement }>('/api/announcements', {
         method: 'POST',
         body: fd,
       });
+      if (!isStaticBackendActive()) {
+        void createCloudAnnouncement({
+          title: trimmedTitle,
+          content: trimmedContent,
+          type: annType,
+          authorName: currentUser.name || 'Mr. Kasrawan',
+        }).catch(() => null);
+      }
       if (res?.announcement) {
         setAnnouncements((prev) => [res.announcement, ...prev]);
       } else {
@@ -628,7 +766,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
       }
       setAnnTitle('');
       setAnnContent('');
-      setAccountActionMsg(t.home.announcementsTitle);
+      setAccountActionMsg(`${t.home.announcementPublishedMsg} ${t.home.announcementLiveDelivered}`);
     } catch (err) {
       setAnnError(err instanceof Error ? err.message : 'Failed to publish announcement.');
     } finally {
@@ -640,6 +778,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setAnnError(null);
     try {
       await apiFetch(`/api/announcements/${annId}`, { method: 'DELETE' });
+      if (!isStaticBackendActive()) {
+        void deleteCloudAnnouncement(annId).catch(() => {});
+      }
       setAnnouncements((prev) => prev.filter((a) => a.id !== annId));
     } catch (err) {
       setAnnError(err instanceof Error ? err.message : 'Failed to delete announcement.');
@@ -701,7 +842,13 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setAccountActionError(null);
     const removed = deleteTarget;
     try {
-      await apiFetch(`/api/admin/users/${removed.id}`, { method: 'DELETE' });
+      try {
+        await apiFetch(`/api/admin/users/${removed.id}`, { method: 'DELETE' });
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
       await deleteCloudUserAsAdmin(removed.email).catch(() => {});
 
       setDeleteTarget(null);

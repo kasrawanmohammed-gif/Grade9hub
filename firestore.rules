@@ -276,6 +276,36 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidHeroBanner(data, bannerId) {
+      return data.keys().hasAll(['bannerId', 'sortOrder', 'scope', 'src', 'alt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'bannerId',
+          'sortOrder',
+          'scope',
+          'src',
+          'alt',
+          'altKu',
+          'altAr',
+          'caption',
+          'captionKu',
+          'captionAr',
+          'objectPosition',
+          'updatedAt'
+        ]) &&
+        data.bannerId is string && data.bannerId == bannerId && isValidId(data.bannerId) &&
+        data.sortOrder is number && data.sortOrder >= 0 && data.sortOrder <= 50 &&
+        data.scope == 'public' &&
+        data.src is string && data.src.size() >= 1 && data.src.size() <= 280000 &&
+        data.alt is string && data.alt.size() >= 1 && data.alt.size() <= 180 &&
+        (!data.keys().hasAny(['altKu']) || (data.altKu is string && data.altKu.size() <= 180)) &&
+        (!data.keys().hasAny(['altAr']) || (data.altAr is string && data.altAr.size() <= 180)) &&
+        (!data.keys().hasAny(['caption']) || (data.caption is string && data.caption.size() <= 140)) &&
+        (!data.keys().hasAny(['captionKu']) || (data.captionKu is string && data.captionKu.size() <= 140)) &&
+        (!data.keys().hasAny(['captionAr']) || (data.captionAr is string && data.captionAr.size() <= 140)) &&
+        (!data.keys().hasAny(['objectPosition']) || (data.objectPosition is string && data.objectPosition.size() <= 40)) &&
+        data.updatedAt is timestamp;
+    }
+
     function isValidAccountRevocation(data, revocationKey) {
       return data.keys().hasAll(['revocationKey', 'reason', 'revokedAt']) &&
         data.keys().hasOnly([
@@ -661,6 +691,17 @@ service cloud.firestore {
       allow delete: if isValidId(messageId) &&
         isSignedIn() &&
         (existing().senderUid == request.auth.uid || isAdmin());
+    }
+
+    // 10. Homepage Hero Banner Slides (/hero_banners/{bannerId})
+    match /hero_banners/{bannerId} {
+      allow get: if isValidId(bannerId);
+      allow list: if resource.data.scope == 'public';
+      allow create, update: if isValidId(bannerId) &&
+        (isAdmin() || isTeacherUser()) &&
+        isValidHeroBanner(incoming(), bannerId) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(bannerId) && (isAdmin() || isTeacherUser());
     }
   }
 }

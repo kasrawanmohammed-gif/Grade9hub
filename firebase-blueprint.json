@@ -673,6 +673,79 @@
         "messageText",
         "createdAt"
       ]
+    },
+    "HeroBannerSlide": {
+      "title": "HeroBannerSlide",
+      "description": "Homepage hero banner slide managed by administrators and teachers.",
+      "type": "object",
+      "properties": {
+        "bannerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique slide ID matching document ID."
+        },
+        "sortOrder": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "description": "Display order index starting from 0."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["public"],
+          "description": "Fixed public scope for list queries."
+        },
+        "src": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 280000,
+          "description": "Image path, HTTPS URL, or compacted base64 data URI."
+        },
+        "alt": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180,
+          "description": "English accessibility alt text."
+        },
+        "altKu": {
+          "type": "string",
+          "maxLength": 180,
+          "description": "Optional Kurdish alt text."
+        },
+        "altAr": {
+          "type": "string",
+          "maxLength": 180,
+          "description": "Optional Arabic alt text."
+        },
+        "caption": {
+          "type": "string",
+          "maxLength": 140,
+          "description": "Optional English banner caption."
+        },
+        "captionKu": {
+          "type": "string",
+          "maxLength": 140,
+          "description": "Optional Kurdish banner caption."
+        },
+        "captionAr": {
+          "type": "string",
+          "maxLength": 140,
+          "description": "Optional Arabic banner caption."
+        },
+        "objectPosition": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Optional CSS object-position value."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of banner update."
+        }
+      },
+      "required": ["bannerId", "sortOrder", "scope", "src", "alt", "updatedAt"]
     }
   },
   "firestore": {
@@ -735,6 +808,12 @@
         "$ref": "#/entities/DirectMessageRecord"
       },
       "description": "Private 1-to-1 peer direct messages scoped to participants."
+    },
+    "/hero_banners/{bannerId}": {
+      "schema": {
+        "$ref": "#/entities/HeroBannerSlide"
+      },
+      "description": "Homepage hero banner slides managed by admins and teachers."
     }
   }
 }

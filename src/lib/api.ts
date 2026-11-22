@@ -143,6 +143,10 @@ export class ApiError extends Error {
   }
 }
 
+export function isStaticBackendActive(): boolean {
+  return isStaticHostMode() && !API_BASE;
+}
+
 let passportRestoreInFlight: Promise<{ user?: unknown; sessionToken?: string } | null> | null = null;
 
 export async function tryRestoreActiveSessionPassport(): Promise<{

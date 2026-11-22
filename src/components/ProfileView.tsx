@@ -15,11 +15,17 @@ import {
   UserCog,
   X,
 } from 'lucide-react';
-import { apiFetch, getStoredSessionToken, setStoredCachedUser } from '../lib/api';
+import { onAuthStateChanged } from 'firebase/auth';
+import { ApiError, apiFetch, getStoredSessionToken, isStaticBackendActive, setStoredCachedUser } from '../lib/api';
+import { auth } from '../lib/firebase';
 import {
+  CloudRegisteredAccount,
   deleteCloudUserAsAdmin,
   deleteOwnCloudAccountData,
+  fetchCloudRegisteredUsersAsAdmin,
   MAIN_ADMIN_EMAIL,
+  subscribeCloudRegisteredUsersAsAdmin,
+  updateCloudUserAsAdmin,
 } from '../lib/cloudAccounts';
 import {
   initializeAdminVaultWithPassword,
@@ -95,13 +101,70 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [inspectSaving, setInspectSaving] = useState(false);
   const [inspectError, setInspectError] = useState<string | null>(null);
 
+  const mergeCloudAccounts = (
+    baseUsers: AdminUserRecord[],
+    cloudUsers: CloudRegisteredAccount[]
+  ): AdminUserRecord[] => {
+    const merged = [...baseUsers];
+    const seenEmails = new Set(merged.map((u) => u.email.trim().toLowerCase()).filter(Boolean));
+    const usedIds = new Set(merged.map((u) => u.id));
+
+    for (const c of cloudUsers) {
+      const normEmail = c.email.trim().toLowerCase();
+      if (!normEmail || seenEmails.has(normEmail)) continue;
+      seenEmails.add(normEmail);
+      const seed = c.uid || normEmail;
+      let hash = 2166136261;
+      for (let i = 0; i < seed.length; i += 1) {
+        hash ^= seed.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      let candidateId = (Math.abs(hash) % 900000000) + 100000;
+      while (usedIds.has(candidateId)) {
+        candidateId += 1;
+      }
+      usedIds.add(candidateId);
+      const isMain = normEmail === MAIN_ADMIN_EMAIL;
+      merged.push({
+        id: candidateId,
+        name: c.name || 'Grade 9 Student',
+        email: c.email,
+        role: isMain || c.role === 'teacher' ? 'teacher' : 'student',
+        isAdmin: isMain || Boolean(c.isAdmin),
+        grade: c.grade || '',
+        bio: c.bio || '',
+        birthday: c.birthday || '',
+        avatar_url: c.avatarUrl || '',
+        online: false,
+        currentSection: '',
+        lastActiveAt: c.lastActiveAt || '',
+        lastLoginAt: c.lastLoginAt || '',
+        isRestricted: !isMain && Boolean(c.isRestricted),
+        restrictionReason: c.restrictionReason || '',
+        createdAt: c.createdAtIso || '',
+        quizzesCompleted: c.quizzesCompleted || 0,
+        questionsAnswered: c.quizzesCompleted ? c.correctAnswers : 0,
+        correctAnswers: c.correctAnswers || 0,
+        avgScorePercent: 0,
+        aiTutorTurns: 0,
+      });
+    }
+    return merged;
+  };
+
   const loadAdminUsers = async () => {
     if (!isPrivileged) return;
     setLoadingUsers(true);
     setAdminError(null);
     try {
-      const data = await apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users');
-      setAllUsers(Array.isArray(data.users) ? data.users : []);
+      const [data, cloudUsers] = await Promise.all([
+        apiFetch<{ users: AdminUserRecord[] }>('/api/admin/users'),
+        isStaticBackendActive()
+          ? Promise.resolve([] as CloudRegisteredAccount[])
+          : fetchCloudRegisteredUsersAsAdmin().catch(() => [] as CloudRegisteredAccount[]),
+      ]);
+      const baseList = Array.isArray(data.users) ? data.users : [];
+      setAllUsers(mergeCloudAccounts(baseList, cloudUsers));
     } catch (err) {
       setAdminError(err instanceof Error ? err.message : t.profile.loadAccountsError);
     } finally {
@@ -120,9 +183,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     apiFetch<{ attempts: QuizAttempt[] }>(`/api/quizzes/history?lang=${language}`)
       .then((d) => setAttempts(d.attempts))
       .catch(() => {});
-    if (isPrivileged) {
+    if (!isPrivileged) return;
+
+    void loadAdminUsers();
+    const unsubAuth = onAuthStateChanged(auth, () => {
       void loadAdminUsers();
-    }
+    });
+    const unsubCloud = subscribeCloudRegisteredUsersAsAdmin(() => {
+      void loadAdminUsers();
+    });
+    return () => {
+      unsubAuth();
+      unsubCloud();
+    };
   }, [isPrivileged, language, user.id]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -253,13 +326,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (target.id === user.id || target.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) return;
     const nextRole = target.role === 'teacher' ? 'student' : 'teacher';
     try {
-      await apiFetch(`/api/admin/users/${target.id}/role`, {
-        method: 'PUT',
-        body: JSON.stringify({
+      try {
+        await apiFetch(`/api/admin/users/${target.id}/role`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            role: nextRole,
+            isAdmin: nextRole === 'teacher',
+          }),
+        });
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
+      if (!isStaticBackendActive()) {
+        await updateCloudUserAsAdmin({
+          email: target.email,
           role: nextRole,
           isAdmin: nextRole === 'teacher',
-        }),
-      });
+        }).catch(() => {});
+      }
       setAdminMsg(
         formatMsg(t.profile.roleUpdatedMsg, {
           name: target.name,
@@ -277,7 +363,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setAdminError(null);
     const targetUser = allUsers.find((u) => u.id === targetId);
     try {
-      await apiFetch(`/api/admin/users/${targetId}`, { method: 'DELETE' });
+      try {
+        await apiFetch(`/api/admin/users/${targetId}`, { method: 'DELETE' });
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
       if (targetUser?.email) {
         await deleteCloudUserAsAdmin(targetUser.email).catch(() => {});
       }
@@ -332,11 +424,37 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         payload.role = inspectRole;
         payload.isAdmin = inspectRole === 'teacher';
       }
-      const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${inspectUser.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(payload),
-      });
-      const updated = res.user;
+      let updated: AdminUserRecord = {
+        ...inspectUser,
+        name: String(payload.name || inspectUser.name),
+        grade: String(payload.grade ?? inspectUser.grade),
+        birthday: String(payload.birthday ?? inspectUser.birthday ?? ''),
+        bio: String(payload.bio ?? inspectUser.bio ?? ''),
+        role: isTargetMain || isSelf ? inspectUser.role : inspectRole,
+        isAdmin: isTargetMain || isSelf ? inspectUser.isAdmin : inspectRole === 'teacher',
+      };
+      try {
+        const res = await apiFetch<{ user: AdminUserRecord }>(`/api/admin/users/${inspectUser.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        updated = res.user;
+      } catch (apiErr) {
+        if (!(apiErr instanceof ApiError && apiErr.status === 404)) {
+          throw apiErr;
+        }
+      }
+      if (!isStaticBackendActive()) {
+        await updateCloudUserAsAdmin({
+          email: updated.email,
+          name: updated.name,
+          grade: updated.grade,
+          birthday: updated.birthday || '',
+          bio: updated.bio || '',
+          role: updated.role,
+          isAdmin: updated.isAdmin,
+        }).catch(() => {});
+      }
       setInspectUser(updated);
       setAllUsers((prev) => prev.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)));
       if (isSelf) {

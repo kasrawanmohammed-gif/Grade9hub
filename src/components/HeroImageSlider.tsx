@@ -96,11 +96,12 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   }, []);
 
   useEffect(() => {
+    setFailedIds({});
     if (activeIndex >= totalSlides && totalSlides > 0) {
       setActiveIndex(0);
       setPrevIndex(null);
     }
-  }, [activeIndex, totalSlides]);
+  }, [activeIndex, totalSlides, slides]);
 
   const goToIndex = useCallback(
     (targetIndex: number) => {
