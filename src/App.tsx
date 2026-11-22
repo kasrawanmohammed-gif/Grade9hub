@@ -1545,6 +1545,8 @@ export default function App() {
                   announcements={announcements}
                   unreadNotifications={unreadCount}
                   leaderboardVersion={leaderboardVersion}
+                  appSettings={appSettings}
+                  onAppSettingsUpdated={(nextSettings) => setAppSettings(nextSettings)}
                   onNavigate={navigateTo}
                   onSelectChapter={(target) => setInitialChapterSelection(target)}
                   onRefreshAnnouncements={fetchAnnouncements}

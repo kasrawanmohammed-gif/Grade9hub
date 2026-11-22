@@ -182,6 +182,34 @@ export interface Translations {
     prevSlideBtn: string;
     nextSlideBtn: string;
     goToSlideBtn: string;
+    manageBannersBtn: string;
+    bannerManagerTitle: string;
+    bannerManagerSub: string;
+    bannerUrlLabel: string;
+    bannerUrlPlaceholder: string;
+    bannerUploadBtn: string;
+    bannerCaptionLabel: string;
+    bannerCaptionPlaceholder: string;
+    bannerAltLabel: string;
+    bannerAltPlaceholder: string;
+    bannerAddBtn: string;
+    bannerCurrentTitle: string;
+    bannerCountLabel: string;
+    bannerMoveUp: string;
+    bannerMoveDown: string;
+    bannerDeleteSlide: string;
+    bannerResetDefault: string;
+    bannerSaveBtn: string;
+    bannerSavingBtn: string;
+    bannerCancelBtn: string;
+    bannerPreviewLabel: string;
+    bannerDefaultTag: string;
+    bannerEmptyUrlErr: string;
+    bannerInvalidImageErr: string;
+    bannerFileTooLargeErr: string;
+    bannerStorageFallbackMsg: string;
+    bannerSavedMsg: string;
+    bannerMinOneSlideMsg: string;
   };
   quiz: {
     mcTitle: string;
@@ -1082,6 +1110,34 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       prevSlideBtn: 'Previous slide',
       nextSlideBtn: 'Next slide',
       goToSlideBtn: 'Go to slide {n}',
+      manageBannersBtn: 'Manage Banners',
+      bannerManagerTitle: 'Manage Home Banner Slides',
+      bannerManagerSub: 'Add, preview, reorder, or remove hero banner images. Slides auto-advance every 3.5 seconds.',
+      bannerUrlLabel: 'Image URL',
+      bannerUrlPlaceholder: 'https://... or /assets/...',
+      bannerUploadBtn: 'Upload Image',
+      bannerCaptionLabel: 'Title / Caption (Optional)',
+      bannerCaptionPlaceholder: 'e.g. Chapter 3 Lab Activity',
+      bannerAltLabel: 'Alt Label (Accessibility)',
+      bannerAltPlaceholder: 'Short description of the banner image',
+      bannerAddBtn: 'Add Slide',
+      bannerCurrentTitle: 'Active Banner Slides',
+      bannerCountLabel: '{count} slide(s)',
+      bannerMoveUp: 'Move up',
+      bannerMoveDown: 'Move down',
+      bannerDeleteSlide: 'Remove slide',
+      bannerResetDefault: 'Reset to Default',
+      bannerSaveBtn: 'Save Banners',
+      bannerSavingBtn: 'Saving...',
+      bannerCancelBtn: 'Cancel',
+      bannerPreviewLabel: 'Live Preview',
+      bannerDefaultTag: 'Default Banner',
+      bannerEmptyUrlErr: 'Enter a valid image URL or upload an image file first.',
+      bannerInvalidImageErr: 'Could not load that image. Check the URL or upload a PNG, JPG, WebP, or GIF image.',
+      bannerFileTooLargeErr: 'Image file is too large. Choose an image under 12 MB.',
+      bannerStorageFallbackMsg: 'Saved to this device. Cloud sync is unavailable right now.',
+      bannerSavedMsg: 'Banner slides saved.',
+      bannerMinOneSlideMsg: 'At least 1 slide is required. Use Reset to Default to restore the initial banner.',
     },
     quiz: {
       mcTitle: 'Multiple Choice · 11 Chapters',
@@ -1985,6 +2041,34 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       prevSlideBtn: 'وێنەی پێشوو',
       nextSlideBtn: 'وێنەی داهاتوو',
       goToSlideBtn: 'چوون بۆ وێنەی {n}',
+      manageBannersBtn: 'بەڕێوەبردنی پۆستەرەکان',
+      bannerManagerTitle: 'بەڕێوەبردنی سلایدەکانی سەرەوە',
+      bannerManagerSub: 'وێنەی نوێ زیاد بکە، پێشبینینی بکە، ڕیزبەندیان بگۆڕە یان لایان ببە. سلایدەکان هەر ٣.٥ چرکە جارێک دەگۆڕێن.',
+      bannerUrlLabel: 'بەستەری وێنە (URL)',
+      bannerUrlPlaceholder: 'https://... یان /assets/...',
+      bannerUploadBtn: 'بارکردنی وێنە',
+      bannerCaptionLabel: 'ناونیشان / دەق (ئارەزوومەندانە)',
+      bannerCaptionPlaceholder: 'بۆ نموونە: چالاکی تاقیگەی بەشی ٣',
+      bannerAltLabel: 'وەسفی وێنە (Alt)',
+      bannerAltPlaceholder: 'وەسفێکی کورتی وێنەی پۆستەرەکە',
+      bannerAddBtn: 'زیادکردنی سلاید',
+      bannerCurrentTitle: 'سلایدە چالاکەکان',
+      bannerCountLabel: '{count} سلاید',
+      bannerMoveUp: 'بردنە سەرەوە',
+      bannerMoveDown: 'هێنانە خوارەوە',
+      bannerDeleteSlide: 'سڕینەوەی سلاید',
+      bannerResetDefault: 'گەڕاندنەوە بۆ سەرەتایی',
+      bannerSaveBtn: 'پاشەکەوتکردن',
+      bannerSavingBtn: 'پاشەکەوت دەکرێت...',
+      bannerCancelBtn: 'پاشگەزبوونەوە',
+      bannerPreviewLabel: 'پێشبینی ڕاستەوخۆ',
+      bannerDefaultTag: 'پۆستەری سەرەتایی',
+      bannerEmptyUrlErr: 'تکایە بەستەرێکی دروستی وێنە بنووسە یان وێنەیەک باربکە.',
+      bannerInvalidImageErr: 'وێنەکە بارنەبوو. تکایە بەستەرەکە بپشکنە یان فایلێکی PNG، JPG یان WebP هەڵبژێرە.',
+      bannerFileTooLargeErr: 'قەبارەی وێنەکە زۆر گەورەیە. تکایە وێنەیەکی بچووکتر لە ١٢ مێگابایت هەڵبژێرە.',
+      bannerStorageFallbackMsg: 'لەسەر ئەم ئامێرە پاشەکەوت کرا. هاوکاتکردنی سێرڤەر لە ئێستادا بەردەست نییە.',
+      bannerSavedMsg: 'سلایدەکانی پۆستەر پاشەکەوت کران.',
+      bannerMinOneSlideMsg: 'بەلایەنی کەمەوە پێویستە سلایدێک بمێنێتەوە. دوگمەی گەڕاندنەوە بۆ سەرەتایی بەکاربهێنە.',
     },
     quiz: {
       mcTitle: 'هەڵبژاردنی فرە · ١١ بەش',
@@ -2888,6 +2972,34 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       prevSlideBtn: 'الشريحة السابقة',
       nextSlideBtn: 'الشريحة التالية',
       goToSlideBtn: 'الانتقال إلى الشريحة {n}',
+      manageBannersBtn: 'إدارة الشرائح',
+      bannerManagerTitle: 'إدارة شرائح اللافتة الرئيسية',
+      bannerManagerSub: 'أضف صوراً جديدة، عاينها، أعد ترتيبها أو احذفها. تتبدّل الشرائح تلقائياً كل ٣.٥ ثوانٍ.',
+      bannerUrlLabel: 'رابط الصورة (URL)',
+      bannerUrlPlaceholder: 'https://... أو /assets/...',
+      bannerUploadBtn: 'رفع صورة',
+      bannerCaptionLabel: 'العنوان / الوصف القصير (اختياري)',
+      bannerCaptionPlaceholder: 'مثال: نشاط مخبر الفصل الثالث',
+      bannerAltLabel: 'النص البديل للصورة (Alt)',
+      bannerAltPlaceholder: 'وصف قصير لمحتوى الصورة',
+      bannerAddBtn: 'إضافة شريحة',
+      bannerCurrentTitle: 'الشرائح الحالية',
+      bannerCountLabel: '{count} شرائح',
+      bannerMoveUp: 'تحريك للأعلى',
+      bannerMoveDown: 'تحريك للأسفل',
+      bannerDeleteSlide: 'حذف الشريحة',
+      bannerResetDefault: 'استعادة الافتراضي',
+      bannerSaveBtn: 'حفظ الشرائح',
+      bannerSavingBtn: 'جاري الحفظ...',
+      bannerCancelBtn: 'إلغاء',
+      bannerPreviewLabel: 'معاينة مباشرة',
+      bannerDefaultTag: 'اللافتة الافتراضية',
+      bannerEmptyUrlErr: 'أدخل رابط صورة صالحاً أو ارفع ملف صورة أولاً.',
+      bannerInvalidImageErr: 'تعذّر تحميل هذه الصورة. تحقق من الرابط أو ارفع ملف PNG أو JPG أو WebP.',
+      bannerFileTooLargeErr: 'حجم الصورة كبير جداً. يرجى اختيار صورة أقل من ١٢ ميجابايت.',
+      bannerStorageFallbackMsg: 'تم الحفظ محلياً على هذا الجهاز. تعذّر الحفظ على الخادم حالياً.',
+      bannerSavedMsg: 'تم حفظ شرائح اللافتة بنجاح.',
+      bannerMinOneSlideMsg: 'يجب الإبقاء على شريحة واحدة على الأقل. استخدم استعادة الافتراضي لإرجاع الشريحة الأساسية.',
     },
     quiz: {
       mcTitle: 'الاختيار من متعدد · ١١ فصلاً',

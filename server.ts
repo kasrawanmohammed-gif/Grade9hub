@@ -635,6 +635,18 @@ const ALLOWED_PRESENCE_SECTIONS = new Set([
   'admin-dashboard',
 ]);
 
+interface ServerHeroSlide {
+  id: string;
+  src: string;
+  alt: string;
+  altKu?: string;
+  altAr?: string;
+  caption?: string;
+  captionKu?: string;
+  captionAr?: string;
+  objectPosition?: string;
+}
+
 interface ServerAppSettings {
   allowStudentRegistration: boolean;
   communityEnabled: boolean;
@@ -642,6 +654,7 @@ interface ServerAppSettings {
   aiTutorEnabled: boolean;
   defaultLanguage: 'en' | 'ku' | 'ar';
   maintenanceMessage: string;
+  heroSlides?: ServerHeroSlide[];
   updatedAt?: string;
 }
 
@@ -654,6 +667,65 @@ const DEFAULT_SERVER_APP_SETTINGS: ServerAppSettings = {
   maintenanceMessage: '',
 };
 
+function isValidServerHeroSlideSrc(src: unknown): src is string {
+  if (typeof src !== 'string') return false;
+  const trimmed = src.trim();
+  if (!trimmed || trimmed.length > 900_000) return false;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return !/[\s<>"'`]/.test(trimmed);
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }
+  return /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(trimmed);
+}
+
+function sanitizeServerHeroSlides(raw: unknown): ServerHeroSlide[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const seenIds = new Set<string>();
+  const clean: ServerHeroSlide[] = [];
+
+  for (let i = 0; i < raw.length && clean.length < 12; i += 1) {
+    const item = raw[i];
+    if (!item || typeof item !== 'object') continue;
+    const rec = item as Record<string, unknown>;
+    if (!isValidServerHeroSlideSrc(rec.src)) continue;
+
+    let id =
+      typeof rec.id === 'string' && rec.id.trim()
+        ? rec.id.trim().replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 80)
+        : `slide-${i + 1}`;
+    while (seenIds.has(id)) {
+      id = `${id}-${clean.length + 1}`;
+    }
+    seenIds.add(id);
+
+    const pickStr = (val: unknown, max: number) =>
+      typeof val === 'string' && val.trim()
+        ? val.replace(/[\r\n\t]+/g, ' ').trim().slice(0, max)
+        : undefined;
+
+    clean.push({
+      id,
+      src: rec.src.trim(),
+      alt: pickStr(rec.alt, 180) || 'Grade 9 Hub science showcase banner',
+      ...(pickStr(rec.altKu, 180) ? { altKu: pickStr(rec.altKu, 180) } : {}),
+      ...(pickStr(rec.altAr, 180) ? { altAr: pickStr(rec.altAr, 180) } : {}),
+      ...(pickStr(rec.caption, 140) ? { caption: pickStr(rec.caption, 140) } : {}),
+      ...(pickStr(rec.captionKu, 140) ? { captionKu: pickStr(rec.captionKu, 140) } : {}),
+      ...(pickStr(rec.captionAr, 140) ? { captionAr: pickStr(rec.captionAr, 140) } : {}),
+      ...(pickStr(rec.objectPosition, 40) ? { objectPosition: pickStr(rec.objectPosition, 40) } : {}),
+    });
+  }
+
+  return clean.length > 0 ? clean : undefined;
+}
+
 function getAppSettings(): ServerAppSettings {
   try {
     const row = db
@@ -661,6 +733,7 @@ function getAppSettings(): ServerAppSettings {
       .get('app_settings_v1') as { value: string } | undefined;
     if (!row?.value) return { ...DEFAULT_SERVER_APP_SETTINGS };
     const parsed = JSON.parse(row.value) as Partial<ServerAppSettings>;
+    const heroSlides = sanitizeServerHeroSlides(parsed.heroSlides);
     return {
       allowStudentRegistration:
         typeof parsed.allowStudentRegistration === 'boolean'
@@ -679,6 +752,7 @@ function getAppSettings(): ServerAppSettings {
         typeof parsed.maintenanceMessage === 'string'
           ? parsed.maintenanceMessage.slice(0, 300)
           : '',
+      ...(heroSlides ? { heroSlides } : {}),
       updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
     };
   } catch {
@@ -686,8 +760,15 @@ function getAppSettings(): ServerAppSettings {
   }
 }
 
-function saveAppSettings(patch: Partial<ServerAppSettings>): ServerAppSettings {
+function saveAppSettings(patch: Partial<ServerAppSettings> & { heroSlides?: ServerHeroSlide[] | null }): ServerAppSettings {
   const current = getAppSettings();
+  let nextHeroSlides = current.heroSlides;
+  if (patch.heroSlides === null) {
+    nextHeroSlides = undefined;
+  } else if (patch.heroSlides !== undefined) {
+    nextHeroSlides = sanitizeServerHeroSlides(patch.heroSlides);
+  }
+
   const next: ServerAppSettings = {
     allowStudentRegistration:
       typeof patch.allowStudentRegistration === 'boolean'
@@ -711,6 +792,7 @@ function saveAppSettings(patch: Partial<ServerAppSettings>): ServerAppSettings {
       typeof patch.maintenanceMessage === 'string'
         ? patch.maintenanceMessage.trim().slice(0, 300)
         : current.maintenanceMessage,
+    ...(nextHeroSlides ? { heroSlides: nextHeroSlides } : {}),
     updatedAt: new Date().toISOString(),
   };
 

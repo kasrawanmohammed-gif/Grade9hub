@@ -1,4 +1,5 @@
 import curriculumData from './curriculumSnapshot.json';
+import { sanitizeHeroSlidesList } from './heroSlidesStore';
 import {
   AdminStudentPerformance,
   AdminUserRecord,
@@ -516,6 +517,7 @@ function updateStaticPresence(userId: number, online: boolean, section = 'home')
 
 function getLocalAppSettings(): AppSettings {
   const stored = readLocalJson<Partial<AppSettings>>(STATIC_SETTINGS_KEY, {});
+  const sanitizedSlides = sanitizeHeroSlidesList(stored.heroSlides);
   return {
     allowStudentRegistration:
       typeof stored.allowStudentRegistration === 'boolean'
@@ -539,12 +541,23 @@ function getLocalAppSettings(): AppSettings {
         : DEFAULT_APP_SETTINGS.defaultLanguage,
     maintenanceMessage:
       typeof stored.maintenanceMessage === 'string' ? stored.maintenanceMessage.slice(0, 300) : '',
+    ...(sanitizedSlides.length > 0 ? { heroSlides: sanitizedSlides } : {}),
     updatedAt: stored.updatedAt,
   };
 }
 
-function saveLocalAppSettings(patch: Partial<AppSettings>): AppSettings {
+function saveLocalAppSettings(
+  patch: Partial<AppSettings> & { heroSlides?: AppSettings['heroSlides'] | null }
+): AppSettings {
   const cur = getLocalAppSettings();
+  let nextSlides = cur.heroSlides;
+  if (patch.heroSlides === null) {
+    nextSlides = undefined;
+  } else if (patch.heroSlides !== undefined) {
+    const cleanSlides = sanitizeHeroSlidesList(patch.heroSlides);
+    nextSlides = cleanSlides.length > 0 ? cleanSlides : undefined;
+  }
+
   const next: AppSettings = {
     allowStudentRegistration:
       typeof patch.allowStudentRegistration === 'boolean'
@@ -568,6 +581,7 @@ function saveLocalAppSettings(patch: Partial<AppSettings>): AppSettings {
       typeof patch.maintenanceMessage === 'string'
         ? patch.maintenanceMessage.trim().slice(0, 300)
         : cur.maintenanceMessage,
+    ...(nextSlides ? { heroSlides: nextSlides } : {}),
     updatedAt: new Date().toISOString(),
   };
   writeLocalJson(STATIC_SETTINGS_KEY, next);
@@ -1745,23 +1759,33 @@ export async function handleStaticApiFallback(
 
   // 14b. App Settings (/api/settings/public, /api/admin/settings)
   if (pathname === '/api/settings/public' && method === 'GET') {
+    const localSettings = getLocalAppSettings();
     const cloud = await fetchCloudAppSettings().catch(() => null);
     if (cloud) {
-      writeLocalJson(STATIC_SETTINGS_KEY, cloud);
-      return { settings: cloud };
+      const merged = {
+        ...cloud,
+        ...(localSettings.heroSlides ? { heroSlides: localSettings.heroSlides } : {}),
+      };
+      writeLocalJson(STATIC_SETTINGS_KEY, merged);
+      return { settings: merged };
     }
-    return { settings: getLocalAppSettings() };
+    return { settings: localSettings };
   }
   if (pathname === '/api/admin/settings' && method === 'GET') {
     if (!isPrivilegedCachedUser()) {
       throw new StaticFallbackHttpError('Administrator privileges required.', 403);
     }
+    const localSettings = getLocalAppSettings();
     const cloud = await fetchCloudAppSettings().catch(() => null);
     if (cloud) {
-      writeLocalJson(STATIC_SETTINGS_KEY, cloud);
-      return { settings: cloud };
+      const merged = {
+        ...cloud,
+        ...(localSettings.heroSlides ? { heroSlides: localSettings.heroSlides } : {}),
+      };
+      writeLocalJson(STATIC_SETTINGS_KEY, merged);
+      return { settings: merged };
     }
-    return { settings: getLocalAppSettings() };
+    return { settings: localSettings };
   }
   if (pathname === '/api/admin/settings' && method === 'PUT') {
     if (!isPrivilegedCachedUser()) {

@@ -29,8 +29,15 @@ import {
   TabId,
   User,
 } from '../types';
+import { HERO_SLIDES, type HeroSlide } from '../config/heroSlides';
+import {
+  loadLocalHeroSlides,
+  sanitizeHeroSlidesList,
+  saveLocalHeroSlides,
+} from '../lib/heroSlidesStore';
 import { UserAvatar } from './UserAvatar';
 import { HeroImageSlider } from './HeroImageSlider';
+import { HeroBannerManagerModal } from './HeroBannerManagerModal';
 import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 import { formatUtcDate } from '../utils/dateFormat';
 import {
@@ -39,6 +46,7 @@ import {
   getAttachmentDownloadHref,
   getOfficialBookChapterMeta,
 } from '../lib/textbookCatalog';
+import type { AppSettings } from '../types';
 
 interface HomeViewProps {
   user: User;
@@ -47,6 +55,8 @@ interface HomeViewProps {
   announcements: Announcement[];
   unreadNotifications: number;
   leaderboardVersion?: number;
+  appSettings?: AppSettings | null;
+  onAppSettingsUpdated?: (settings: AppSettings) => void;
   onNavigate: (tab: TabId) => void;
   onSelectChapter: (chapterNumber: number | 'all') => void;
   onRefreshAnnouncements: () => Promise<void>;
@@ -59,11 +69,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
   announcements,
   unreadNotifications,
   leaderboardVersion = 0,
+  appSettings = null,
+  onAppSettingsUpdated,
   onNavigate,
   onSelectChapter,
   onRefreshAnnouncements,
 }) => {
   const { t, dir } = useLanguage();
+  const canManageBanners = Boolean(user.isAdmin || user.role === 'teacher');
+  const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(() => {
+    const fromSettings = sanitizeHeroSlidesList(appSettings?.heroSlides);
+    return fromSettings.length > 0 ? fromSettings : loadLocalHeroSlides();
+  });
+  const [showBannerManager, setShowBannerManager] = useState(false);
+  const [bannerStatusNotice, setBannerStatusNotice] = useState<string | null>(null);
   const [showPublisher, setShowPublisher] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -77,6 +96,53 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const totalChapterQuestions = chapters.reduce((acc, c) => acc + c.question_count, 0);
   const ForwardIcon = dir === 'rtl' ? ArrowLeft : ArrowRight;
+
+  useEffect(() => {
+    const synced = sanitizeHeroSlidesList(appSettings?.heroSlides);
+    if (synced.length > 0) {
+      setHeroSlides(synced);
+      saveLocalHeroSlides(synced);
+    }
+  }, [appSettings?.heroSlides]);
+
+  const handleSaveHeroSlides = async (
+    nextSlides: HeroSlide[]
+  ): Promise<{ ok: boolean; notice?: string }> => {
+    const cleanSlides =
+      sanitizeHeroSlidesList(nextSlides).length > 0
+        ? sanitizeHeroSlidesList(nextSlides)
+        : [...HERO_SLIDES];
+
+    try {
+      const res = await apiFetch<{ ok: boolean; settings: AppSettings }>(
+        '/api/admin/settings',
+        {
+          method: 'PUT',
+          body: JSON.stringify({ heroSlides: cleanSlides }),
+        }
+      );
+      const savedList = sanitizeHeroSlidesList(res?.settings?.heroSlides);
+      const finalSlides = savedList.length > 0 ? savedList : cleanSlides;
+      setHeroSlides(finalSlides);
+      saveLocalHeroSlides(finalSlides);
+      if (res?.settings && onAppSettingsUpdated) {
+        onAppSettingsUpdated(res.settings);
+      }
+      setBannerStatusNotice(t.home.bannerSavedMsg);
+      return { ok: true };
+    } catch {
+      const localResult = saveLocalHeroSlides(cleanSlides);
+      setHeroSlides(localResult.slides);
+      if (onAppSettingsUpdated && appSettings) {
+        onAppSettingsUpdated({
+          ...appSettings,
+          heroSlides: localResult.slides,
+        });
+      }
+      setBannerStatusNotice(t.home.bannerStorageFallbackMsg);
+      return { ok: true };
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -152,7 +218,31 @@ export const HomeView: React.FC<HomeViewProps> = ({
   return (
     <div className="space-y-6 sm:space-y-8">
       {/* Entry Hero / Banner Slider */}
-      <HeroImageSlider pauseOnHover={true} />
+      <div className="space-y-2">
+        <HeroImageSlider
+          slides={heroSlides}
+          intervalMs={3500}
+          pauseOnHover={true}
+          externalPaused={showBannerManager}
+          canManage={canManageBanners}
+          onOpenManager={() => {
+            setBannerStatusNotice(null);
+            setShowBannerManager(true);
+          }}
+        />
+        {bannerStatusNotice && (
+          <div className="flex items-center justify-between gap-2 rounded-xl border border-[#E6DFD5] bg-white px-3.5 py-2 text-xs font-medium text-[#1C1917]">
+            <span>{bannerStatusNotice}</span>
+            <button
+              type="button"
+              onClick={() => setBannerStatusNotice(null)}
+              className="text-xs font-semibold text-[#6B1118] hover:underline cursor-pointer"
+            >
+              {t.brand.gotIt}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* 4-column Summary Metrics Strip */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -579,6 +669,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
           })}
         </div>
       </section>
+
+      {showBannerManager && canManageBanners && (
+        <HeroBannerManagerModal
+          slides={heroSlides}
+          onSave={handleSaveHeroSlides}
+          onClose={() => setShowBannerManager(false)}
+        />
+      )}
 
       {showTextbookPreview && (
         <TextbookPdfViewerModal

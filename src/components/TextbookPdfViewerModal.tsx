@@ -51,31 +51,50 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(Math.max(1, initialPage));
   const [pageInput, setPageInput] = useState<string>(String(Math.max(1, initialPage)));
   const [zoomScale, setZoomScale] = useState<number>(1);
-  const [containerWidth, setContainerWidth] = useState<number>(760);
+  const [stageSize, setStageSize] = useState<{ width: number; height: number }>({
+    width: 760,
+    height: 600,
+  });
 
   const [docLoading, setDocLoading] = useState<boolean>(true);
   const [pageRendering, setPageRendering] = useState<boolean>(false);
   const [loadError, setLoadError] = useState<boolean>(false);
 
-  // Measure available stage width so pages automatically fit mobile & desktop viewports cleanly
+  // Prevent background page scrolling while the textbook reader overlay is open
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
+  // Measure both width and height of the middle stage so the full page fits neatly in one screen
   useEffect(() => {
     const el = stageContainerRef.current;
     if (!el) return;
-    const updateWidth = () => {
-      const next = Math.max(280, el.clientWidth - 24);
-      setContainerWidth(next);
+    const updateSize = () => {
+      const horizPad = el.clientWidth < 640 ? 16 : 24;
+      const vertPad = el.clientHeight < 520 ? 12 : 20;
+      const nextWidth = Math.max(240, el.clientWidth - horizPad);
+      const nextHeight = Math.max(220, el.clientHeight - vertPad);
+      setStageSize((prev) =>
+        prev.width === nextWidth && prev.height === nextHeight
+          ? prev
+          : { width: nextWidth, height: nextHeight }
+      );
     };
-    updateWidth();
+    updateSize();
     if (typeof ResizeObserver !== 'undefined') {
-      const ro = new ResizeObserver(updateWidth);
+      const ro = new ResizeObserver(updateSize);
       ro.observe(el);
       return () => ro.disconnect();
     }
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  // Load PDF document lazily via HTTP Range chunks (crucial for 51 MB textbook smoothness)
+  // Load PDF document lazily via HTTP Range chunks
   useEffect(() => {
     let cancelled = false;
     setDocLoading(true);
@@ -126,7 +145,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
     };
   }, [url, initialPage]);
 
-  // Render active page onto HiDPI canvas whenever page, zoom, or container width changes
+  // Render active page onto HiDPI canvas scaled to fit BOTH stage width & height cleanly
   useEffect(() => {
     const pdf = pdfDocRef.current;
     const canvas = canvasRef.current;
@@ -151,9 +170,12 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
       .then((page) => {
         if (cancelled) return;
         const baseViewport = page.getViewport({ scale: 1 });
-        const maxFitWidth = Math.min(containerWidth, 920);
-        const fitScale = maxFitWidth / baseViewport.width;
-        const cssScale = Math.max(0.35, fitScale * zoomScale);
+        const maxFitWidth = Math.min(stageSize.width, 960);
+        const maxFitHeight = stageSize.height;
+        const fitWidthScale = maxFitWidth / baseViewport.width;
+        const fitHeightScale = maxFitHeight / baseViewport.height;
+        const containScale = Math.min(fitWidthScale, fitHeightScale);
+        const cssScale = Math.max(0.25, containScale * zoomScale);
         const outputScale = Math.min(window.devicePixelRatio || 1, 2.5);
 
         const cssViewport = page.getViewport({ scale: cssScale });
@@ -199,7 +221,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
         renderTaskRef.current = null;
       }
     };
-  }, [currentPage, zoomScale, containerWidth, docLoading, loadError]);
+  }, [currentPage, zoomScale, stageSize, docLoading, loadError]);
 
   const goToPage = useCallback(
     (target: number) => {
@@ -207,13 +229,12 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
       setCurrentPage(clamped);
       setPageInput(String(clamped));
       if (stageContainerRef.current) {
-        stageContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+        stageContainerRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
       }
     },
     [numPages]
   );
 
-  // Keyboard shortcuts for desktop accessibility
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -258,23 +279,25 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
     }
   };
 
+  const isZoomedBeyondFit = zoomScale > 1;
+
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-[#1C1917]/95 backdrop-blur-sm"
+      className="fixed inset-0 z-50 h-dvh max-h-dvh overflow-hidden flex flex-col bg-[#1C1917]/95 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
-      {/* Top Reader Toolbar */}
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#1C1917] px-3 py-2.5 sm:px-5 text-white shrink-0">
+      {/* Compact Top Reader Toolbar */}
+      <header className="flex items-center justify-between gap-2 border-b border-white/10 bg-[#1C1917] px-3 py-2 sm:px-5 text-white shrink-0">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
           <button
             type="button"
             onClick={onClose}
             aria-label={t.textbooks.closeReaderBtn}
-            className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-white/5 p-2 text-white hover:bg-white/15 transition-colors cursor-pointer min-h-[40px] min-w-[40px] shrink-0"
+            className="inline-flex items-center justify-center rounded-lg border border-white/15 bg-white/5 p-2 text-white hover:bg-white/15 transition-colors cursor-pointer min-h-[38px] min-w-[38px] shrink-0"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
           <div className="min-w-0">
             <h3 className="text-sm sm:text-base font-bold truncate text-white">{title}</h3>
@@ -290,45 +313,13 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
           </div>
         </div>
 
-        {/* Zoom & File Actions */}
+        {/* File Actions */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="hidden sm:flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 p-0.5">
-            <button
-              type="button"
-              onClick={() => setZoomScale((z) => Math.max(0.7, Number((z - 0.2).toFixed(2))))}
-              aria-label="Zoom out"
-              className="p-1.5 rounded hover:bg-white/15 text-white cursor-pointer"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="px-2 text-xs font-semibold tabular-nums whitespace-nowrap">
-              {Math.round(zoomScale * 100)}%
-            </span>
-            <button
-              type="button"
-              onClick={() => setZoomScale((z) => Math.min(2.2, Number((z + 0.2).toFixed(2))))}
-              aria-label="Zoom in"
-              className="p-1.5 rounded hover:bg-white/15 text-white cursor-pointer"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            {zoomScale !== 1 && (
-              <button
-                type="button"
-                onClick={() => setZoomScale(1)}
-                title={t.textbooks.fitWidthBtn}
-                className="p-1.5 rounded hover:bg-white/15 text-[#E5B742] cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
           <a
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 transition-colors whitespace-nowrap min-h-[40px]"
+            className="hidden md:inline-flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 transition-colors whitespace-nowrap min-h-[38px]"
           >
             <ExternalLink className="w-3.5 h-3.5 text-[#E5B742]" />
             <span>{t.textbooks.openNewTabBtn}</span>
@@ -337,7 +328,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
           <a
             href={url}
             download={fileName || 'Science_9_Book.pdf'}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[#6B1118] px-3 py-2 text-xs font-semibold text-white hover:bg-[#82161E] transition-colors whitespace-nowrap min-h-[40px]"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#6B1118] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#82161E] transition-colors whitespace-nowrap min-h-[38px]"
           >
             <Download className="w-3.5 h-3.5 text-[#E5B742]" />
             <span className="hidden xs:inline">{t.textbooks.downloadBtn}</span>
@@ -347,7 +338,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
 
       {/* Quick Chapter Navigation Strip for Official Grade 9 Science Book */}
       {isOfficialBook && (
-        <div className="border-b border-white/10 bg-[#292524] px-3 py-2 flex items-center gap-1.5 overflow-x-auto shrink-0">
+        <div className="border-b border-white/10 bg-[#24201E] px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto shrink-0">
           {OFFICIAL_BOOK_CHAPTER_BOOKMARKS.map((bm) => {
             const active = activeBookmarkKey === bm.key;
             const label =
@@ -366,7 +357,7 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
                 type="button"
                 title={chapterTitle ? `${label} — ${chapterTitle}` : label}
                 onClick={() => goToPage(bm.page)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[34px] ${
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer min-h-[32px] ${
                   active
                     ? 'bg-[#6B1118] text-white border-[#E5B742]/70'
                     : 'bg-white/5 text-white/80 border-white/10 hover:bg-white/10 hover:text-white'
@@ -380,10 +371,14 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
         </div>
       )}
 
-      {/* Main Scrollable Page Viewport */}
+      {/* Centered Viewport-Fit Stage */}
       <div
         ref={stageContainerRef}
-        className="flex-1 overflow-auto flex justify-center items-start p-3 sm:p-6 bg-[#292524]"
+        className={`flex-1 min-h-0 w-full bg-[#24201E] ${
+          isZoomedBeyondFit
+            ? 'overflow-auto flex items-start justify-center p-2 sm:p-4'
+            : 'overflow-hidden flex items-center justify-center p-2 sm:p-3'
+        }`}
       >
         {loadError ? (
           <div className="my-auto max-w-md w-full rounded-2xl bg-[#FAF8F5] border border-[#E6DFD5] p-6 text-center space-y-4">
@@ -411,9 +406,9 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
             </div>
           </div>
         ) : (
-          <div className="relative flex flex-col items-center">
+          <div className="relative my-auto flex flex-col items-center justify-center">
             {(docLoading || pageRendering) && (
-              <div className="mb-3 inline-flex items-center gap-2 rounded-lg bg-[#1C1917]/85 border border-white/15 px-3.5 py-2 text-xs font-medium text-white">
+              <div className="pointer-events-none absolute top-2.5 z-10 inline-flex items-center gap-2 rounded-lg bg-[#1C1917]/90 border border-white/15 px-3 py-1.5 text-xs font-medium text-white shadow-lg">
                 <span className="w-3.5 h-3.5 rounded-full border-2 border-[#E5B742] border-t-transparent animate-spin" />
                 <span>{t.textbooks.loadingPageMsg}</span>
               </div>
@@ -425,14 +420,14 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
         )}
       </div>
 
-      {/* Bottom Sticky Navigation & Mobile Zoom Bar */}
-      <footer className="border-t border-white/10 bg-[#1C1917] px-3 py-2 sm:px-5 flex flex-wrap items-center justify-between gap-2 text-white shrink-0">
+      {/* Pinned Bottom Page & Zoom Navigation Bar */}
+      <footer className="border-t border-white/10 bg-[#1C1917] px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:px-5 flex items-center justify-between gap-2 text-white shrink-0">
         <div className="flex items-center gap-1.5">
           <button
             type="button"
             disabled={currentPage <= 1}
             onClick={() => goToPage(currentPage - 1)}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[42px]"
+            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[40px] whitespace-nowrap"
           >
             {dir === 'rtl' ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             <span>{t.textbooks.prevPageBtn}</span>
@@ -447,9 +442,9 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
               onChange={(e) => setPageInput(e.target.value)}
               onBlur={handlePageJumpSubmit}
               aria-label={t.textbooks.pageLabel}
-              className="w-16 rounded-lg border border-white/20 bg-white/10 px-2 py-1.5 text-center text-xs font-bold text-white tabular-nums focus:outline-none focus:border-[#E5B742] min-h-[38px]"
+              className="w-14 sm:w-16 rounded-lg border border-white/20 bg-white/10 px-2 py-1 text-center text-xs font-bold text-white tabular-nums focus:outline-none focus:border-[#E5B742] min-h-[38px]"
             />
-            <span className="text-xs text-white/70 tabular-nums whitespace-nowrap">
+            <span className="text-xs text-white/75 tabular-nums whitespace-nowrap">
               / {numPages}
             </span>
           </form>
@@ -458,37 +453,42 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
             type="button"
             disabled={currentPage >= numPages}
             onClick={() => goToPage(currentPage + 1)}
-            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[42px]"
+            className="inline-flex items-center gap-1 rounded-lg border border-white/15 bg-white/5 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-40 cursor-pointer min-h-[40px] whitespace-nowrap"
           >
             <span>{t.textbooks.nextPageBtn}</span>
             {dir === 'rtl' ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
         </div>
 
-        {/* Mobile quick zoom controls */}
-        <div className="flex sm:hidden items-center gap-1">
+        {/* Unified Zoom Controls (always visible on mobile & desktop without scrolling) */}
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
             onClick={() => setZoomScale((z) => Math.max(0.7, Number((z - 0.2).toFixed(2))))}
             aria-label="Zoom out"
-            className="p-2 rounded-lg border border-white/15 bg-white/5 text-white min-h-[40px] min-w-[40px] flex items-center justify-center"
+            className="p-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/15 text-white min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
           >
             <ZoomOut className="w-4 h-4" />
           </button>
           <button
             type="button"
             onClick={() => setZoomScale(1)}
+            title={t.textbooks.fitWidthBtn}
             aria-label={t.textbooks.fitWidthBtn}
-            className="px-2.5 py-2 rounded-lg border border-white/15 bg-white/5 text-xs font-semibold text-white tabular-nums min-h-[40px] flex items-center gap-1"
+            className="px-2.5 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/15 text-xs font-semibold text-white tabular-nums min-h-[40px] flex items-center gap-1 cursor-pointer whitespace-nowrap"
           >
-            <Maximize2 className="w-3.5 h-3.5 text-[#E5B742]" />
+            {zoomScale !== 1 ? (
+              <RotateCcw className="w-3.5 h-3.5 text-[#E5B742]" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5 text-[#E5B742]" />
+            )}
             <span>{Math.round(zoomScale * 100)}%</span>
           </button>
           <button
             type="button"
             onClick={() => setZoomScale((z) => Math.min(2.2, Number((z + 0.2).toFixed(2))))}
             aria-label="Zoom in"
-            className="p-2 rounded-lg border border-white/15 bg-white/5 text-white min-h-[40px] min-w-[40px] flex items-center justify-center"
+            className="p-2 rounded-lg border border-white/15 bg-white/5 hover:bg-white/15 text-white min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
           >
             <ZoomIn className="w-4 h-4" />
           </button>
@@ -497,3 +497,4 @@ export const TextbookPdfViewerModal: React.FC<TextbookPdfViewerModalProps> = ({
     </div>
   );
 };
+

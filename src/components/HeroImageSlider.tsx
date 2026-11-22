@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Image as ImageIcon, SlidersHorizontal } from 'lucide-react';
 import { HERO_SLIDES, HeroSlide, getHeroSlideCopy } from '../config/heroSlides';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useSettings } from '../contexts/SettingsContext';
@@ -9,18 +9,25 @@ interface HeroImageSliderProps {
   slides?: HeroSlide[];
   intervalMs?: number;
   pauseOnHover?: boolean;
+  externalPaused?: boolean;
+  canManage?: boolean;
+  onOpenManager?: () => void;
   className?: string;
 }
 
 export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   slides = HERO_SLIDES,
-  intervalMs = 5500,
+  intervalMs = 3500,
   pauseOnHover = true,
+  externalPaused = false,
+  canManage = false,
+  onOpenManager,
   className = '',
 }) => {
   const { t, language, dir } = useLanguage();
   const { settings } = useSettings();
-  const totalSlides = slides.length;
+  const safeSlides = slides.length > 0 ? slides : HERO_SLIDES;
+  const totalSlides = safeSlides.length;
   const isRtl = dir === 'rtl';
 
   const [activeIndex, setActiveIndex] = useState(0);
@@ -36,7 +43,8 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
 
   const touchStartXRef = useRef<number | null>(null);
   const reduceMotion = systemPrefersReducedMotion || settings.reduceMotion;
-  const isPaused = (pauseOnHover && isHovered) || isFocused || isPageHidden;
+  const isPaused =
+    externalPaused || (pauseOnHover && isHovered) || isFocused || isPageHidden;
 
   useEffect(() => {
     if (typeof window === 'undefined' || !window.matchMedia) return;
@@ -89,12 +97,13 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
     if (reduceMotion || totalSlides <= 1 || isPaused) {
       return;
     }
+    const safeInterval = Math.min(Math.max(intervalMs, 3000), 6000);
     const timer = window.setInterval(() => {
       setActiveIndex((current) => {
         setPrevIndex(current);
         return (current + 1) % totalSlides;
       });
-    }, intervalMs);
+    }, safeInterval);
     return () => window.clearInterval(timer);
   }, [reduceMotion, totalSlides, isPaused, intervalMs]);
 
@@ -132,7 +141,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
     }
   };
 
-  const currentSlide = slides[activeIndex];
+  const currentSlide = safeSlides[activeIndex];
   const currentCopy = currentSlide ? getHeroSlideCopy(currentSlide, language) : null;
   const PrevChevron = isRtl ? ChevronRight : ChevronLeft;
   const NextChevron = isRtl ? ChevronLeft : ChevronRight;
@@ -160,56 +169,54 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
       className={`relative w-full aspect-[16/9] md:aspect-auto md:h-[310px] lg:h-[360px] rounded-2xl sm:rounded-3xl overflow-hidden border border-[#6B1118]/20 dark:border-white/12 shadow-sm select-none bg-[radial-gradient(ellipse_at_68%_48%,#6B151D_0%,#470A10_58%,#32050A_100%)] dark:bg-[radial-gradient(ellipse_at_68%_48%,#4F0E15_0%,#2E060B_58%,#1F0306_100%)] ${className}`}
     >
       {/* Slides Layer */}
-      {totalSlides === 0 ? (
-        <div
-          aria-hidden="true"
-          className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_#32050A)]"
-        />
-      ) : (
-        slides.map((slide, index) => {
-          const isActive = index === activeIndex;
-          const isExiting = index === prevIndex && !isActive;
-          const copy = getHeroSlideCopy(slide, language);
-          const hasFailed = Boolean(failedIds[slide.id]);
+      {safeSlides.map((slide, index) => {
+        const isActive = index === activeIndex;
+        const isExiting = index === prevIndex && !isActive;
+        const copy = getHeroSlideCopy(slide, language);
+        const hasFailed = Boolean(failedIds[slide.id]);
 
-          return (
-            <div
-              key={slide.id}
-              aria-hidden={!isActive}
-              className={`absolute inset-0 flex items-center justify-center ${
-                reduceMotion ? 'transition-none' : 'transition-opacity duration-700 ease-out'
-              } ${
-                isActive ? 'opacity-100 z-[2]' : isExiting ? 'opacity-0 z-[1]' : 'opacity-0 z-0'
-              }`}
-            >
-              {hasFailed ? (
-                <div className="h-full w-full bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_#32050A)]" />
-              ) : (
-                <div
-                  className={`h-full w-full flex items-center justify-center g9-banner-side-feather-md ${
-                    !reduceMotion && isActive ? 'g9-banner-ken-burns' : ''
-                  } ${isPaused ? 'g9-banner-ken-burns-paused' : ''}`}
-                >
-                  <img
-                    src={slide.src}
-                    alt={copy.alt}
-                    loading={index === 0 ? 'eager' : 'lazy'}
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                    onError={() =>
-                      setFailedIds((prev) => ({ ...prev, [slide.id]: true }))
-                    }
-                    style={{
-                      objectPosition: slide.objectPosition || 'center center',
-                    }}
-                    className="h-full w-full object-cover md:object-contain dark:brightness-[0.94] dark:contrast-[1.03]"
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })
-      )}
+        return (
+          <div
+            key={slide.id}
+            aria-hidden={!isActive}
+            className={`absolute inset-0 flex items-center justify-center ${
+              reduceMotion ? 'transition-none' : 'transition-opacity duration-700 ease-out'
+            } ${
+              isActive ? 'opacity-100 z-[2]' : isExiting ? 'opacity-0 z-[1]' : 'opacity-0 z-0'
+            }`}
+          >
+            {hasFailed ? (
+              <div className="h-full w-full flex flex-col items-center justify-center gap-2 px-6 text-center bg-[radial-gradient(ellipse_at_top,_rgba(229,183,66,0.22),_rgba(107,17,24,0.85)_65%,_#32050A)]">
+                <ImageIcon className="w-8 h-8 text-[#E5B742]/90" />
+                <p className="text-xs sm:text-sm font-semibold text-white/90 max-w-md line-clamp-2">
+                  {copy.caption || copy.alt}
+                </p>
+              </div>
+            ) : (
+              <div
+                className={`h-full w-full flex items-center justify-center g9-banner-side-feather-md ${
+                  !reduceMotion && isActive ? 'g9-banner-ken-burns' : ''
+                } ${isPaused ? 'g9-banner-ken-burns-paused' : ''}`}
+              >
+                <img
+                  src={slide.src}
+                  alt={copy.alt}
+                  loading={index === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  onError={() =>
+                    setFailedIds((prev) => ({ ...prev, [slide.id]: true }))
+                  }
+                  style={{
+                    objectPosition: slide.objectPosition || 'center center',
+                  }}
+                  className="h-full w-full object-cover md:object-contain dark:brightness-[0.94] dark:contrast-[1.03]"
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
 
       {/* Subtle Ambient Light Sheen */}
       {!reduceMotion && (
@@ -225,10 +232,26 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
         </div>
       )}
 
+      {/* Admin Quick Access Button */}
+      {canManage && onOpenManager && (
+        <button
+          type="button"
+          onClick={onOpenManager}
+          className="absolute top-3 end-3 z-[6] inline-flex items-center gap-1.5 rounded-xl border border-white/25 bg-black/45 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer min-h-[36px] whitespace-nowrap"
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-[#E5B742] shrink-0" />
+          <span>{t.home.manageBannersBtn}</span>
+        </button>
+      )}
+
       {/* Optional Slide Caption (only rendered when slide provides one) */}
       {currentCopy?.caption && (
-        <div className="pointer-events-none absolute bottom-3 start-4 end-4 z-[4] flex items-center justify-between gap-2">
-          <p className="truncate rounded-lg bg-black/35 backdrop-blur-md border border-white/15 px-3 py-1 text-xs font-medium text-white/95 drop-shadow-xs">
+        <div
+          className={`pointer-events-none absolute ${
+            totalSlides > 1 ? 'bottom-11 sm:bottom-12' : 'bottom-3'
+          } start-4 end-4 z-[4] flex items-center justify-between gap-2`}
+        >
+          <p className="truncate rounded-lg bg-black/45 backdrop-blur-md border border-white/15 px-3 py-1 text-xs font-medium text-white/95 drop-shadow-xs">
             {currentCopy.caption}
           </p>
         </div>
@@ -241,7 +264,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
             type="button"
             onClick={handlePrev}
             aria-label={t.home.prevSlideBtn}
-            className="absolute start-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
+            className="absolute start-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white/95 backdrop-blur-md transition-colors hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
           >
             <PrevChevron className="h-4 w-4" />
           </button>
@@ -250,7 +273,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
             type="button"
             onClick={handleNext}
             aria-label={t.home.nextSlideBtn}
-            className="absolute end-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/30 text-white/95 backdrop-blur-md transition-colors hover:bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
+            className="absolute end-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white/95 backdrop-blur-md transition-colors hover:bg-black/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
           >
             <NextChevron className="h-4 w-4" />
           </button>
@@ -258,9 +281,9 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
           <div
             role="tablist"
             aria-label={t.home.heroSliderLabel}
-            className="absolute bottom-2.5 sm:bottom-3 left-1/2 -translate-x-1/2 z-[5] flex items-center gap-1 rounded-full border border-white/15 bg-black/30 px-2.5 py-1 backdrop-blur-md"
+            className="absolute bottom-2.5 sm:bottom-3 left-1/2 -translate-x-1/2 z-[5] flex items-center gap-1 rounded-full border border-white/15 bg-black/35 px-2.5 py-1 backdrop-blur-md"
           >
-            {slides.map((slide, index) => {
+            {safeSlides.map((slide, index) => {
               const isCurrent = index === activeIndex;
               return (
                 <button

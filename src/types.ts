@@ -605,6 +605,18 @@ export interface TextbooksQAResponse {
   materials: Announcement[];
 }
 
+export interface HeroSlideItem {
+  id: string;
+  src: string;
+  alt: string;
+  altKu?: string;
+  altAr?: string;
+  caption?: string;
+  captionKu?: string;
+  captionAr?: string;
+  objectPosition?: string;
+}
+
 export interface AppSettings {
   allowStudentRegistration: boolean;
   communityEnabled: boolean;
@@ -612,6 +624,7 @@ export interface AppSettings {
   aiTutorEnabled: boolean;
   defaultLanguage: 'en' | 'ku' | 'ar';
   maintenanceMessage: string;
+  heroSlides?: HeroSlideItem[];
   updatedAt?: string;
 }
 
