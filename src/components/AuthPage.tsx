@@ -10,8 +10,10 @@ import {
   KeyRound,
   Lock,
   Mail,
+  ShieldAlert,
   ShieldCheck,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   ApiError,
@@ -52,12 +54,20 @@ import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
 
 interface AuthPageProps {
   onAuthenticated: (user: User) => void;
+  sessionNotice?: string | null;
+  onDismissSessionNotice?: () => void;
 }
 
 type AuthMode = 'login' | 'forgot';
 type ForgotStep = 'email' | 'verify' | 'reset' | 'done';
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
+const SESSION_NOTICE_KEY = 'grade9hub_session_notice';
+
+export const AuthPage: React.FC<AuthPageProps> = ({
+  onAuthenticated,
+  sessionNotice,
+  onDismissSessionNotice,
+}) => {
   const { t, dir } = useLanguage();
   const studentGreeting = useStudentGreeting(t);
   const [mode, setMode] = useState<AuthMode>('login');
@@ -85,6 +95,33 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [localSessionNotice, setLocalSessionNotice] = useState<string | null>(() => {
+    try {
+      return typeof window !== 'undefined'
+        ? window.sessionStorage.getItem(SESSION_NOTICE_KEY)
+        : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    if (sessionNotice !== undefined) {
+      setLocalSessionNotice(sessionNotice);
+    }
+  }, [sessionNotice]);
+
+  const effectiveSessionNotice = sessionNotice !== undefined ? sessionNotice : localSessionNotice;
+
+  const dismissSessionNotice = () => {
+    setLocalSessionNotice(null);
+    try {
+      window.sessionStorage.removeItem(SESSION_NOTICE_KEY);
+    } catch {
+      // ignore storage errors
+    }
+    onDismissSessionNotice?.();
+  };
 
   useEffect(() => {
     let active = true;
@@ -201,6 +238,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
       }
     }
 
+    dismissSessionNotice();
     onAuthenticated(data.user);
   };
 
@@ -281,6 +319,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
       if (data.user.role === 'teacher' || data.user.isAdmin) {
         await persistAdminVault(email, password, data.sessionToken);
       }
+      dismissSessionNotice();
       onAuthenticated(data.user);
     } catch (err) {
       const isBootstrapPending =
@@ -315,6 +354,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
               await saveUserPassport(recovered.user.email, recovered.accountPassport, true);
             }
             await persistAdminVault(email, password, recovered.sessionToken);
+            dismissSessionNotice();
             onAuthenticated(recovered.user);
             return;
           } catch (recoveryErr) {
@@ -371,6 +411,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
         await saveUserPassport(recovered.user.email, recovered.accountPassport, true);
       }
       await persistAdminVault(email, password, recovered.sessionToken);
+      dismissSessionNotice();
       onAuthenticated(recovered.user);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to restore from backup file.');
@@ -553,6 +594,35 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuthenticated }) => {
           </div>
 
           <div className="my-auto w-full max-w-md mx-auto">
+            {effectiveSessionNotice && (
+              <div
+                role="alert"
+                className="mb-3 rounded-xl border border-[#DC2626]/35 bg-[#FEF2F2] px-3.5 py-2.5 text-xs text-[#991B1B]"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+                    <div className="min-w-0">
+                      <p className="font-bold">{t.auth.sessionRevokedDeletedTitle}</p>
+                      <p className="mt-0.5 leading-relaxed">
+                        {effectiveSessionNotice === 'account_deleted'
+                          ? t.auth.sessionRevokedDeletedDesc
+                          : t.auth.sessionEndedGenericDesc}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={dismissSessionNotice}
+                    aria-label="Dismiss notice"
+                    className="p-1 rounded-lg text-[#991B1B]/70 hover:text-[#991B1B] cursor-pointer shrink-0"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {error && (
               <div
                 role="alert"

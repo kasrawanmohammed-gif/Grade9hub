@@ -473,6 +473,40 @@ function isTokenRevoked(token: string): boolean {
   }
 }
 
+function getAccountDeletedAtMs(email: string): number | null {
+  const norm = email.trim().toLowerCase();
+  if (!norm) return null;
+  try {
+    const row = db
+      .prepare('SELECT deleted_at FROM deleted_accounts WHERE email_hash = ?')
+      .get(hashToken(norm)) as { deleted_at: string } | undefined;
+    if (!row?.deleted_at) return null;
+    const ms = Date.parse(row.deleted_at);
+    return Number.isFinite(ms) ? ms : Date.now();
+  } catch {
+    return null;
+  }
+}
+
+function markAccountDeleted(email: string): void {
+  const norm = email.trim().toLowerCase();
+  if (!norm || norm === TEACHER_EMAIL.toLowerCase()) return;
+  db.prepare('INSERT OR REPLACE INTO deleted_accounts (email_hash, deleted_at) VALUES (?, ?)').run(
+    hashToken(norm),
+    new Date().toISOString()
+  );
+}
+
+function clearAccountDeleted(email: string): void {
+  const norm = email.trim().toLowerCase();
+  if (!norm) return;
+  try {
+    db.prepare('DELETE FROM deleted_accounts WHERE email_hash = ?').run(hashToken(norm));
+  } catch {
+    // ignore cleanup error
+  }
+}
+
 function resolveSessionToken(token?: string): {
   user?: AuthUser;
   needsPassportRestore?: boolean;
@@ -535,6 +569,11 @@ function resolveSessionToken(token?: string): {
   const jwtPayload = verifySessionJwt(token);
   if (!jwtPayload) {
     return {};
+  }
+
+  const deletedAtMs = getAccountDeletedAtMs(jwtPayload.email);
+  if (deletedAtMs !== null && (!jwtPayload.iat || jwtPayload.iat * 1000 <= deletedAtMs + 1000)) {
+    return { revoked: true };
   }
 
   let userRow = db
@@ -1204,11 +1243,14 @@ function buildCompetitionLeaderboard(viewerUserId: number) {
 }
 
 function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
-  const { user, needsPassportRestore } = getAuthenticatedUserWithMeta(req);
+  const { user, needsPassportRestore, sessionRevoked } = getAuthenticatedUserWithMeta(req);
   if (!user) {
     res.status(401).json({
-      error: 'Authentication required. Please log in.',
-      ...(needsPassportRestore
+      error: sessionRevoked
+        ? 'Your account session was ended or removed by an administrator.'
+        : 'Authentication required. Please log in.',
+      ...(sessionRevoked ? { sessionRevoked: true, reason: 'account_deleted' } : {}),
+      ...(needsPassportRestore && !sessionRevoked
         ? { needsPassportRestore: true, dbEmpty: getRealUserCount() === 0 }
         : {}),
     });
@@ -1219,11 +1261,14 @@ function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunctio
 }
 
 function requireTeacher(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
-  const { user, needsPassportRestore } = getAuthenticatedUserWithMeta(req);
+  const { user, needsPassportRestore, sessionRevoked } = getAuthenticatedUserWithMeta(req);
   if (!user) {
     res.status(401).json({
-      error: 'Authentication required.',
-      ...(needsPassportRestore
+      error: sessionRevoked
+        ? 'Your account session was ended or removed by an administrator.'
+        : 'Authentication required.',
+      ...(sessionRevoked ? { sessionRevoked: true, reason: 'account_deleted' } : {}),
+      ...(needsPassportRestore && !sessionRevoked
         ? { needsPassportRestore: true, dbEmpty: getRealUserCount() === 0 }
         : {}),
     });
@@ -1476,8 +1521,9 @@ async function startServer() {
       res.json({
         user: null,
         dbEmpty: getRealUserCount() === 0,
-        needsPassportRestore,
+        needsPassportRestore: needsPassportRestore && !sessionRevoked,
         sessionRevoked,
+        ...(sessionRevoked ? { reason: 'account_deleted' } : {}),
       });
       return;
     }
@@ -1518,6 +1564,16 @@ async function startServer() {
     const jwtPayload = verifySessionJwt(sessionToken);
     if (!jwtPayload) {
       res.status(401).json({ error: 'Session token is invalid or expired.' });
+      return;
+    }
+
+    const deletedAtMs = getAccountDeletedAtMs(jwtPayload.email);
+    if (deletedAtMs !== null && (!jwtPayload.iat || jwtPayload.iat * 1000 <= deletedAtMs + 1000)) {
+      res.status(401).json({
+        error: 'This account was deleted by an administrator.',
+        sessionRevoked: true,
+        reason: 'account_deleted',
+      });
       return;
     }
 
@@ -1677,6 +1733,7 @@ async function startServer() {
       );
     }
 
+    clearAccountDeleted(email);
     const { token, expiresAt } = createSessionForUser(userId);
     setSessionCookie(req, res, token, expiresAt);
     checkpointDatabase();
@@ -1850,6 +1907,7 @@ async function startServer() {
       row.is_admin = 1;
     }
 
+    clearAccountDeleted(email);
     const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     const { token, expiresAt } = createSessionForUser(row.id);
     setSessionCookie(req, res, token, expiresAt, rememberMe);
@@ -2082,6 +2140,7 @@ async function startServer() {
       }
     }
 
+    clearAccountDeleted(email);
     const rememberMe = req.body?.rememberMe !== false && req.headers['x-remember-me'] !== '0';
     ensureMainAdminPermissions();
     const { token, expiresAt } = createSessionForUser(userId);
@@ -2827,6 +2886,7 @@ async function startServer() {
       for (const tok of tokensToRevoke) {
         insertRevoked.run(hashToken(tok));
       }
+      markAccountDeleted(target.email);
       db.prepare('DELETE FROM password_resets WHERE LOWER(email) = LOWER(?)').run(target.email);
       db.prepare("DELETE FROM community_reports WHERE target_type = 'user' AND target_id = ?").run(
         targetId
@@ -4280,7 +4340,12 @@ async function startServer() {
       });
 
       const created = db
-        .prepare('SELECT * FROM announcements WHERE id = ?')
+        .prepare(
+          `SELECT a.*, u.name AS author_name
+           FROM announcements a
+           LEFT JOIN users u ON u.id = a.created_by
+           WHERE a.id = ?`
+        )
         .get(result.lastInsertRowid);
       res.status(201).json({ announcement: created });
     }
@@ -5517,6 +5582,25 @@ async function startServer() {
 
   wss.on('close', () => {
     clearInterval(wsHeartbeat);
+  });
+
+  // Clean JSON error handler for Multer & API upload/request failures
+  app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err && typeof err === 'object' && 'name' in err && (err as { name?: string }).name === 'MulterError') {
+      const code = (err as { code?: string }).code;
+      const msg =
+        code === 'LIMIT_FILE_SIZE'
+          ? 'Attached file is too large. Please keep uploads under 10 MB.'
+          : (err as { message?: string }).message || 'File upload failed.';
+      res.status(400).json({ error: msg });
+      return;
+    }
+    const msg = err instanceof Error ? err.message : 'Unexpected server error.';
+    const status =
+      err && typeof err === 'object' && 'status' in err && typeof (err as { status?: unknown }).status === 'number'
+        ? ((err as { status: number }).status)
+        : 500;
+    res.status(status >= 400 && status < 600 ? status : 500).json({ error: msg });
   });
 
   // Block HTTP access to tracked encrypted backup files and server internals

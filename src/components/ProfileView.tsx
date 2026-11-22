@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { apiFetch, getStoredSessionToken, setStoredCachedUser } from '../lib/api';
 import {
+  deleteCloudUserAsAdmin,
   deleteOwnCloudAccountData,
   MAIN_ADMIN_EMAIL,
 } from '../lib/cloudAccounts';
@@ -274,8 +275,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handleDeleteUser = async (targetId: number) => {
     setAdminMsg(null);
     setAdminError(null);
+    const targetUser = allUsers.find((u) => u.id === targetId);
     try {
       await apiFetch(`/api/admin/users/${targetId}`, { method: 'DELETE' });
+      if (targetUser?.email) {
+        await deleteCloudUserAsAdmin(targetUser.email).catch(() => {});
+      }
       setConfirmDeleteUserId(null);
       if (inspectUser?.id === targetId) setInspectUser(null);
       setAdminMsg(t.profile.accountRemovedMsg);

@@ -97,6 +97,34 @@ export const DIRTY_DOZEN_PAYLOAD_TESTS: DirtyDozenCase[] = [
     attackVector: 'Listing leaderboard_entries without enforcing resource.data.role == "student"',
     expectedOutcome: 'PERMISSION_DENIED',
   },
+  {
+    id: 'DD-13',
+    collection: '/direct_messages/{messageId}',
+    operation: 'get',
+    attackVector: 'Third-party student reading DM where UID is not in participants',
+    expectedOutcome: 'PERMISSION_DENIED',
+  },
+  {
+    id: 'DD-14',
+    collection: '/direct_messages/{messageId}',
+    operation: 'create',
+    attackVector: 'Sender spoofing senderUid != request.auth.uid or empty message without attachment',
+    expectedOutcome: 'PERMISSION_DENIED',
+  },
+  {
+    id: 'DD-15',
+    collection: '/announcements/{announcementId}',
+    operation: 'create',
+    attackVector: 'Student role attempting to publish school announcement or shadow field injection',
+    expectedOutcome: 'PERMISSION_DENIED',
+  },
+  {
+    id: 'DD-16',
+    collection: '/account_revocations/{revocationKey}',
+    operation: 'create',
+    attackVector: 'Non-admin attempting to revoke another user account',
+    expectedOutcome: 'PERMISSION_DENIED',
+  },
 ];
 
 export const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
@@ -104,3 +132,4 @@ export const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
 export function verifyBlueprintRegexAlignment(id: string): boolean {
   return VALID_ID_REGEX.test(id);
 }
+

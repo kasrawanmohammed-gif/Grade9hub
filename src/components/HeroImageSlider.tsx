@@ -37,8 +37,12 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   const [isPageHidden, setIsPageHidden] = useState(false);
   const [failedIds, setFailedIds] = useState<Record<string, boolean>>({});
   const [systemPrefersReducedMotion, setSystemPrefersReducedMotion] = useState(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false;
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    try {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      return false;
+    }
   });
 
   const touchStartXRef = useRef<number | null>(null);
@@ -47,14 +51,40 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
     externalPaused || (pauseOnHover && isHovered) || isFocused || isPageHidden;
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const onChange = (event: MediaQueryListEvent) => {
-      setSystemPrefersReducedMotion(event.matches);
-    };
-    setSystemPrefersReducedMotion(media.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
+    try {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const media = window.matchMedia('(prefers-reduced-motion: reduce)');
+      const onChange = (event: MediaQueryListEvent) => {
+        setSystemPrefersReducedMotion(event.matches);
+      };
+      setSystemPrefersReducedMotion(media.matches);
+      if (typeof media.addEventListener === 'function') {
+        media.addEventListener('change', onChange);
+        return () => {
+          try {
+            media.removeEventListener('change', onChange);
+          } catch {
+            // ignore
+          }
+        };
+      }
+      const legacyMedia = media as MediaQueryList & {
+        addListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+        removeListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+      };
+      if (typeof legacyMedia.addListener === 'function') {
+        legacyMedia.addListener(onChange);
+        return () => {
+          try {
+            legacyMedia.removeListener?.(onChange);
+          } catch {
+            // ignore
+          }
+        };
+      }
+    } catch {
+      // ignore matchMedia errors
+    }
   }, []);
 
   useEffect(() => {

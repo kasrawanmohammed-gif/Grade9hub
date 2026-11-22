@@ -22,6 +22,7 @@ import {
   ThemeMode,
   useSettings,
 } from '../contexts/SettingsContext';
+import { type PushUnsupportedReason } from '../hooks/usePushNotifications';
 import { TabId } from '../types';
 
 interface SettingsViewProps {
@@ -31,6 +32,7 @@ interface SettingsViewProps {
   pushPermission: NotificationPermission;
   pushBusy: boolean;
   pushError: string | null;
+  pushUnsupportedReason?: PushUnsupportedReason;
   onEnablePush: () => Promise<boolean>;
   onDisablePush: () => Promise<void>;
 }
@@ -42,6 +44,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   pushPermission,
   pushBusy,
   pushError,
+  pushUnsupportedReason = null,
   onEnablePush,
   onDisablePush,
 }) => {
@@ -447,23 +450,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div>
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-base font-bold text-[#1C1917]">{t.settings.notificationsTitle}</h3>
-                {pushSupported && (
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
-                      pushSubscribed
-                        ? 'bg-[#ECFDF5] text-[#065F46] border border-[#059669]/30'
-                        : pushPermission === 'denied'
-                        ? 'bg-[#FEF2F2] text-[#991B1B] border border-[#DC2626]/30'
-                        : 'bg-[#FAF8F5] text-[#57534E] border border-[#E6DFD5]'
-                    }`}
-                  >
-                    {pushSubscribed
-                      ? t.settings.notificationsStatusEnabled
+                <span
+                  className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                    !pushSupported
+                      ? 'bg-[#FBF4DF]/75 text-[#6B1118] border border-[#D9A62E]/40'
+                      : pushSubscribed
+                      ? 'bg-[#ECFDF5] text-[#065F46] border border-[#059669]/30'
                       : pushPermission === 'denied'
-                      ? t.settings.notificationsStatusBlocked
-                      : t.settings.notificationsStatusDisabled}
-                  </span>
-                )}
+                      ? 'bg-[#FEF2F2] text-[#991B1B] border border-[#DC2626]/30'
+                      : 'bg-[#FAF8F5] text-[#57534E] border border-[#E6DFD5]'
+                  }`}
+                >
+                  {!pushSupported
+                    ? t.settings.notificationsStatusUnsupported
+                    : pushSubscribed
+                    ? t.settings.notificationsStatusEnabled
+                    : pushPermission === 'denied'
+                    ? t.settings.notificationsStatusBlocked
+                    : t.settings.notificationsStatusDisabled}
+                </span>
               </div>
               <p className="text-xs text-[#57534E] mt-0.5">{t.settings.notificationsDesc}</p>
             </div>
@@ -493,12 +498,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        {(pushPermission === 'denied' || pushError) && !pushSubscribed && (
+        {(pushPermission === 'denied' || pushError || pushUnsupportedReason !== null) && !pushSubscribed && (
           <div
             role="status"
             className="rounded-xl border border-[#D9A62E]/40 bg-[#FBF4DF]/60 px-4 py-3 text-xs text-[#57534E] leading-relaxed"
           >
-            {pushPermission === 'denied' ? t.settings.notificationsBlockedHelp : pushError}
+            {pushUnsupportedReason === 'ios_home_screen'
+              ? t.notifications.iosBrowserSteps
+              : pushUnsupportedReason === 'unsupported'
+              ? t.notifications.unsupportedDesc
+              : pushUnsupportedReason === 'vapid_missing'
+              ? t.notifications.vapidUnavailableDesc
+              : pushPermission === 'denied'
+              ? t.settings.notificationsBlockedHelp
+              : pushError}
           </div>
         )}
       </section>

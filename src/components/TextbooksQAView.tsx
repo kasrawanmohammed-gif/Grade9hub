@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -46,7 +46,10 @@ import {
   User,
 } from '../types';
 import { ScientificText } from './ScientificText';
-import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
+
+const TextbookPdfViewerModal = lazy(() =>
+  import('./TextbookPdfViewerModal').then((m) => ({ default: m.TextbookPdfViewerModal }))
+);
 
 interface TextbooksQAViewProps {
   user: User;
@@ -1521,14 +1524,16 @@ export const TextbooksQAView: React.FC<TextbooksQAViewProps> = ({
       )}
 
       {readerConfig && (
-        <TextbookPdfViewerModal
-          url={readerConfig.url}
-          title={readerConfig.title}
-          fileName={readerConfig.fileName}
-          initialPage={readerConfig.initialPage}
-          isOfficialBook={readerConfig.isOfficialBook}
-          onClose={() => setReaderConfig(null)}
-        />
+        <Suspense fallback={null}>
+          <TextbookPdfViewerModal
+            url={readerConfig.url}
+            title={readerConfig.title}
+            fileName={readerConfig.fileName}
+            initialPage={readerConfig.initialPage}
+            isOfficialBook={readerConfig.isOfficialBook}
+            onClose={() => setReaderConfig(null)}
+          />
+        </Suspense>
       )}
     </div>
   );

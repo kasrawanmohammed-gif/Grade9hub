@@ -19,6 +19,7 @@ import {
   CompetitionPointEvent,
   CurriculumStudyQA,
   LeaderboardEntry,
+  NotificationItem,
   Question,
   QuizAnswerCheckResult,
   QuizAttempt,
@@ -32,15 +33,24 @@ import {
 import { auth } from './firebase';
 import {
   CloudUserProfile,
+  createCloudAnnouncement,
+  deleteCloudAnnouncement,
+  deleteCloudDirectMessage,
   deleteCloudUserAsAdmin,
+  encodeFileForFirestoreAttachment,
+  fetchCloudAnnouncements,
   fetchCloudAppSettings,
+  fetchCloudDirectMessages,
   fetchCloudRegisteredUsersAsAdmin,
   fetchFirestoreLeaderboard,
+  isCurrentUserCloudRevoked,
   MAIN_ADMIN_EMAIL,
   pullAllPeerPresence,
   pullCloudUserProfile,
+  recordFreshLoginTimestamp,
   recordQuizAttemptToCloud,
   saveCloudAppSettings,
+  sendCloudDirectMessage,
   syncCloudPeerPresence,
   syncCurrentUserToFirestore,
   updateCloudUserAsAdmin,
@@ -56,6 +66,8 @@ const STATIC_STATS_KEY = 'grade9hub_static_stats_v1';
 const STATIC_PRESENCE_KEY = 'grade9hub_static_presence_v1';
 const STATIC_SETTINGS_KEY = 'grade9hub_static_settings_v1';
 const STATIC_COMMUNITY_KEY = 'grade9hub_static_community_v1';
+const STATIC_ANNOUNCEMENTS_KEY = 'grade9hub_static_announcements_v1';
+const STATIC_NOTIFICATIONS_KEY = 'grade9hub_static_notifications_v1';
 const PRESENCE_TTL_MS = 90_000;
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -317,6 +329,36 @@ function getSessionTokenLocal(): string | null {
   } catch {
     return null;
   }
+}
+
+function clearStaticLocalSession(): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(SESSION_TOKEN_KEY);
+      window.localStorage.removeItem(CACHED_USER_KEY);
+      window.sessionStorage.removeItem(SESSION_TOKEN_KEY);
+      window.sessionStorage.removeItem(CACHED_USER_KEY);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function appendStaticNotification(
+  item: Omit<NotificationItem, 'id' | 'user_id' | 'is_read' | 'created_at'> & { user_id?: number }
+): void {
+  const existing = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []);
+  const next: NotificationItem = {
+    id: Date.now(),
+    user_id: item.user_id ?? getCachedUserLocal()?.id ?? 0,
+    title: item.title,
+    body: item.body,
+    category: item.category,
+    link_tab: item.link_tab,
+    is_read: 0,
+    created_at: new Date().toISOString(),
+  };
+  writeLocalJson(STATIC_NOTIFICATIONS_KEY, [next, ...existing].slice(0, 60));
 }
 
 function getUserStats(userId: number): StoredStaticStats {
@@ -1018,11 +1060,31 @@ export async function handleStaticApiFallback(
   if (pathname === '/api/auth/me') {
     const cached = getCachedUserLocal();
     const token = getSessionTokenLocal();
+    await auth.authStateReady().catch(() => {});
+    const fbUser = auth.currentUser;
+
+    if (cached || (fbUser && fbUser.emailVerified)) {
+      const checkEmail = cached?.email || fbUser?.email || '';
+      const revoked = await isCurrentUserCloudRevoked(checkEmail, fbUser?.uid).catch(() => false);
+      if (revoked) {
+        clearStaticLocalSession();
+        if (checkEmail) {
+          const profiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
+          delete profiles[checkEmail.trim().toLowerCase()];
+          writeLocalJson(STATIC_PROFILES_KEY, profiles);
+        }
+        return {
+          user: null,
+          dbEmpty: false,
+          sessionRevoked: true,
+          reason: 'account_deleted',
+        };
+      }
+    }
+
     if (cached && token) {
       return { user: cached, sessionToken: token, dbEmpty: false };
     }
-    await auth.authStateReady().catch(() => {});
-    const fbUser = auth.currentUser;
     if (fbUser && fbUser.emailVerified) {
       const { profile } = await pullCloudUserProfile(fbUser.uid).catch(() => ({
         profile: null,
@@ -1064,6 +1126,7 @@ export async function handleStaticApiFallback(
       cloudProfile
     );
     const nextToken = `fb_${fbUser.uid}`;
+    recordFreshLoginTimestamp();
     saveSessionAndCachedUser(appUser, nextToken, rememberMe);
 
     const stats = getUserStats(appUser.id);
@@ -1135,6 +1198,7 @@ export async function handleStaticApiFallback(
         created_at: prevAdmin?.created_at || nowIso,
       };
       const token = `local_admin_${stableNumericId(email)}`;
+      recordFreshLoginTimestamp();
       saveSessionAndCachedUser(adminUser, token, rememberMe);
       return { user: adminUser, sessionToken: token };
     }
@@ -1160,6 +1224,7 @@ export async function handleStaticApiFallback(
       created_at: prev?.created_at || nowIso,
     };
     const token = `local_${stableNumericId(email)}`;
+    recordFreshLoginTimestamp();
     saveSessionAndCachedUser(studentUser, token, rememberMe);
     return { user: studentUser, sessionToken: token };
   }
@@ -1221,6 +1286,7 @@ export async function handleStaticApiFallback(
       created_at: profiles[email]?.created_at || nowIso,
     };
     const token = `local_${newUser.id}`;
+    recordFreshLoginTimestamp();
     saveSessionAndCachedUser(newUser, token, true);
     updateStaticPresence(newUser.id, true, 'home');
     return { user: newUser, sessionToken: token };
@@ -1796,12 +1862,158 @@ export async function handleStaticApiFallback(
     return { ok: true, settings: updated };
   }
 
-  // 15. Clean Read & Cloud-Backed Fallbacks for Announcements / Notifications / Messages / Community / Admin
+  // 15. Cloud & Local Fallbacks for Announcements / Notifications / Messages
   if (pathname === '/api/announcements' && method === 'GET') {
-    return { announcements: [] };
+    const [cloudList, localList] = await Promise.all([
+      fetchCloudAnnouncements().catch(() => []),
+      Promise.resolve(readLocalJson<Announcement[]>(STATIC_ANNOUNCEMENTS_KEY, [])),
+    ]);
+    const mergedMap = new Map<number, Announcement>();
+    for (const item of localList) {
+      mergedMap.set(item.id, item);
+    }
+    for (const item of cloudList) {
+      mergedMap.set(item.id, {
+        id: item.id,
+        title: item.title,
+        content: item.content,
+        type: item.type,
+        attachment_name: item.attachment_name,
+        attachment_url: item.attachment_url,
+        attachment_mime: item.attachment_mime,
+        created_at: item.created_at,
+        author_name: item.author_name,
+      });
+    }
+    const merged = Array.from(mergedMap.values()).sort(
+      (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id
+    );
+    writeLocalJson(STATIC_ANNOUNCEMENTS_KEY, merged.slice(0, 60));
+    return { announcements: merged };
   }
+
+  if (pathname === '/api/announcements' && method === 'POST') {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    if (user.role !== 'teacher' && !user.isAdmin) {
+      throw new StaticFallbackHttpError('Administrator or teacher permissions required.', 403);
+    }
+    const formData = options.body instanceof FormData ? options.body : null;
+    const title = (formData ? String(formData.get('title') || '') : String(body.title || '')).trim();
+    const content = (formData ? String(formData.get('content') || '') : String(body.content || '')).trim();
+    const rawType = formData ? formData.get('type') : body.type;
+    const type: 'announcement' | 'material' = rawType === 'material' ? 'material' : 'announcement';
+    const rawFile = formData ? formData.get('file') : null;
+
+    if (!title || !content) {
+      throw new StaticFallbackHttpError('Title and message content are required.', 400);
+    }
+
+    let encodedAttachment: {
+      attachmentName: string;
+      attachmentUrl: string;
+      attachmentMime: string;
+    } | null = null;
+    if (rawFile instanceof File && rawFile.size > 0) {
+      try {
+        encodedAttachment = await encodeFileForFirestoreAttachment(rawFile);
+      } catch (err) {
+        throw new StaticFallbackHttpError(
+          err instanceof Error ? err.message : 'Attachment file is too large.',
+          400
+        );
+      }
+    }
+
+    const cloudCreated = await createCloudAnnouncement({
+      title,
+      content,
+      type,
+      authorName: user.name || 'Mr. Kasrawan',
+      attachment: encodedAttachment,
+    }).catch((err) => {
+      if (auth.currentUser?.emailVerified) {
+        throw new StaticFallbackHttpError(
+          err instanceof Error ? err.message : 'Failed to publish announcement.',
+          400
+        );
+      }
+      return null;
+    });
+
+    const created: Announcement = cloudCreated
+      ? {
+          id: cloudCreated.id,
+          title: cloudCreated.title,
+          content: cloudCreated.content,
+          type: cloudCreated.type,
+          attachment_name: cloudCreated.attachment_name,
+          attachment_url: cloudCreated.attachment_url,
+          attachment_mime: cloudCreated.attachment_mime,
+          created_at: cloudCreated.created_at,
+          author_name: cloudCreated.author_name,
+        }
+      : {
+          id: Date.now(),
+          title,
+          content,
+          type,
+          attachment_name: encodedAttachment?.attachmentName || null,
+          attachment_url: encodedAttachment?.attachmentUrl || null,
+          attachment_mime: encodedAttachment?.attachmentMime || null,
+          created_at: new Date().toISOString(),
+          author_name: user.name || 'Mr. Kasrawan',
+        };
+
+    const existing = readLocalJson<Announcement[]>(STATIC_ANNOUNCEMENTS_KEY, []);
+    writeLocalJson(STATIC_ANNOUNCEMENTS_KEY, [created, ...existing.filter((a) => a.id !== created.id)].slice(0, 60));
+
+    appendStaticNotification({
+      title: type === 'material' ? `New Study Material: ${title}` : `Announcement: ${title}`,
+      body: content.slice(0, 140),
+      category: type === 'material' ? 'material' : 'announcement',
+      link_tab: 'home',
+    });
+
+    return { announcement: created };
+  }
+
+  const staticAnnouncementDeleteMatch = pathname.match(/^\/api\/announcements\/(\d+)$/);
+  if (staticAnnouncementDeleteMatch && method === 'DELETE') {
+    if (!isPrivilegedCachedUser()) {
+      throw new StaticFallbackHttpError('Administrator or teacher permissions required.', 403);
+    }
+    const targetId = Number(staticAnnouncementDeleteMatch[1]);
+    const existing = readLocalJson<Announcement[]>(STATIC_ANNOUNCEMENTS_KEY, []);
+    writeLocalJson(
+      STATIC_ANNOUNCEMENTS_KEY,
+      existing.filter((a) => a.id !== targetId)
+    );
+    await deleteCloudAnnouncement(targetId).catch(() => {});
+    return { ok: true };
+  }
+
   if (pathname === '/api/notifications' && method === 'GET') {
-    return { notifications: [], unreadCount: 0 };
+    const items = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []);
+    const unreadCount = items.filter((n) => n.is_read === 0).length;
+    return { notifications: items, unreadCount };
+  }
+  if (pathname === '/api/notifications/read-all' && method === 'POST') {
+    const items = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []).map((n) => ({
+      ...n,
+      is_read: 1,
+    }));
+    writeLocalJson(STATIC_NOTIFICATIONS_KEY, items);
+    return { ok: true };
+  }
+  const staticNotifReadMatch = pathname.match(/^\/api\/notifications\/(\d+)\/read$/);
+  if (staticNotifReadMatch && method === 'POST') {
+    const targetId = Number(staticNotifReadMatch[1]);
+    const items = readLocalJson<NotificationItem[]>(STATIC_NOTIFICATIONS_KEY, []).map((n) =>
+      n.id === targetId ? { ...n, is_read: 1 } : n
+    );
+    writeLocalJson(STATIC_NOTIFICATIONS_KEY, items);
+    return { ok: true };
   }
   if (pathname.startsWith('/api/notifications/') && method === 'POST') {
     return { ok: true };
@@ -1973,16 +2185,62 @@ export async function handleStaticApiFallback(
   if (pathname === '/api/community/dm/threads' && method === 'GET') {
     const viewer = getCachedUserLocal();
     const store = getStaticCommunityStore();
-    const { peers } = await buildMergedAccountsRegistry();
+    const [{ users, peers }, cloudDms] = await Promise.all([
+      buildMergedAccountsRegistry(),
+      fetchCloudDirectMessages().catch(() => []),
+    ]);
+    const myFbUid = auth.currentUser?.uid || '';
+    const uidToPeerId = new Map<string, number>();
+    for (const u of users) {
+      if (u.cloudUid) uidToPeerId.set(u.cloudUid, u.id);
+    }
+
+    const mappedCloudDms: CommunityDirectMessage[] = cloudDms.map((cm) => {
+      const sId = uidToPeerId.get(cm.senderUid) || cm.senderNumericId;
+      const rId = uidToPeerId.get(cm.recipientUid) || cm.recipientNumericId;
+      return {
+        id: cm.id,
+        sender_id: myFbUid && cm.senderUid === myFbUid && viewer ? viewer.id : sId,
+        recipient_id: myFbUid && cm.recipientUid === myFbUid && viewer ? viewer.id : rId,
+        sender_name: cm.senderName,
+        sender_avatar_url: cm.senderAvatarUrl,
+        sender_role: cm.senderRole,
+        recipient_name: cm.recipientName,
+        message_text: cm.messageText,
+        attachment_name: cm.attachmentName,
+        attachment_url: cm.attachmentUrl,
+        attachment_mime: cm.attachmentMime,
+        is_read: 1,
+        created_at: cm.createdAtIso,
+      };
+    });
+
+    const combinedById = new Map<number, CommunityDirectMessage>();
+    for (const m of store.dms) combinedById.set(m.id, m);
+    for (const m of mappedCloudDms) combinedById.set(m.id, m);
+    const allDms = Array.from(combinedById.values()).sort(
+      (a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id
+    );
+
     const threads: CommunityDmThread[] = peers
       .filter((p) => !viewer || p.id !== viewer.id)
       .map((p) => {
+        const peerCloudUid = users.find((u) => u.id === p.id)?.cloudUid;
         const convo = viewer
-          ? store.dms.filter(
-              (m) =>
+          ? allDms.filter((m) => {
+              const cloudMatch = Boolean(
+                peerCloudUid &&
+                  cloudDms.some(
+                    (cm) =>
+                      cm.id === m.id &&
+                      (cm.senderUid === peerCloudUid || cm.recipientUid === peerCloudUid)
+                  )
+              );
+              const numericMatch =
                 (m.sender_id === viewer.id && m.recipient_id === p.id) ||
-                (m.sender_id === p.id && m.recipient_id === viewer.id)
-            )
+                (m.sender_id === p.id && m.recipient_id === viewer.id);
+              return cloudMatch || numericMatch;
+            })
           : [];
         const last = convo[convo.length - 1];
         return {
@@ -1999,8 +2257,28 @@ export async function handleStaticApiFallback(
           last_attachment_name: last?.attachment_name || null,
           unread_count: 0,
         };
+      })
+      .sort((a, b) => {
+        if (a.last_message_at && b.last_message_at) {
+          return Date.parse(b.last_message_at) - Date.parse(a.last_message_at);
+        }
+        if (a.last_message_at) return -1;
+        if (b.last_message_at) return 1;
+        return a.peer_name.localeCompare(b.peer_name);
       });
     return { threads };
+  }
+
+  const staticDmDeleteMatch = pathname.match(/^\/api\/community\/dm\/message\/(\d+)$/);
+  if (staticDmDeleteMatch && method === 'DELETE') {
+    const user = getCachedUserLocal();
+    if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
+    const messageId = Number(staticDmDeleteMatch[1]);
+    const store = getStaticCommunityStore();
+    store.dms = store.dms.filter((m) => m.id !== messageId);
+    saveStaticCommunityStore(store);
+    await deleteCloudDirectMessage(messageId).catch(() => {});
+    return { ok: true };
   }
 
   const staticDmPeerMatch = pathname.match(/^\/api\/community\/dm\/(\d+)$/);
@@ -2009,43 +2287,139 @@ export async function handleStaticApiFallback(
     if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
     const peerId = Number(staticDmPeerMatch[1]);
     const store = getStaticCommunityStore();
-    const { peers } = await buildMergedAccountsRegistry();
+    const [{ users, peers }, cloudDms] = await Promise.all([
+      buildMergedAccountsRegistry(),
+      fetchCloudDirectMessages().catch(() => []),
+    ]);
     const peerMap = new Map(peers.map((p) => [p.id, p]));
+    const targetAccount = users.find((u) => u.id === peerId);
+    const targetPeer = peerMap.get(peerId);
+    const myFbUid = auth.currentUser?.uid || '';
+
     if (method === 'GET') {
-      const messages = store.dms
-        .filter(
-          (m) =>
-            (m.sender_id === user.id && m.recipient_id === peerId) ||
-            (m.sender_id === peerId && m.recipient_id === user.id)
-        )
+      const mergedMap = new Map<number, CommunityDirectMessage>();
+      for (const m of store.dms) {
+        if (
+          (m.sender_id === user.id && m.recipient_id === peerId) ||
+          (m.sender_id === peerId && m.recipient_id === user.id)
+        ) {
+          mergedMap.set(m.id, m);
+        }
+      }
+      for (const cm of cloudDms) {
+        const matchesPeerUid = Boolean(
+          targetAccount?.cloudUid &&
+            (cm.senderUid === targetAccount.cloudUid || cm.recipientUid === targetAccount.cloudUid)
+        );
+        const matchesPeerNum =
+          cm.senderNumericId === peerId || cm.recipientNumericId === peerId;
+        if (!matchesPeerUid && !matchesPeerNum) continue;
+
+        const isFromMe = Boolean(
+          (myFbUid && cm.senderUid === myFbUid) || cm.senderNumericId === user.id
+        );
+        mergedMap.set(cm.id, {
+          id: cm.id,
+          sender_id: isFromMe ? user.id : peerId,
+          recipient_id: isFromMe ? peerId : user.id,
+          sender_name: cm.senderName,
+          sender_avatar_url: cm.senderAvatarUrl,
+          sender_role: cm.senderRole,
+          recipient_name: cm.recipientName,
+          message_text: cm.messageText,
+          attachment_name: cm.attachmentName,
+          attachment_url: cm.attachmentUrl,
+          attachment_mime: cm.attachmentMime,
+          is_read: 1,
+          created_at: cm.createdAtIso,
+        });
+      }
+
+      const messages = Array.from(mergedMap.values())
+        .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id - b.id)
         .map((m) => ({
           ...m,
           sender_online: Boolean(peerMap.get(m.sender_id)?.online),
         }));
       return { messages };
     }
+
     if (method === 'POST') {
+      const settings = getLocalAppSettings();
+      if (
+        user.role !== 'teacher' &&
+        !user.isAdmin &&
+        (user.isRestricted || !settings.communityEnabled || !settings.communityPostingEnabled)
+      ) {
+        throw new StaticFallbackHttpError(
+          'Direct messaging is currently unavailable for this account.',
+          403
+        );
+      }
+
       const formData = options.body instanceof FormData ? options.body : null;
-      const messageText = formData
-        ? String(formData.get('messageText') || '').trim()
-        : String(body.messageText || '').trim();
-      if (!messageText) throw new StaticFallbackHttpError('Please write a message.', 400);
-      const targetPeer = peerMap.get(peerId);
+      const messageText = (
+        formData ? String(formData.get('messageText') || '') : String(body.messageText || '')
+      ).trim();
+      const rawFile = formData ? formData.get('attachment') || formData.get('file') : null;
+      const hasAttachment = rawFile instanceof File && rawFile.size > 0;
+
+      if (!messageText && !hasAttachment) {
+        throw new StaticFallbackHttpError('Please enter a message or attach a file.', 400);
+      }
+
+      let encodedAttachment: {
+        attachmentName: string;
+        attachmentUrl: string;
+        attachmentMime: string;
+      } | null = null;
+      if (hasAttachment && rawFile instanceof File) {
+        try {
+          encodedAttachment = await encodeFileForFirestoreAttachment(rawFile);
+        } catch (err) {
+          throw new StaticFallbackHttpError(
+            err instanceof Error ? err.message : 'Attachment file is too large.',
+            400
+          );
+        }
+      }
+
+      const recipientName = targetPeer?.name || targetAccount?.name || 'Classmate';
+      const cloudSaved =
+        myFbUid && targetAccount?.cloudUid && targetAccount.cloudUid !== myFbUid
+          ? await sendCloudDirectMessage({
+              recipientUid: targetAccount.cloudUid,
+              senderNumericId: user.id,
+              recipientNumericId: peerId,
+              senderName: user.name,
+              senderAvatarUrl: user.avatar_url || '',
+              senderRole: user.role,
+              recipientName,
+              messageText,
+              attachment: encodedAttachment,
+            }).catch((err) => {
+              throw new StaticFallbackHttpError(
+                err instanceof Error ? err.message : 'Failed to send direct message.',
+                400
+              );
+            })
+          : null;
+
       const msg: CommunityDirectMessage = {
-        id: Date.now(),
+        id: cloudSaved?.id || Date.now(),
         sender_id: user.id,
         recipient_id: peerId,
         sender_name: user.name,
         sender_avatar_url: user.avatar_url || '',
         sender_role: user.role,
         sender_online: true,
-        recipient_name: targetPeer?.name || 'Classmate',
+        recipient_name: recipientName,
         message_text: messageText,
-        attachment_name: null,
-        attachment_url: null,
-        attachment_mime: null,
+        attachment_name: cloudSaved?.attachmentName ?? encodedAttachment?.attachmentName ?? null,
+        attachment_url: cloudSaved?.attachmentUrl ?? encodedAttachment?.attachmentUrl ?? null,
+        attachment_mime: cloudSaved?.attachmentMime ?? encodedAttachment?.attachmentMime ?? null,
         is_read: 1,
-        created_at: new Date().toISOString(),
+        created_at: cloudSaved?.createdAtIso || new Date().toISOString(),
       };
       store.dms.push(msg);
       saveStaticCommunityStore(store);

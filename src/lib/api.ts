@@ -1,4 +1,5 @@
 import { getActivePassport, saveUserPassport } from './recoveryVault';
+import { recordFreshLoginTimestamp } from './cloudAccounts';
 import {
   handleStaticApiFallback,
   isStaticHostMode,
@@ -336,6 +337,22 @@ export async function apiFetch<T>(
   }
 
   if (!currentResponse.ok) {
+    if (
+      currentResponse.status === 401 &&
+      Boolean(currentData.sessionRevoked) &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('grade9hub:session-revoked', {
+          detail: {
+            reason:
+              typeof currentData.reason === 'string'
+                ? currentData.reason
+                : 'account_deleted',
+          },
+        })
+      );
+    }
     const errMsg =
       typeof currentData.error === 'string' && currentData.error
         ? currentData.error
@@ -343,6 +360,14 @@ export async function apiFetch<T>(
     throw new ApiError(errMsg, currentResponse.status, currentData);
   }
 
+  if (
+    url.startsWith('/api/auth/login') ||
+    url.startsWith('/api/auth/register') ||
+    url.startsWith('/api/auth/firebase-login') ||
+    url.startsWith('/api/auth/recover-from-vault')
+  ) {
+    recordFreshLoginTimestamp();
+  }
   capturePassportFromResponse(currentData);
   return currentData as T;
 }

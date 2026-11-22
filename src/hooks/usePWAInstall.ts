@@ -11,13 +11,23 @@ export function usePWAInstall() {
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true;
-    setIsInstalled(isStandalone);
+    try {
+      const standaloneMedia =
+        typeof window.matchMedia === 'function'
+          ? window.matchMedia('(display-mode: standalone)').matches
+          : false;
+      const isStandalone =
+        standaloneMedia ||
+        (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
+      setIsInstalled(isStandalone);
 
-    const userAgent = window.navigator.userAgent.toLowerCase();
-    setIsIOS(/iphone|ipad|ipod/.test(userAgent));
+      const userAgent = (window.navigator?.userAgent || '').toLowerCase();
+      const maxTouchPoints = window.navigator?.maxTouchPoints || 0;
+      const isIPadOS = /macintosh/.test(userAgent) && maxTouchPoints > 1;
+      setIsIOS(/iphone|ipad|ipod/.test(userAgent) || isIPadOS);
+    } catch {
+      // ignore browser environment errors
+    }
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();

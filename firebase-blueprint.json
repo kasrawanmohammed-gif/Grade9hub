@@ -446,6 +446,233 @@
         "maintenanceMessage",
         "updatedAt"
       ]
+    },
+    "AccountRevocation": {
+      "title": "AccountRevocation",
+      "description": "PII-free admin-written tombstone signaling immediate cross-device session termination for deleted or disabled accounts.",
+      "type": "object",
+      "properties": {
+        "revocationKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Deterministic revocation identifier (uid_<uid> or acct_<hash>)."
+        },
+        "targetUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Deleted Firebase Auth UID if known."
+        },
+        "accountKey": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "SHA-256 derived account key for the revoked email."
+        },
+        "reason": {
+          "type": "string",
+          "enum": ["account_deleted", "account_disabled"],
+          "description": "Reason for forced session termination."
+        },
+        "revokedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of revocation."
+        }
+      },
+      "required": ["revocationKey", "reason", "revokedAt"]
+    },
+    "AnnouncementRecord": {
+      "title": "AnnouncementRecord",
+      "description": "School-wide announcements and study materials published by administrators or teachers.",
+      "type": "object",
+      "properties": {
+        "announcementId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Announcement document ID."
+        },
+        "numericId": {
+          "type": "number",
+          "description": "Deterministic numeric ID for client UI lists."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["school"],
+          "description": "Fixed scope for list queries."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Announcement title."
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "description": "Announcement message body."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["announcement", "material"],
+          "description": "Announcement category."
+        },
+        "authorUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of publishing teacher or admin."
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name of publisher."
+        },
+        "attachmentName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional attached filename."
+        },
+        "attachmentUrl": {
+          "type": "string",
+          "maxLength": 260000,
+          "description": "Optional URL or compacted base64 attachment data URI."
+        },
+        "attachmentMime": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional attachment MIME type."
+        },
+        "createdAtIso": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp string."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of publication."
+        }
+      },
+      "required": ["announcementId", "numericId", "scope", "title", "content", "type", "authorUid", "authorName", "createdAt"]
+    },
+    "DirectMessageRecord": {
+      "title": "DirectMessageRecord",
+      "description": "Private 1-to-1 peer direct message between two authenticated Grade 9 Hub users.",
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Direct message document ID."
+        },
+        "numericId": {
+          "type": "number",
+          "description": "Numeric ID for UI ordering and deletion."
+        },
+        "senderUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Sender Firebase Auth UID."
+        },
+        "recipientUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Recipient Firebase Auth UID."
+        },
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Exactly two participant UIDs [senderUid, recipientUid]."
+        },
+        "senderNumericId": {
+          "type": "number",
+          "description": "Sender numeric ID."
+        },
+        "recipientNumericId": {
+          "type": "number",
+          "description": "Recipient numeric ID."
+        },
+        "senderName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Sender display name."
+        },
+        "senderAvatarUrl": {
+          "type": "string",
+          "maxLength": 200000,
+          "description": "Sender avatar URI or empty string."
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["student", "teacher"],
+          "description": "Sender role."
+        },
+        "recipientName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Recipient display name."
+        },
+        "messageText": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Message body text."
+        },
+        "attachmentName": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Optional attachment filename."
+        },
+        "attachmentUrl": {
+          "type": "string",
+          "maxLength": 260000,
+          "description": "Optional attachment URL or compacted base64 data URI."
+        },
+        "attachmentMime": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional attachment MIME type."
+        },
+        "createdAtIso": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO timestamp string."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of message delivery."
+        }
+      },
+      "required": [
+        "messageId",
+        "numericId",
+        "senderUid",
+        "recipientUid",
+        "participants",
+        "senderNumericId",
+        "recipientNumericId",
+        "senderName",
+        "senderRole",
+        "recipientName",
+        "messageText",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -490,6 +717,25 @@
         "$ref": "#/entities/AppSettingsDoc"
       },
       "description": "Global application settings managed by administrators."
+    },
+    "/account_revocations/{revocationKey}": {
+      "schema": {
+        "$ref": "#/entities/AccountRevocation"
+      },
+      "description": "Admin-managed account revocation records checked across active client sessions."
+    },
+    "/announcements/{announcementId}": {
+      "schema": {
+        "$ref": "#/entities/AnnouncementRecord"
+      },
+      "description": "School-wide announcements and study materials."
+    },
+    "/direct_messages/{messageId}": {
+      "schema": {
+        "$ref": "#/entities/DirectMessageRecord"
+      },
+      "description": "Private 1-to-1 peer direct messages scoped to participants."
     }
   }
 }
+

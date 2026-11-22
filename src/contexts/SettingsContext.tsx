@@ -231,17 +231,47 @@ function loadStoredSettings(): AppSettings {
 export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<AppSettings>(() => loadStoredSettings());
   const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    try {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch {
+      return false;
+    }
   });
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
-    setSystemPrefersDark(media.matches);
-    media.addEventListener('change', onChange);
-    return () => media.removeEventListener('change', onChange);
+    try {
+      if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      const onChange = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
+      setSystemPrefersDark(media.matches);
+      if (typeof media.addEventListener === 'function') {
+        media.addEventListener('change', onChange);
+        return () => {
+          try {
+            media.removeEventListener('change', onChange);
+          } catch {
+            // ignore cleanup errors
+          }
+        };
+      }
+      const legacyMedia = media as MediaQueryList & {
+        addListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+        removeListener?: (cb: (e: MediaQueryListEvent) => void) => void;
+      };
+      if (typeof legacyMedia.addListener === 'function') {
+        legacyMedia.addListener(onChange);
+        return () => {
+          try {
+            legacyMedia.removeListener?.(onChange);
+          } catch {
+            // ignore cleanup errors
+          }
+        };
+      }
+    } catch {
+      // ignore unsupported matchMedia environments
+    }
   }, []);
 
   const resolvedTheme: 'light' | 'dark' =

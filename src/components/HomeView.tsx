@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,8 +38,11 @@ import {
 import { UserAvatar } from './UserAvatar';
 import { HeroImageSlider } from './HeroImageSlider';
 import { HeroBannerManagerModal } from './HeroBannerManagerModal';
-import { TextbookPdfViewerModal } from './TextbookPdfViewerModal';
 import { formatUtcDate } from '../utils/dateFormat';
+
+const TextbookPdfViewerModal = lazy(() =>
+  import('./TextbookPdfViewerModal').then((m) => ({ default: m.TextbookPdfViewerModal }))
+);
 import {
   OFFICIAL_BOOK_FILENAME,
   OFFICIAL_BOOK_PDF_URL,
@@ -90,9 +93,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [announcementNotice, setAnnouncementNotice] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<CompetitionLeaderboardResponse | null>(null);
   const [pendingPoints, setPendingPoints] = useState(0);
   const [showTextbookPreview, setShowTextbookPreview] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const totalChapterQuestions = chapters.reduce((acc, c) => acc + c.question_count, 0);
   const ForwardIcon = dir === 'rtl' ? ArrowLeft : ArrowRight;
@@ -180,11 +185,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setAnnouncementNotice(null);
+    const trimmedTitle = title.trim();
+    const trimmedContent = content.trim();
+    if (!trimmedTitle || !trimmedContent) {
+      setError(t.home.announcementValidationErr);
+      return;
+    }
     setSubmitting(true);
     try {
       const formData = new FormData();
-      formData.append('title', title);
-      formData.append('content', content);
+      formData.append('title', trimmedTitle);
+      formData.append('content', trimmedContent);
       formData.append('type', type);
       if (file) {
         formData.append('file', file);
@@ -196,7 +208,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
       setTitle('');
       setContent('');
       setFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setShowPublisher(false);
+      setAnnouncementNotice(t.home.announcementPublishedMsg);
       await onRefreshAnnouncements();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to publish update.');
@@ -207,8 +223,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const handleDeleteAnnouncement = async (id: number) => {
     setError(null);
+    setAnnouncementNotice(null);
     try {
       await apiFetch(`/api/announcements/${id}`, { method: 'DELETE' });
+      setAnnouncementNotice(t.home.announcementDeletedMsg);
       await onRefreshAnnouncements();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete announcement.');
@@ -518,6 +536,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <Paperclip className="w-4 h-4" />
                 <span>{file ? file.name : t.home.attachOptional}</span>
                 <input
+                  ref={fileInputRef}
                   type="file"
                   className="hidden"
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -533,6 +552,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </button>
             </div>
           </form>
+        )}
+
+        {announcementNotice && (
+          <div
+            role="status"
+            className="mt-4 flex items-center justify-between gap-2 text-sm text-[#065F46] bg-[#ECFDF5] border border-[#059669]/30 rounded-lg px-3.5 py-2"
+          >
+            <span>{announcementNotice}</span>
+            <button
+              type="button"
+              onClick={() => setAnnouncementNotice(null)}
+              className="text-xs font-semibold underline cursor-pointer"
+            >
+              {t.brand.gotIt}
+            </button>
+          </div>
         )}
 
         {error && !showPublisher && (
@@ -679,14 +714,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
       )}
 
       {showTextbookPreview && (
-        <TextbookPdfViewerModal
-          url={OFFICIAL_BOOK_PDF_URL}
-          title={t.textbooks.officialBookTitle}
-          fileName={OFFICIAL_BOOK_FILENAME}
-          initialPage={1}
-          isOfficialBook={true}
-          onClose={() => setShowTextbookPreview(false)}
-        />
+        <Suspense fallback={null}>
+          <TextbookPdfViewerModal
+            url={OFFICIAL_BOOK_PDF_URL}
+            title={t.textbooks.officialBookTitle}
+            fileName={OFFICIAL_BOOK_FILENAME}
+            initialPage={1}
+            isOfficialBook={true}
+            onClose={() => setShowTextbookPreview(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

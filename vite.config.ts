@@ -71,6 +71,9 @@ export default defineConfig(() => {
         '@': path.resolve(import.meta.dirname, '.'),
       },
     },
+    build: {
+      target: ['es2020', 'safari14', 'chrome87', 'firefox88'],
+    },
     server: {
       // HMR is disabled in AI Studio runtime to prevent proxied WebSocket closed errors.
       hmr: false,

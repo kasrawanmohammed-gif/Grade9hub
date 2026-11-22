@@ -34,7 +34,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, getStoredSessionToken } from '../lib/api';
-import { deleteSchoolAccountMirrorByEmail, MAIN_ADMIN_EMAIL } from '../lib/cloudAccounts';
+import { deleteCloudUserAsAdmin, MAIN_ADMIN_EMAIL } from '../lib/cloudAccounts';
 import { syncAdminVaultWithStoredKey, syncSessionBoundVault } from '../lib/recoveryVault';
 import { useLanguage } from '../contexts/LanguageContext';
 import { formatMsg } from '../i18n/translations';
@@ -702,7 +702,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     const removed = deleteTarget;
     try {
       await apiFetch(`/api/admin/users/${removed.id}`, { method: 'DELETE' });
-      await deleteSchoolAccountMirrorByEmail(removed.email).catch(() => {});
+      await deleteCloudUserAsAdmin(removed.email).catch(() => {});
 
       setDeleteTarget(null);
       if (selectedStudentId === removed.id) {

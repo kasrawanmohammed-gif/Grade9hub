@@ -41,6 +41,12 @@ service cloud.firestore {
       );
     }
 
+    function isTeacherUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'teacher';
+    }
+
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
@@ -270,6 +276,126 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidAccountRevocation(data, revocationKey) {
+      return data.keys().hasAll(['revocationKey', 'reason', 'revokedAt']) &&
+        data.keys().hasOnly([
+          'revocationKey',
+          'targetUid',
+          'accountKey',
+          'reason',
+          'revokedAt'
+        ]) &&
+        data.revocationKey is string && data.revocationKey == revocationKey && isValidId(data.revocationKey) &&
+        (!data.keys().hasAny(['targetUid']) || (data.targetUid is string && data.targetUid.size() <= 128)) &&
+        (!data.keys().hasAny(['accountKey']) || (data.accountKey is string && data.accountKey.size() <= 128)) &&
+        data.reason in ['account_deleted', 'account_disabled'] &&
+        data.revokedAt is timestamp;
+    }
+
+    function isValidAnnouncementDoc(data, announcementId) {
+      return data.keys().hasAll([
+          'announcementId',
+          'numericId',
+          'scope',
+          'title',
+          'content',
+          'type',
+          'authorUid',
+          'authorName',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'announcementId',
+          'numericId',
+          'scope',
+          'title',
+          'content',
+          'type',
+          'authorUid',
+          'authorName',
+          'attachmentName',
+          'attachmentUrl',
+          'attachmentMime',
+          'createdAtIso',
+          'createdAt'
+        ]) &&
+        data.announcementId is string && data.announcementId == announcementId && isValidId(data.announcementId) &&
+        data.numericId is number && data.numericId >= 1 &&
+        data.scope == 'school' &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 8000 &&
+        data.type in ['announcement', 'material'] &&
+        data.authorUid is string && isValidId(data.authorUid) &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 120 &&
+        (!data.keys().hasAny(['attachmentName']) || (data.attachmentName is string && data.attachmentName.size() <= 200)) &&
+        (!data.keys().hasAny(['attachmentUrl']) || (data.attachmentUrl is string && data.attachmentUrl.size() <= 260000)) &&
+        (!data.keys().hasAny(['attachmentMime']) || (data.attachmentMime is string && data.attachmentMime.size() <= 120)) &&
+        (!data.keys().hasAny(['createdAtIso']) || (data.createdAtIso is string && data.createdAtIso.size() <= 64)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidDirectMessage(data, messageId) {
+      return data.keys().hasAll([
+          'messageId',
+          'numericId',
+          'senderUid',
+          'recipientUid',
+          'participants',
+          'senderNumericId',
+          'recipientNumericId',
+          'senderName',
+          'senderRole',
+          'recipientName',
+          'messageText',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'messageId',
+          'numericId',
+          'senderUid',
+          'recipientUid',
+          'participants',
+          'senderNumericId',
+          'recipientNumericId',
+          'senderName',
+          'senderAvatarUrl',
+          'senderRole',
+          'recipientName',
+          'messageText',
+          'attachmentName',
+          'attachmentUrl',
+          'attachmentMime',
+          'createdAtIso',
+          'createdAt'
+        ]) &&
+        data.messageId is string && data.messageId == messageId && isValidId(data.messageId) &&
+        data.numericId is number && data.numericId >= 1 &&
+        data.senderUid is string && isValidId(data.senderUid) &&
+        data.recipientUid is string && isValidId(data.recipientUid) &&
+        data.participants is list &&
+        data.participants.size() == 2 &&
+        data.participants[0] is string &&
+        data.participants[1] is string &&
+        data.senderUid in data.participants &&
+        data.recipientUid in data.participants &&
+        data.senderNumericId is number && data.senderNumericId >= 1 &&
+        data.recipientNumericId is number && data.recipientNumericId >= 1 &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+        (!data.keys().hasAny(['senderAvatarUrl']) || (data.senderAvatarUrl is string && data.senderAvatarUrl.size() <= 200000)) &&
+        data.senderRole in ['student', 'teacher'] &&
+        data.recipientName is string && data.recipientName.size() >= 1 && data.recipientName.size() <= 120 &&
+        data.messageText is string && data.messageText.size() <= 4000 &&
+        (!data.keys().hasAny(['attachmentName']) || (data.attachmentName is string && data.attachmentName.size() <= 200)) &&
+        (!data.keys().hasAny(['attachmentUrl']) || (data.attachmentUrl is string && data.attachmentUrl.size() <= 260000)) &&
+        (!data.keys().hasAny(['attachmentMime']) || (data.attachmentMime is string && data.attachmentMime.size() <= 120)) &&
+        (!data.keys().hasAny(['createdAtIso']) || (data.createdAtIso is string && data.createdAtIso.size() <= 64)) &&
+        (
+          data.messageText.size() > 0 ||
+          (data.keys().hasAny(['attachmentUrl']) && data.attachmentUrl is string && data.attachmentUrl.size() > 0)
+        ) &&
+        data.createdAt is timestamp;
+    }
+
     // 1. Private User Accounts (/users/{userId}) - PII isolated to Owner or Admin
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
@@ -490,6 +616,51 @@ service cloud.firestore {
         isValidAppSettings(incoming(), settingId) &&
         incoming().updatedAt == request.time;
       allow delete: if false;
+    }
+
+    // 7. Account Revocations (/account_revocations/{revocationKey}) - Cross-device immediate sign-out
+    match /account_revocations/{revocationKey} {
+      allow get: if isValidId(revocationKey) && isSignedIn();
+      allow list: if isAdmin() && resource.data.reason in ['account_deleted', 'account_disabled'];
+      allow create, update: if isValidId(revocationKey) &&
+        isAdmin() &&
+        isValidAccountRevocation(incoming(), revocationKey) &&
+        incoming().revokedAt == request.time;
+      allow delete: if isValidId(revocationKey) && isAdmin();
+    }
+
+    // 8. School Announcements & Materials (/announcements/{announcementId})
+    match /announcements/{announcementId} {
+      allow get: if isValidId(announcementId) && isSignedIn();
+      allow list: if isSignedIn() && resource.data.scope == 'school';
+      allow create: if isValidId(announcementId) &&
+        (isAdmin() || isTeacherUser()) &&
+        isValidAnnouncementDoc(incoming(), announcementId) &&
+        incoming().authorUid == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(announcementId) &&
+        (isAdmin() || (isTeacherUser() && existing().authorUid == request.auth.uid));
+    }
+
+    // 9. Private Peer Direct Messages (/direct_messages/{messageId})
+    match /direct_messages/{messageId} {
+      allow get: if isValidId(messageId) &&
+        isSignedIn() &&
+        (request.auth.uid in existing().participants || isAdmin());
+      allow list: if isSignedIn() &&
+        resource.data.participants is list &&
+        request.auth.uid in resource.data.participants;
+      allow create: if isValidId(messageId) &&
+        isSignedIn() &&
+        isValidDirectMessage(incoming(), messageId) &&
+        incoming().senderUid == request.auth.uid &&
+        incoming().senderUid != incoming().recipientUid &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(messageId) &&
+        isSignedIn() &&
+        (existing().senderUid == request.auth.uid || isAdmin());
     }
   }
 }

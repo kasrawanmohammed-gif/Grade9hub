@@ -127,6 +127,9 @@ export interface Translations {
     googleSignInLoading: string;
     googleSignInFailed: string;
     adminClaimPrompt: string;
+    sessionRevokedDeletedTitle: string;
+    sessionRevokedDeletedDesc: string;
+    sessionEndedGenericDesc: string;
   };
   home: {
     welcome: string;
@@ -210,6 +213,10 @@ export interface Translations {
     bannerStorageFallbackMsg: string;
     bannerSavedMsg: string;
     bannerMinOneSlideMsg: string;
+    announcementPublishedMsg: string;
+    announcementDeletedMsg: string;
+    announcementValidationErr: string;
+    announcementAttachmentTooLargeCloud: string;
   };
   quiz: {
     mcTitle: string;
@@ -321,6 +328,11 @@ export interface Translations {
       material: string;
       reply: string;
     };
+    iosBrowserTitle: string;
+    iosBrowserSteps: string;
+    unsupportedTitle: string;
+    unsupportedDesc: string;
+    vapidUnavailableDesc: string;
   };
   notifPrompt: {
     title: string;
@@ -491,6 +503,7 @@ export interface Translations {
     notificationsStatusEnabled: string;
     notificationsStatusDisabled: string;
     notificationsStatusBlocked: string;
+    notificationsStatusUnsupported: string;
     notificationsBlockedHelp: string;
     openNotificationsBtn: string;
     resetDefaults: string;
@@ -788,6 +801,9 @@ export interface Translations {
     filterOfflinePeers: string;
     communityDisabledNotice: string;
     postingPausedNotice: string;
+    dmStartNewLabel: string;
+    dmNoPeersHelp: string;
+    dmAttachmentTooLargeCloud: string;
   };
   competition: {
     title: string;
@@ -1054,6 +1070,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       googleSignInFailed: 'Google sign-in could not be completed. Please allow popups and try again.',
       adminClaimPrompt:
         'This server database was reset after an update. Sign in with Google below or switch to Create Account to set your administrator password.',
+      sessionRevokedDeletedTitle: 'Account Session Ended',
+      sessionRevokedDeletedDesc:
+        'Your account was deleted or disabled by an administrator, so this session has been signed out immediately.',
+      sessionEndedGenericDesc: 'Your session has expired or been ended. Please sign in again to continue.',
     },
     home: {
       welcome: 'Welcome',
@@ -1138,6 +1158,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerStorageFallbackMsg: 'Saved to this device. Cloud sync is unavailable right now.',
       bannerSavedMsg: 'Banner slides saved.',
       bannerMinOneSlideMsg: 'At least 1 slide is required. Use Reset to Default to restore the initial banner.',
+      announcementPublishedMsg: 'Announcement published and students notified.',
+      announcementDeletedMsg: 'Announcement removed.',
+      announcementValidationErr: 'Please enter both a title and a message before publishing.',
+      announcementAttachmentTooLargeCloud:
+        'Attachment is too large for cloud sync. Please upload a smaller image or file (under 180 KB).',
     },
     quiz: {
       mcTitle: 'Multiple Choice · 11 Chapters',
@@ -1249,6 +1274,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         material: 'Study Material',
         reply: 'Reply',
       },
+      iosBrowserTitle: 'Enable iPhone / iPad Lock-Screen Notifications',
+      iosBrowserSteps:
+        'On iOS 16.4+, tap Share in Safari → Add to Home Screen, then open Grade 9 Hub from your Home Screen icon and enable Background Push Alerts.',
+      unsupportedTitle: 'Background Push Requires an Installed App or Modern Browser',
+      unsupportedDesc:
+        'Your current browser tab cannot receive lock-screen push notifications when closed. In-app alerts still update whenever you open Grade 9 Hub.',
+      vapidUnavailableDesc:
+        'Push subscription keys are not configured on this server yet. In-app notifications remain active.',
     },
     notifPrompt: {
       title: 'Allow Grade 9 Hub to send you notifications?',
@@ -1422,6 +1455,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       notificationsStatusEnabled: 'Enabled',
       notificationsStatusDisabled: 'Disabled',
       notificationsStatusBlocked: 'Blocked in Browser Settings',
+      notificationsStatusUnsupported: 'Add to Home Screen (iOS) or Supported Browser Required',
       notificationsBlockedHelp: 'Notifications are currently blocked by your browser or device. Open your browser site permissions (lock/info icon in the address bar or device App Settings), set Notifications to Allow, then click Enable again.',
       openNotificationsBtn: 'Open Notification Settings',
       resetDefaults: 'Reset All Settings to Defaults',
@@ -1721,6 +1755,9 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       filterOfflinePeers: 'Offline',
       communityDisabledNotice: 'Student Community is currently disabled by the school administrator.',
       postingPausedNotice: 'Posting and messaging are currently paused in the community (read-only mode).',
+      dmStartNewLabel: 'Start Direct Message',
+      dmNoPeersHelp: 'No classmates are registered yet. New classmates will appear here automatically.',
+      dmAttachmentTooLargeCloud: 'Attachment is too large for cloud sync. Please pick a smaller image or file (under 180 KB).',
     },
     competition: {
       title: 'Student Competition & Leaderboard',
@@ -1985,6 +2022,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       googleSignInFailed: 'چوونەژوورەوە بە گووگڵ سەرکەوتوو نەبوو. تکایە ڕێگە بە پۆپئەپ بدە و دووبارە هەوڵبدە.',
       adminClaimPrompt:
         'داتابەیسی سێرڤەر دوای نوێکردنەوە سڕاوەتەوە. لە خوارەوە بە گووگڵ بچۆ ژوورەوە یان بچۆ بۆ دروستکردنی هەژمار بۆ دانانی وشەی نهێنی.',
+      sessionRevokedDeletedTitle: 'دانیشتنی هەژمارەکە کۆتایی هات',
+      sessionRevokedDeletedDesc:
+        'هەژمارەکەت لەلایەن بەڕێوەبەرەوە سڕایەوە یان ناچالاک کرا، بۆیە دەستبەجێ لەم ئامێرە دەرچوویت.',
+      sessionEndedGenericDesc: 'دانیشتنەکەت بەسەرچوو یان داخرا. تکایە دووبارە بچۆ ژوورەوە.',
     },
     home: {
       welcome: 'بەخێربێیت',
@@ -2069,6 +2110,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerStorageFallbackMsg: 'لەسەر ئەم ئامێرە پاشەکەوت کرا. هاوکاتکردنی سێرڤەر لە ئێستادا بەردەست نییە.',
       bannerSavedMsg: 'سلایدەکانی پۆستەر پاشەکەوت کران.',
       bannerMinOneSlideMsg: 'بەلایەنی کەمەوە پێویستە سلایدێک بمێنێتەوە. دوگمەی گەڕاندنەوە بۆ سەرەتایی بەکاربهێنە.',
+      announcementPublishedMsg: 'ڕاگەیاندنەکە بڵاوکرایەوە و قوتابیان ئاگادار کرانەوە.',
+      announcementDeletedMsg: 'ڕاگەیاندنەکە سڕایەوە.',
+      announcementValidationErr: 'تکایە هەم ناونیشان و هەم ناوەڕۆکی پەیام بنووسە پێش بڵاوکردنەوە.',
+      announcementAttachmentTooLargeCloud:
+        'قەبارەی فایلەکە زۆر گەورەیە بۆ هاوکاتکردنی هەور. تکایە وێنە یان فایلێکی بچووکتر لە 180 KB هەڵبژێرە.',
     },
     quiz: {
       mcTitle: 'هەڵبژاردنی فرە · ١١ بەش',
@@ -2180,6 +2226,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         material: 'مەلزەمە',
         reply: 'وەڵام',
       },
+      iosBrowserTitle: 'چالاککردنی ئاگادارکردنەوەی شاشەی قوفڵ لە iPhone / iPad',
+      iosBrowserSteps:
+        'لە iOS 16.4 و نوێتردا: لە Safari دوگمەی Share داگرە ← Add to Home Screen، پاشان لە شاشەی سەرەکییەوە ئەپەکە بکەرەوە و ئاگادارکردنەوەی دەرەکی چالاک بکە.',
+      unsupportedTitle: 'ئاگاداری دەرەکی پێویستی بە دامەزراندنی ئەپ یان وێبگەڕی مۆدێرن هەیە',
+      unsupportedDesc:
+        'ئەم تابەی وێبگەڕە پشتگیری ئاگادارکردنەوەی شاشەی قوفڵ ناکات کاتێک ئەپەکە داخراوە. ئاگاداری ناو ئەپ هەمیشە نوێ دەبێتەوە.',
+      vapidUnavailableDesc:
+        'کلیلەکانی Push لەسەر ئەم سێرڤەرە هێشتا ڕێکنەخراون. ئاگاداری ناو ئەپ کارایە.',
     },
     notifPrompt: {
       title: 'ڕێگە بە ناوەندی پۆلی ٩ دەدەیت ئاگادارکردنەوەت بۆ بنێرێت؟',
@@ -2353,6 +2407,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       notificationsStatusEnabled: 'چالاکە',
       notificationsStatusDisabled: 'ناچالاکە',
       notificationsStatusBlocked: 'لە ڕێکخستنی وێبگەڕ بلۆک کراوە',
+      notificationsStatusUnsupported: 'پێویستی بە زیادکردن بۆ شاشەی سەرەکی (iOS) یان وێبگەڕی گونجاوە',
       notificationsBlockedHelp: 'ئاگادارکردنەوەکان لە ئێستادا لەلایەن وێبگەڕ یان ئامێرەکەتەوە بلۆک کراون. ڕێکخستنی مۆڵەتەکانی ماڵپەڕ بکەرەوە (ئایکۆنی قوفڵ لە سەرەوە یان ڕێکخستنی ئەپ لە مۆبایلدا) و Notifications بکە بە Allow، پاشان دووبارە چالاککردن داگرە.',
       openNotificationsBtn: 'کردنەوەی ڕێکخستنی ئاگاداری',
       resetDefaults: 'گەڕاندنەوەی هەموو ڕێکخستنەکان بۆ سەرەتایی',
@@ -2652,6 +2707,9 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       filterOfflinePeers: 'دەرەوەی هێڵ',
       communityDisabledNotice: 'کۆمەڵگەی قوتابیان لە ئێستادا لەلایەن بەڕێوەبەرەوە ناچالاک کراوە.',
       postingPausedNotice: 'بڵاوکردنەوە و ناردنی نامە لە ئێستادا وەستێنراوە (تەنها خوێندنەوە).',
+      dmStartNewLabel: 'دەستپێکردنی گفتوگۆی تایبەت',
+      dmNoPeersHelp: 'هێشتا هیچ هاوپۆلێک تۆمار نەکراوە. هاوپۆلە نوێیەکان بە خۆکار لێرە دەردەکەون.',
+      dmAttachmentTooLargeCloud: 'قەبارەی فایلەکە زۆر گەورەیە بۆ هاوکاتکردنی هەور. تکایە وێنە یان فایلێکی بچووکتر لە 180 KB هەڵبژێرە.',
     },
     competition: {
       title: 'پێشبڕکێ و ڕیزبەندی قوتابیان',
@@ -2916,6 +2974,10 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       googleSignInFailed: 'تعذر إكمال تسجيل الدخول عبر Google. يرجى السماح بالنوافذ المنبثقة والمحاولة مجدداً.',
       adminClaimPrompt:
         'تمت إعادة تعيين قاعدة البيانات بعد التحديث. سجّل الدخول عبر Google أدناه أو انتقل إلى إنشاء حساب لتعيين كلمة المرور.',
+      sessionRevokedDeletedTitle: 'انتهت جلسة الحساب',
+      sessionRevokedDeletedDesc:
+        'تم حذف حسابك أو تعطيله من قِبل المسؤول، لذا تم تسجيل خروجك فوراً من هذا الجهاز.',
+      sessionEndedGenericDesc: 'انتهت جلستك أو تم إنهاؤها. يرجى تسجيل الدخول مجدداً للمتابعة.',
     },
     home: {
       welcome: 'مرحباً',
@@ -3000,6 +3062,11 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerStorageFallbackMsg: 'تم الحفظ محلياً على هذا الجهاز. تعذّر الحفظ على الخادم حالياً.',
       bannerSavedMsg: 'تم حفظ شرائح اللافتة بنجاح.',
       bannerMinOneSlideMsg: 'يجب الإبقاء على شريحة واحدة على الأقل. استخدم استعادة الافتراضي لإرجاع الشريحة الأساسية.',
+      announcementPublishedMsg: 'تم نشر الإعلان وإشعار الطلاب بنجاح.',
+      announcementDeletedMsg: 'تم حذف الإعلان.',
+      announcementValidationErr: 'يرجى كتابة العنوان ونص الرسالة قبل النشر.',
+      announcementAttachmentTooLargeCloud:
+        'حجم المرفق كبير جداً للمزامنة السحابية. يرجى اختيار صورة أو ملف أصغر من 180 كيلوبايت.',
     },
     quiz: {
       mcTitle: 'الاختيار من متعدد · ١١ فصلاً',
@@ -3111,6 +3178,14 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         material: 'مادة دراسية',
         reply: 'رد',
       },
+      iosBrowserTitle: 'تفعيل إشعارات شاشة القفل على iPhone و iPad',
+      iosBrowserSteps:
+        'على نظام iOS 16.4 أو أحدث: في متصفح Safari اضغط على زر المشاركة (Share) ← إضافة إلى الشاشة الرئيسية (Add to Home Screen)، ثم افتح التطبيق من الشاشة الرئيسية وفعّل تنبيهات الخلفية.',
+      unsupportedTitle: 'تنبيهات الخلفية تتطلب تثبيت التطبيق أو متصفحاً مدعوماً',
+      unsupportedDesc:
+        'هذا المتصفح أو التبويب لا يدعم إشعارات شاشة القفل عند إغلاق التطبيق. ستستمر الإشعارات بالظهور داخل التطبيق عند فتحه.',
+      vapidUnavailableDesc:
+        'مفاتيح إشعارات Push غير مهيأة على هذا الخادم بعد. الإشعارات داخل التطبيق تعمل بشكل طبيعي.',
     },
     notifPrompt: {
       title: 'هل تسمح لمنصة الصف التاسع بإرسال الإشعارات إليك؟',
@@ -3284,6 +3359,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       notificationsStatusEnabled: 'مفعّلة',
       notificationsStatusDisabled: 'معطّلة',
       notificationsStatusBlocked: 'محظورة من المتصفح أو الجهاز',
+      notificationsStatusUnsupported: 'يتطلب إضافة التطبيق للشاشة الرئيسية (iOS) أو متصفحاً مدعوماً',
       notificationsBlockedHelp: 'الإشعارات محظورة حالياً من المتصفح أو الجهاز. افتح أذونات الموقع (أيقونة القفل في شريط العنوان أو إعدادات التطبيق في الهاتف) وفعّل الإشعارات (Allow)، ثم اضغط على تفعيل مجدداً.',
       openNotificationsBtn: 'فتح إعدادات الإشعارات',
       resetDefaults: 'استعادة الإعدادات الافتراضية',
@@ -3583,6 +3659,9 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       filterOfflinePeers: 'غير متصلين',
       communityDisabledNotice: 'تم تعطيل مجتمع الطلاب حالياً من قِبل مسؤول المدرسة.',
       postingPausedNotice: 'النشر والمراسلة متوقفان مؤقتاً في المجتمع (وضع القراءة فقط).',
+      dmStartNewLabel: 'بدء محادثة خاصة جديدة',
+      dmNoPeersHelp: 'لا يوجد زملاء مسجّلون بعد. سيظهر الزملاء الجدد هنا تلقائياً.',
+      dmAttachmentTooLargeCloud: 'حجم المرفق كبير جداً للمزامنة السحابية. يرجى اختيار صورة أو ملف أصغر من 180 كيلوبايت.',
     },
     competition: {
       title: 'مسابقة الطلاب ولوحة المتصدرين',

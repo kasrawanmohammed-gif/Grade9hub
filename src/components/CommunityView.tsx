@@ -28,6 +28,8 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { subscribeCloudDirectMessages } from '../lib/cloudAccounts';
+import { isStaticHostMode } from '../lib/staticFallback';
 import { useLanguage } from '../contexts/LanguageContext';
 import {
   AppSettings,
@@ -130,6 +132,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   const [dmText, setDmText] = useState('');
   const [dmFile, setDmFile] = useState<File | null>(null);
   const [sendingDm, setSendingDm] = useState(false);
+  const [dmError, setDmError] = useState<string | null>(null);
   const dmFileInputRef = useRef<HTMLInputElement | null>(null);
   const dmBottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -294,6 +297,18 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
       void fetchDmConversation(selectedPeerId);
     }
   }, [selectedPeerId, fetchDmConversation]);
+
+  // Live Firestore DM subscription on static/Vercel hosts so cross-device DMs update immediately
+  useEffect(() => {
+    if (tab !== 'dm' || !isStaticHostMode()) return;
+    const unsubscribe = subscribeCloudDirectMessages(() => {
+      void fetchDmThreads();
+      if (selectedPeerId !== null) {
+        void fetchDmConversation(selectedPeerId);
+      }
+    });
+    return () => unsubscribe();
+  }, [tab, selectedPeerId, fetchDmThreads, fetchDmConversation]);
 
   // Load selected Group chat
   useEffect(() => {
@@ -603,6 +618,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
   // ---------------- DM ACTIONS ----------------
   const openDirectChat = (peerId: number) => {
+    setDmError(null);
     setSelectedPeerId(peerId);
     setTab('dm');
   };
@@ -613,6 +629,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
     if (!dmText.trim() && !dmFile) return;
 
     setSendingDm(true);
+    setDmError(null);
     try {
       const formData = new FormData();
       formData.append('messageText', dmText.trim());
@@ -630,19 +647,24 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
       if (dmFileInputRef.current) dmFileInputRef.current.value = '';
       void fetchDmThreads();
     } catch (err) {
-      showToast('err', err instanceof Error ? err.message : 'Failed to send message');
+      const msg = err instanceof Error ? err.message : 'Failed to send message';
+      setDmError(msg);
+      showToast('err', msg);
     } finally {
       setSendingDm(false);
     }
   };
 
   const handleDeleteDm = async (messageId: number) => {
+    setDmError(null);
     try {
       await apiFetch(`/api/community/dm/message/${messageId}`, { method: 'DELETE' });
       setDmMessages((prev) => prev.filter((m) => m.id !== messageId));
       void fetchDmThreads();
     } catch (err) {
-      showToast('err', err instanceof Error ? err.message : 'Failed to delete message');
+      const msg = err instanceof Error ? err.message : 'Failed to delete message';
+      setDmError(msg);
+      showToast('err', msg);
     }
   };
 
@@ -814,7 +836,27 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
     return th.peer_name.toLowerCase().includes(q) || th.peer_grade.toLowerCase().includes(q);
   });
 
-  const selectedDmThread = dmThreads.find((th) => th.peer_id === selectedPeerId) || null;
+  const selectedDmThread = useMemo<CommunityDmThread | null>(() => {
+    if (selectedPeerId === null) return null;
+    const existing = dmThreads.find((th) => th.peer_id === selectedPeerId);
+    if (existing) return existing;
+    const peer = peers.find((p) => p.id === selectedPeerId);
+    if (!peer) return null;
+    return {
+      peer_id: peer.id,
+      peer_name: peer.name,
+      peer_grade: peer.grade,
+      peer_role: peer.role,
+      peer_is_admin: Boolean(peer.isAdmin),
+      peer_is_restricted: Boolean(peer.isRestricted),
+      peer_avatar_url: peer.avatar_url,
+      peer_online: peer.online,
+      unread_count: 0,
+      last_message_text: '',
+      last_attachment_name: null,
+      last_message_at: null,
+    };
+  }, [selectedPeerId, dmThreads, peers]);
   const nonMemberPeers = peers.filter(
     (p) => p.id !== user.id && !groupMembers.some((m) => m.id === p.id)
   );
@@ -1524,58 +1566,70 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
             </div>
 
             <div className="flex-1 overflow-y-auto divide-y divide-[#E6DFD5]">
-              {filteredDmThreads.map((th) => {
-                const active = selectedPeerId === th.peer_id;
-                const threadOnline = th.peer_online || (peerOnlineMap.get(th.peer_id) ?? false);
-                return (
-                  <button
-                    key={th.peer_id}
-                    type="button"
-                    onClick={() => setSelectedPeerId(th.peer_id)}
-                    className={`w-full text-start p-3.5 flex items-center justify-between gap-2.5 transition-colors cursor-pointer ${
-                      active ? 'bg-[#F9EFF0]' : 'hover:bg-[#FAF8F5]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="relative">
-                        {renderAvatar(th.peer_name, th.peer_avatar_url, 'w-10 h-10')}
-                        <span
-                          className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
-                            threadOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
-                          }`}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-semibold text-[#1C1917] truncate">
-                            {th.peer_name}
-                          </p>
+              {filteredDmThreads.length === 0 ? (
+                <div className="p-6 text-center space-y-1.5">
+                  <MessageSquare className="w-7 h-7 text-[#6B1118]/70 mx-auto" />
+                  <p className="text-xs text-[#57534E] leading-relaxed">
+                    {t.community.dmNoPeersHelp}
+                  </p>
+                </div>
+              ) : (
+                filteredDmThreads.map((th) => {
+                  const active = selectedPeerId === th.peer_id;
+                  const threadOnline = th.peer_online || (peerOnlineMap.get(th.peer_id) ?? false);
+                  return (
+                    <button
+                      key={th.peer_id}
+                      type="button"
+                      onClick={() => {
+                        setDmError(null);
+                        setSelectedPeerId(th.peer_id);
+                      }}
+                      className={`w-full text-start p-3.5 flex items-center justify-between gap-2.5 transition-colors cursor-pointer ${
+                        active ? 'bg-[#F9EFF0]' : 'hover:bg-[#FAF8F5]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="relative">
+                          {renderAvatar(th.peer_name, th.peer_avatar_url, 'w-10 h-10')}
                           <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                              threadOnline
-                                ? 'bg-[#ECFDF5] text-[#065F46]'
-                                : 'bg-[#FAF8F5] text-[#57534E]'
+                            className={`absolute bottom-0 end-0 w-2.5 h-2.5 rounded-full ring-2 ring-white ${
+                              threadOnline ? 'bg-[#059669]' : 'bg-[#A8A29E]'
                             }`}
-                          >
-                            {threadOnline ? t.community.onlineStatus : t.community.offlineStatus}
-                          </span>
+                          />
                         </div>
-                        <p className="text-xs text-[#57534E] truncate">
-                          {th.last_message_text ||
-                            th.last_attachment_name ||
-                            (threadOnline ? t.community.onlineStatus : t.community.offlineStatus)}
-                        </p>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-semibold text-[#1C1917] truncate">
+                              {th.peer_name}
+                            </p>
+                            <span
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${
+                                threadOnline
+                                  ? 'bg-[#ECFDF5] text-[#065F46]'
+                                  : 'bg-[#FAF8F5] text-[#57534E]'
+                              }`}
+                            >
+                              {threadOnline ? t.community.onlineStatus : t.community.offlineStatus}
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#57534E] truncate">
+                            {th.last_message_text ||
+                              th.last_attachment_name ||
+                              (threadOnline ? t.community.onlineStatus : t.community.offlineStatus)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
 
-                    {th.unread_count > 0 && (
-                      <span className="rounded-full bg-[#6B1118] text-white px-2 py-0.5 text-[11px] font-bold tabular-nums shrink-0">
-                        {th.unread_count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                      {th.unread_count > 0 && (
+                        <span className="rounded-full bg-[#6B1118] text-white px-2 py-0.5 text-[11px] font-bold tabular-nums shrink-0">
+                          {th.unread_count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -1740,6 +1794,14 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                   onSubmit={handleSendDm}
                   className="p-3 border-t border-[#E6DFD5] bg-white space-y-2"
                 >
+                  {dmError && (
+                    <div
+                      role="alert"
+                      className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-3 py-2 text-xs text-[#991B1B]"
+                    >
+                      {dmError}
+                    </div>
+                  )}
                   {dmFile && (
                     <div className="inline-flex items-center gap-2 rounded-lg bg-[#FAF8F5] border border-[#E6DFD5] px-2.5 py-1 text-xs">
                       <span className="truncate max-w-[200px]">{dmFile.name}</span>

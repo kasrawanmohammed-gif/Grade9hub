@@ -78,6 +78,7 @@ import { AIStudioView } from './components/AIStudioView';
 import { ProfileView } from './components/ProfileView';
 import { SettingsView } from './components/SettingsView';
 import { AboutView } from './components/AboutView';
+import { FirestoreErrorBoundary } from './components/FirestoreErrorBoundary';
 import { UserAvatar } from './components/UserAvatar';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from './lib/firebase';
@@ -89,8 +90,40 @@ import {
   pushSchoolAccountsAsAdmin,
   SchoolAccountMirrorRow,
   signOutFirebaseCloud,
+  subscribeCurrentUserAccountValidity,
   syncCurrentUserToFirestore,
 } from './lib/cloudAccounts';
+
+const VALID_TABS: ReadonlySet<TabId> = new Set<TabId>([
+  'home',
+  'community',
+  'competition',
+  'admin-dashboard',
+  'multiple-choice',
+  'textbooks-qa',
+  'general-questions',
+  'ask-teacher',
+  'notifications',
+  'ai-studio',
+  'profile',
+  'settings',
+  'about',
+]);
+
+const SESSION_NOTICE_KEY = 'grade9hub_session_notice';
+
+function getInitialTabFromUrl(): TabId {
+  try {
+    if (typeof window === 'undefined') return 'home';
+    const raw = new URLSearchParams(window.location.search).get('tab');
+    if (raw && VALID_TABS.has(raw as TabId)) {
+      return raw as TabId;
+    }
+  } catch {
+    // ignore malformed URL params
+  }
+  return 'home';
+}
 
 export default function App() {
   const { language, t, dir } = useLanguage();
@@ -98,8 +131,17 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [authChecked, setAuthChecked] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(() => {
+    try {
+      return typeof window !== 'undefined'
+        ? window.sessionStorage.getItem(SESSION_NOTICE_KEY)
+        : null;
+    } catch {
+      return null;
+    }
+  });
 
-  const [activeTab, setActiveTab] = useState<TabId>('home');
+  const [activeTab, setActiveTab] = useState<TabId>(() => getInitialTabFromUrl());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [initialChapterSelection, setInitialChapterSelection] = useState<
@@ -373,7 +415,13 @@ export default function App() {
         if (res.sessionRevoked) {
           clearStoredSessionToken();
           clearStoredCachedUser();
+          try {
+            window.sessionStorage.setItem(SESSION_NOTICE_KEY, 'account_deleted');
+          } catch {
+            // ignore storage errors
+          }
           if (!cancelled) {
+            setSessionNotice('account_deleted');
             setUser(null);
             setAuthChecked(true);
           }
@@ -626,7 +674,9 @@ export default function App() {
             payload?: unknown;
           };
           if (msg.type === 'auth:force_logout') {
-            void resetClientAuthState(false);
+            const reason =
+              (msg.payload as { reason?: string } | undefined)?.reason || 'account_deleted';
+            void resetClientAuthState(false, reason);
           } else if (msg.type === 'admin:dashboard' && msg.payload) {
             setAdminSnapshot(msg.payload as AdminDashboardSnapshot);
           } else if (msg.type === 'admin:vault_dirty' && isPrivileged && user?.email) {
@@ -999,34 +1049,161 @@ export default function App() {
     }
   };
 
-  const resetClientAuthState = useCallback(async (callServerLogout: boolean) => {
-    explicitSignOutRef.current = true;
+  const resetClientAuthState = useCallback(
+    async (callServerLogout: boolean, revokedReason?: string) => {
+      explicitSignOutRef.current = true;
+      try {
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        if (callServerLogout) {
+          await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+          try {
+            window.sessionStorage.removeItem(SESSION_NOTICE_KEY);
+          } catch {
+            // ignore storage errors
+          }
+          setSessionNotice(null);
+        } else if (revokedReason) {
+          try {
+            window.sessionStorage.setItem(SESSION_NOTICE_KEY, revokedReason);
+          } catch {
+            // ignore storage errors
+          }
+          setSessionNotice(revokedReason);
+        }
+        await signOutFirebaseCloud();
+        clearStoredSessionToken();
+        clearStoredCachedUser();
+        await clearActiveVaultKey();
+        setShowNotifPrompt(false);
+        setShowNotifBanner(false);
+        setAdminSnapshot(null);
+        setNotifications([]);
+        setUnreadCount(0);
+        setAnnouncements([]);
+        setInitialChapterSelection(null);
+        setInitialStudentChatId(null);
+        setUser(null);
+        setActiveTab('home');
+      } finally {
+        explicitSignOutRef.current = false;
+      }
+    },
+    []
+  );
+
+  // Real-time & focus/visibility/periodic session validation (immediate logout when admin deletes account)
+  useEffect(() => {
+    if (!user) return;
+    let lastCheckedAt = 0;
+
+    const handleRevokedEvent = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ reason?: string }>).detail;
+      void resetClientAuthState(false, detail?.reason || 'account_deleted');
+    };
+
+    const revalidateSessionNow = async (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastCheckedAt < 5000) return;
+      lastCheckedAt = now;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      try {
+        const res = await apiFetch<{
+          user: User | null;
+          sessionRevoked?: boolean;
+          reason?: string;
+        }>('/api/auth/me');
+        if (!res.user && res.sessionRevoked) {
+          void resetClientAuthState(false, res.reason || 'account_deleted');
+        }
+      } catch {
+        // ignore transient network glitches
+      }
+    };
+
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        void revalidateSessionNow(false);
+      }
+    };
+    const handleFocusOrOnline = () => {
+      void revalidateSessionNow(false);
+    };
+
+    window.addEventListener('grade9hub:session-revoked', handleRevokedEvent);
+    window.addEventListener('focus', handleFocusOrOnline);
+    window.addEventListener('online', handleFocusOrOnline);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const unsubscribeCloudValidity = subscribeCurrentUserAccountValidity(user.email, (reason) => {
+      void resetClientAuthState(false, reason);
+    });
+
+    const intervalId = setInterval(() => {
+      void revalidateSessionNow(false);
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('grade9hub:session-revoked', handleRevokedEvent);
+      window.removeEventListener('focus', handleFocusOrOnline);
+      window.removeEventListener('online', handleFocusOrOnline);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      unsubscribeCloudValidity();
+      clearInterval(intervalId);
+    };
+  }, [user?.id, user?.email, resetClientAuthState]);
+
+  // Listen to Service Worker notification clicks & background push broadcasts
+  useEffect(() => {
+    const handleSwMessage = (data: unknown) => {
+      if (!data || typeof data !== 'object') return;
+      const msg = data as { type?: string; tab?: string };
+      if (msg.type === 'OPEN_TAB' && msg.tab && VALID_TABS.has(msg.tab as TabId)) {
+        setActiveTab(msg.tab as TabId);
+      } else if (msg.type === 'PUSH_RECEIVED' && userRef.current) {
+        void fetchNotifications().catch(() => {});
+      }
+    };
+
+    const onSwMessage = (event: MessageEvent) => {
+      handleSwMessage(event.data);
+    };
+
     try {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', onSwMessage);
       }
-      if (callServerLogout) {
-        await apiFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
-      }
-      await signOutFirebaseCloud();
-      clearStoredSessionToken();
-      clearStoredCachedUser();
-      await clearActiveVaultKey();
-      setShowNotifPrompt(false);
-      setShowNotifBanner(false);
-      setAdminSnapshot(null);
-      setNotifications([]);
-      setUnreadCount(0);
-      setAnnouncements([]);
-      setInitialChapterSelection(null);
-      setInitialStudentChatId(null);
-      setUser(null);
-      setActiveTab('home');
-    } finally {
-      explicitSignOutRef.current = false;
+    } catch {
+      // ignore unsupported SW message listener
     }
-  }, []);
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        channel = new BroadcastChannel('grade9hub-push');
+        channel.onmessage = (event) => handleSwMessage(event.data);
+      }
+    } catch {
+      // ignore BroadcastChannel failures
+    }
+
+    return () => {
+      try {
+        if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.removeEventListener('message', onSwMessage);
+        }
+      } catch {
+        // ignore cleanup failure
+      }
+      try {
+        channel?.close();
+      } catch {
+        // ignore close failure
+      }
+    };
+  }, [fetchNotifications]);
 
   const handleLogout = () => resetClientAuthState(true);
   const handleAccountDeleted = () => resetClientAuthState(false);
@@ -1112,7 +1289,22 @@ export default function App() {
       <>
         <SplashScreen visible={showSplash} />
         <AuthPage
+          sessionNotice={sessionNotice}
+          onDismissSessionNotice={() => {
+            setSessionNotice(null);
+            try {
+              window.sessionStorage.removeItem(SESSION_NOTICE_KEY);
+            } catch {
+              // ignore storage errors
+            }
+          }}
           onAuthenticated={(loggedInUser) => {
+            setSessionNotice(null);
+            try {
+              window.sessionStorage.removeItem(SESSION_NOTICE_KEY);
+            } catch {
+              // ignore storage errors
+            }
             setStoredCachedUser(loggedInUser);
             setUser(loggedInUser);
           }}
@@ -1536,7 +1728,8 @@ export default function App() {
             </div>
           )}
 
-          <div key={activeTab} className="g9-animate-fade-slide">
+          <FirestoreErrorBoundary resetKey={`${activeTab}-${user.id}`} compact>
+            <div key={activeTab} className="g9-animate-fade-slide">
               {activeTab === 'home' && (
                 <HomeView
                   user={user}
@@ -1634,6 +1827,7 @@ export default function App() {
                   pushSubscribed={push.isSubscribed}
                   pushBusy={push.busy}
                   pushError={push.error}
+                  pushUnsupportedReason={push.unsupportedReason}
                   onEnablePush={handleEnablePushFromApp}
                   onDisablePush={handleDisablePushFromApp}
                   onRefresh={fetchNotifications}
@@ -1681,13 +1875,15 @@ export default function App() {
                   pushPermission={push.permission}
                   pushBusy={push.busy}
                   pushError={push.error}
+                  pushUnsupportedReason={push.unsupportedReason}
                   onEnablePush={handleEnablePushFromApp}
                   onDisablePush={handleDisablePushFromApp}
                 />
               )}
 
               {activeTab === 'about' && <AboutView />}
-          </div>
+            </div>
+          </FirestoreErrorBoundary>
         </main>
 
         <footer className="hidden lg:flex items-center justify-between px-10 py-4 border-t border-[#E6DFD5] text-xs text-[#57534E] max-w-6xl w-full mx-auto">

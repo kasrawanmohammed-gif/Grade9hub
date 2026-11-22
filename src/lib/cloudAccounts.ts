@@ -10,6 +10,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  onSnapshot,
   query,
   serverTimestamp,
   setDoc,
@@ -515,6 +516,11 @@ export async function syncCurrentUserToFirestore(
       existingPoints = clampNonNegInt(d.totalPoints, 1000000);
       existingQuizzes = clampNonNegInt(d.quizzesCompleted, 100000);
       existingCorrect = clampNonNegInt(d.correctAnswers, 1000000);
+    } else if (!isMainAdmin) {
+      const revoked = await isCurrentUserCloudRevoked(fbUser.email, fbUser.uid).catch(() => false);
+      if (revoked) {
+        return;
+      }
     }
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, userPath);
@@ -945,6 +951,9 @@ export async function deleteCloudUserAsAdmin(email: string, uid?: string): Promi
     }
   }
 
+  // Write revocation tombstones first so active sessions on other devices sign out immediately
+  await writeCloudAccountRevocation(normalized, targetUid, 'account_deleted').catch(() => {});
+
   if (targetUid && VALID_ID_REGEX.test(targetUid)) {
     const q = query(
       collection(db, 'users', targetUid, 'quiz_attempts'),
@@ -1144,3 +1153,641 @@ export async function deleteSchoolAccountMirrorByEmail(email: string): Promise<v
     // Ignore non-fatal cloud mirror cleanup failure
   }
 }
+
+// ---------------- ACCOUNT REVOCATION (CROSS-DEVICE IMMEDIATE LOGOUT) ----------------
+const LOGIN_TS_STORAGE_KEY = 'grade9hub_login_ts';
+
+export function recordFreshLoginTimestamp(ts: number = Date.now()): void {
+  try {
+    if (typeof window !== 'undefined') {
+      const val = String(ts);
+      window.localStorage.setItem(LOGIN_TS_STORAGE_KEY, val);
+      window.sessionStorage.setItem(LOGIN_TS_STORAGE_KEY, val);
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function getFreshLoginTimestamp(): number {
+  try {
+    if (typeof window === 'undefined') return 0;
+    const raw =
+      window.localStorage.getItem(LOGIN_TS_STORAGE_KEY) ||
+      window.sessionStorage.getItem(LOGIN_TS_STORAGE_KEY);
+    const num = Number(raw || 0);
+    return Number.isFinite(num) ? num : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function toMsFromFirestoreTimestamp(raw: unknown): number {
+  const iso = toIsoFromTimestampOrString(raw);
+  if (!iso) return 0;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export async function writeCloudAccountRevocation(
+  email: string,
+  targetUid?: string,
+  reason: 'account_deleted' | 'account_disabled' = 'account_deleted'
+): Promise<void> {
+  if (!(await isCurrentUserCloudAdmin())) return;
+  const normalized = clampStr(email, 180).toLowerCase();
+  if (!normalized || normalized === MAIN_ADMIN_EMAIL) return;
+
+  const accountKey = await sha256AccountKey(normalized);
+  const cleanUid = clampStr(targetUid || '', 128);
+  const hasValidUid = Boolean(cleanUid && VALID_ID_REGEX.test(cleanUid));
+
+  try {
+    await setDoc(doc(db, 'account_revocations', accountKey), {
+      revocationKey: accountKey,
+      accountKey,
+      ...(hasValidUid ? { targetUid: cleanUid } : {}),
+      reason,
+      revokedAt: serverTimestamp(),
+    });
+  } catch {
+    // non-fatal revocation tombstone write
+  }
+
+  if (hasValidUid) {
+    const uidKey = `uid_${cleanUid}`;
+    if (VALID_ID_REGEX.test(uidKey)) {
+      try {
+        await setDoc(doc(db, 'account_revocations', uidKey), {
+          revocationKey: uidKey,
+          targetUid: cleanUid,
+          accountKey,
+          reason,
+          revokedAt: serverTimestamp(),
+        });
+      } catch {
+        // non-fatal revocation tombstone write
+      }
+    }
+  }
+}
+
+async function evaluateRevocationStatus(
+  revokedAtMs: number,
+  uid?: string
+): Promise<boolean> {
+  const loginTs = getFreshLoginTimestamp();
+  if (uid && VALID_ID_REGEX.test(uid)) {
+    const userSnap = await getDoc(doc(db, 'users', uid)).catch(() => null);
+    if (userSnap && !userSnap.exists()) {
+      return true;
+    }
+    if (userSnap && userSnap.exists()) {
+      const createdMs = toMsFromFirestoreTimestamp(userSnap.data()?.createdAt);
+      if (createdMs > 0 && revokedAtMs > createdMs + 2000) {
+        return true;
+      }
+      if (createdMs > 0 && createdMs >= revokedAtMs) {
+        return false;
+      }
+    }
+  }
+  if (!loginTs) return revokedAtMs > 0;
+  return revokedAtMs >= loginTs - 10_000;
+}
+
+export async function isCurrentUserCloudRevoked(
+  email?: string,
+  uid?: string
+): Promise<boolean> {
+  const fbUser = auth.currentUser;
+  const checkEmail = clampStr(email || fbUser?.email || '', 180).toLowerCase();
+  const checkUid = clampStr(uid || fbUser?.uid || '', 128);
+  if (!checkEmail && !checkUid) return false;
+  if (checkEmail === MAIN_ADMIN_EMAIL) return false;
+  if (!isTrustedCloudAuthUser(fbUser)) return false;
+
+  try {
+    if (checkUid && VALID_ID_REGEX.test(checkUid)) {
+      const uidRevSnap = await getDoc(doc(db, 'account_revocations', `uid_${checkUid}`)).catch(() => null);
+      if (uidRevSnap?.exists()) {
+        const revMs = toMsFromFirestoreTimestamp(uidRevSnap.data()?.revokedAt);
+        if (await evaluateRevocationStatus(revMs, checkUid)) {
+          return true;
+        }
+      }
+    }
+
+    if (checkEmail) {
+      const accountKey = await sha256AccountKey(checkEmail);
+      const acctRevSnap = await getDoc(doc(db, 'account_revocations', accountKey)).catch(() => null);
+      if (acctRevSnap?.exists()) {
+        const revMs = toMsFromFirestoreTimestamp(acctRevSnap.data()?.revokedAt);
+        if (await evaluateRevocationStatus(revMs, checkUid || undefined)) {
+          return true;
+        }
+      }
+    }
+  } catch {
+    // ignore transient lookup failures
+  }
+
+  return false;
+}
+
+export function subscribeCurrentUserAccountValidity(
+  email: string,
+  onRevoked: (reason: 'account_deleted' | 'account_disabled') => void
+): () => void {
+  const normalized = clampStr(email, 180).toLowerCase();
+  if (!normalized || normalized === MAIN_ADMIN_EMAIL) {
+    return () => {};
+  }
+
+  let disposed = false;
+  let triggered = false;
+  const unsubs: Array<() => void> = [];
+
+  const fireOnce = (reason: 'account_deleted' | 'account_disabled' = 'account_deleted') => {
+    if (disposed || triggered) return;
+    triggered = true;
+    onRevoked(reason);
+  };
+
+  const attach = async () => {
+    await auth.authStateReady().catch(() => {});
+    if (disposed) return;
+    const fbUser = auth.currentUser;
+    if (!isTrustedCloudAuthUser(fbUser)) return;
+    if ((fbUser.email || '').trim().toLowerCase() !== normalized) return;
+
+    let sawUserDoc = false;
+    unsubs.push(
+      onSnapshot(
+        doc(db, 'users', fbUser.uid),
+        (snap) => {
+          if (disposed) return;
+          if (snap.exists()) {
+            sawUserDoc = true;
+          } else if (sawUserDoc) {
+            fireOnce('account_deleted');
+          }
+        },
+        () => {}
+      )
+    );
+
+    const uidKey = `uid_${fbUser.uid}`;
+    if (VALID_ID_REGEX.test(uidKey)) {
+      unsubs.push(
+        onSnapshot(
+          doc(db, 'account_revocations', uidKey),
+          (snap) => {
+            if (disposed || !snap.exists()) return;
+            const d = snap.data();
+            const revMs = toMsFromFirestoreTimestamp(d?.revokedAt);
+            const reason = d?.reason === 'account_disabled' ? 'account_disabled' : 'account_deleted';
+            void evaluateRevocationStatus(revMs, fbUser.uid).then((shouldKick) => {
+              if (shouldKick) fireOnce(reason);
+            });
+          },
+          () => {}
+        )
+      );
+    }
+
+    const accountKey = await sha256AccountKey(normalized);
+    if (disposed) return;
+    unsubs.push(
+      onSnapshot(
+        doc(db, 'account_revocations', accountKey),
+        (snap) => {
+          if (disposed || !snap.exists()) return;
+          const d = snap.data();
+          const revMs = toMsFromFirestoreTimestamp(d?.revokedAt);
+          const reason = d?.reason === 'account_disabled' ? 'account_disabled' : 'account_deleted';
+          void evaluateRevocationStatus(revMs, fbUser.uid).then((shouldKick) => {
+            if (shouldKick) fireOnce(reason);
+          });
+        },
+        () => {}
+      )
+    );
+  };
+
+  void attach();
+
+  return () => {
+    disposed = true;
+    for (const unsub of unsubs) {
+      try {
+        unsub();
+      } catch {
+        // ignore unsubscribe error
+      }
+    }
+  };
+}
+
+// ---------------- ATTACHMENT ENCODING FOR FIRESTORE (<= 260,000 CHARS) ----------------
+const FIRESTORE_MAX_ATTACHMENT_CHARS = 250_000;
+
+export async function encodeFileForFirestoreAttachment(file: File): Promise<{
+  attachmentName: string;
+  attachmentUrl: string;
+  attachmentMime: string;
+}> {
+  const safeName = clampStr(file.name || 'attachment', 200) || 'attachment';
+  const rawMime = clampStr(file.type || 'application/octet-stream', 120) || 'application/octet-stream';
+
+  if (rawMime.startsWith('image/') && rawMime !== 'image/svg+xml') {
+    try {
+      const objectUrl = URL.createObjectURL(file);
+      try {
+        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const el = new Image();
+          el.onload = () => resolve(el);
+          el.onerror = () => reject(new Error('Invalid image'));
+          el.src = objectUrl;
+        });
+        const maxDim = 960;
+        const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round((img.width || 1) * scale));
+        canvas.height = Math.max(1, Math.round((img.height || 1) * scale));
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          for (const q of [0.8, 0.65, 0.5]) {
+            const candidate = canvas.toDataURL('image/jpeg', q);
+            if (candidate.length <= FIRESTORE_MAX_ATTACHMENT_CHARS) {
+              return {
+                attachmentName: safeName,
+                attachmentUrl: candidate,
+                attachmentMime: 'image/jpeg',
+              };
+            }
+          }
+        }
+      } finally {
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch {
+      // fall through to FileReader
+    }
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(new Error('Failed to read attachment file.'));
+    reader.readAsDataURL(file);
+  });
+
+  if (!dataUrl || dataUrl.length > FIRESTORE_MAX_ATTACHMENT_CHARS) {
+    throw new Error(
+      'Attachment is too large for cloud sync (max ~180 KB for files or compressed images).'
+    );
+  }
+
+  return {
+    attachmentName: safeName,
+    attachmentUrl: dataUrl,
+    attachmentMime: rawMime,
+  };
+}
+
+// ---------------- CLOUD ANNOUNCEMENTS & STUDY MATERIALS ----------------
+export interface CloudAnnouncementRecord {
+  announcementId: string;
+  id: number;
+  title: string;
+  content: string;
+  type: 'announcement' | 'material';
+  authorUid: string;
+  author_name: string;
+  attachment_name: string | null;
+  attachment_url: string | null;
+  attachment_mime: string | null;
+  created_at: string;
+}
+
+export async function fetchCloudAnnouncements(): Promise<CloudAnnouncementRecord[]> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser)) {
+    return [];
+  }
+  try {
+    const q = query(
+      collection(db, 'announcements'),
+      where('scope', '==', 'school')
+    );
+    const snaps = await getDocs(q);
+    const list: CloudAnnouncementRecord[] = [];
+    snaps.forEach((docSnap) => {
+      const d = docSnap.data();
+      const createdAt =
+        clampStr(d.createdAtIso || '', 64) ||
+        toIsoFromTimestampOrString(d.createdAt) ||
+        new Date().toISOString();
+      list.push({
+        announcementId: clampStr(d.announcementId || docSnap.id, 128),
+        id: Number(d.numericId) || stableNumericId(docSnap.id),
+        title: clampStr(d.title || '', 200),
+        content: clampStr(d.content || '', 8000),
+        type: d.type === 'material' ? 'material' : 'announcement',
+        authorUid: clampStr(d.authorUid || '', 128),
+        author_name: clampStr(d.authorName || 'Mr. Kasrawan', 120) || 'Mr. Kasrawan',
+        attachment_name: d.attachmentName ? clampStr(d.attachmentName, 200) : null,
+        attachment_url: d.attachmentUrl ? clampStr(d.attachmentUrl, 260000) : null,
+        attachment_mime: d.attachmentMime ? clampStr(d.attachmentMime, 120) : null,
+        created_at: createdAt,
+      });
+    });
+    list.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || b.id - a.id);
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+export async function createCloudAnnouncement(params: {
+  title: string;
+  content: string;
+  type: 'announcement' | 'material';
+  authorName: string;
+  attachment?: {
+    attachmentName: string;
+    attachmentUrl: string;
+    attachmentMime: string;
+  } | null;
+}): Promise<CloudAnnouncementRecord | null> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) {
+    return null;
+  }
+  const numericId = Date.now();
+  const announcementId = `ann_${numericId}_${stableNumericId(fbUser.uid).toString(36)}`;
+  const createdAtIso = new Date().toISOString();
+  const safeTitle = clampStr(params.title, 200);
+  const safeContent = clampStr(params.content, 8000);
+  const safeAuthor = clampStr(params.authorName || 'Mr. Kasrawan', 120) || 'Mr. Kasrawan';
+
+  if (!safeTitle || !safeContent) return null;
+
+  const payload: Record<string, unknown> = {
+    announcementId,
+    numericId,
+    scope: 'school',
+    title: safeTitle,
+    content: safeContent,
+    type: params.type === 'material' ? 'material' : 'announcement',
+    authorUid: fbUser.uid,
+    authorName: safeAuthor,
+    createdAtIso,
+    createdAt: serverTimestamp(),
+  };
+  if (params.attachment?.attachmentUrl && params.attachment.attachmentUrl.length <= 260000) {
+    payload.attachmentName = clampStr(params.attachment.attachmentName, 200);
+    payload.attachmentUrl = params.attachment.attachmentUrl;
+    payload.attachmentMime = clampStr(params.attachment.attachmentMime, 120);
+  }
+
+  try {
+    await setDoc(doc(db, 'announcements', announcementId), payload);
+    return {
+      announcementId,
+      id: numericId,
+      title: safeTitle,
+      content: safeContent,
+      type: params.type === 'material' ? 'material' : 'announcement',
+      authorUid: fbUser.uid,
+      author_name: safeAuthor,
+      attachment_name: (payload.attachmentName as string | undefined) || null,
+      attachment_url: (payload.attachmentUrl as string | undefined) || null,
+      attachment_mime: (payload.attachmentMime as string | undefined) || null,
+      created_at: createdAtIso,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `announcements/${announcementId}`);
+    return null;
+  }
+}
+
+export async function deleteCloudAnnouncement(numericOrDocId: number | string): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser)) return;
+
+  try {
+    const q = query(collection(db, 'announcements'), where('scope', '==', 'school'));
+    const snaps = await getDocs(q);
+    for (const snap of snaps.docs) {
+      const d = snap.data();
+      if (snap.id === String(numericOrDocId) || Number(d.numericId) === Number(numericOrDocId)) {
+        await deleteDoc(snap.ref);
+      }
+    }
+  } catch {
+    // ignore cloud announcement delete errors
+  }
+}
+
+// ---------------- CLOUD DIRECT MESSAGES ----------------
+export interface CloudDirectMessageRecord {
+  messageId: string;
+  id: number;
+  senderUid: string;
+  recipientUid: string;
+  senderNumericId: number;
+  recipientNumericId: number;
+  senderName: string;
+  senderAvatarUrl: string;
+  senderRole: 'student' | 'teacher';
+  recipientName: string;
+  messageText: string;
+  attachmentName: string | null;
+  attachmentUrl: string | null;
+  attachmentMime: string | null;
+  createdAtIso: string;
+}
+
+function mapDocToCloudDirectMessage(docId: string, d: Record<string, unknown>): CloudDirectMessageRecord {
+  const createdAtIso =
+    clampStr(d.createdAtIso || '', 64) ||
+    toIsoFromTimestampOrString(d.createdAt) ||
+    new Date().toISOString();
+  return {
+    messageId: clampStr(d.messageId || docId, 128),
+    id: Number(d.numericId) || stableNumericId(docId),
+    senderUid: clampStr(d.senderUid || '', 128),
+    recipientUid: clampStr(d.recipientUid || '', 128),
+    senderNumericId: Number(d.senderNumericId) || stableNumericId(String(d.senderUid || docId)),
+    recipientNumericId:
+      Number(d.recipientNumericId) || stableNumericId(String(d.recipientUid || docId)),
+    senderName: clampStr(d.senderName || 'Classmate', 120) || 'Classmate',
+    senderAvatarUrl: sanitizeAvatarForFirestore(d.senderAvatarUrl),
+    senderRole: d.senderRole === 'teacher' ? 'teacher' : 'student',
+    recipientName: clampStr(d.recipientName || 'Classmate', 120) || 'Classmate',
+    messageText: clampStr(d.messageText || '', 4000),
+    attachmentName: d.attachmentName ? clampStr(d.attachmentName, 200) : null,
+    attachmentUrl: d.attachmentUrl ? clampStr(d.attachmentUrl, 260000) : null,
+    attachmentMime: d.attachmentMime ? clampStr(d.attachmentMime, 120) : null,
+    createdAtIso,
+  };
+}
+
+export async function fetchCloudDirectMessages(): Promise<CloudDirectMessageRecord[]> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) {
+    return [];
+  }
+  try {
+    const q = query(
+      collection(db, 'direct_messages'),
+      where('participants', 'array-contains', fbUser.uid)
+    );
+    const snaps = await getDocs(q);
+    const list: CloudDirectMessageRecord[] = [];
+    snaps.forEach((docSnap) => {
+      list.push(mapDocToCloudDirectMessage(docSnap.id, docSnap.data()));
+    });
+    list.sort((a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso) || a.id - b.id);
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+export function subscribeCloudDirectMessages(
+  onMessagesChanged: (messages: CloudDirectMessageRecord[]) => void
+): () => void {
+  let disposed = false;
+  let unsubSnap: (() => void) | null = null;
+
+  const start = async () => {
+    await auth.authStateReady().catch(() => {});
+    if (disposed) return;
+    const fbUser = auth.currentUser;
+    if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) return;
+
+    const q = query(
+      collection(db, 'direct_messages'),
+      where('participants', 'array-contains', fbUser.uid)
+    );
+    unsubSnap = onSnapshot(
+      q,
+      (snaps) => {
+        if (disposed) return;
+        const list: CloudDirectMessageRecord[] = [];
+        snaps.forEach((docSnap) => {
+          list.push(mapDocToCloudDirectMessage(docSnap.id, docSnap.data()));
+        });
+        list.sort((a, b) => Date.parse(a.createdAtIso) - Date.parse(b.createdAtIso) || a.id - b.id);
+        onMessagesChanged(list);
+      },
+      () => {}
+    );
+  };
+
+  void start();
+  return () => {
+    disposed = true;
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+    }
+  };
+}
+
+export async function sendCloudDirectMessage(params: {
+  recipientUid: string;
+  senderNumericId: number;
+  recipientNumericId: number;
+  senderName: string;
+  senderAvatarUrl: string;
+  senderRole: 'student' | 'teacher';
+  recipientName: string;
+  messageText: string;
+  attachment?: {
+    attachmentName: string;
+    attachmentUrl: string;
+    attachmentMime: string;
+  } | null;
+}): Promise<CloudDirectMessageRecord | null> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) {
+    return null;
+  }
+  const recipientUid = clampStr(params.recipientUid, 128);
+  if (!VALID_ID_REGEX.test(recipientUid) || recipientUid === fbUser.uid) {
+    return null;
+  }
+
+  const numericId = Date.now();
+  const messageId = `dm_${numericId}_${stableNumericId(fbUser.uid).toString(36)}`;
+  const createdAtIso = new Date().toISOString();
+  const safeText = clampStr(params.messageText, 4000);
+  const safeSenderName = clampStr(params.senderName || 'Grade 9 Student', 120) || 'Grade 9 Student';
+  const safeRecipientName =
+    clampStr(params.recipientName || 'Classmate', 120) || 'Classmate';
+  const safeAvatar = sanitizeAvatarForFirestore(params.senderAvatarUrl);
+
+  const payload: Record<string, unknown> = {
+    messageId,
+    numericId,
+    senderUid: fbUser.uid,
+    recipientUid,
+    participants: [fbUser.uid, recipientUid],
+    senderNumericId: Math.max(1, Math.round(params.senderNumericId || 1)),
+    recipientNumericId: Math.max(1, Math.round(params.recipientNumericId || 1)),
+    senderName: safeSenderName,
+    senderRole: params.senderRole === 'teacher' ? 'teacher' : 'student',
+    recipientName: safeRecipientName,
+    messageText: safeText,
+    createdAtIso,
+    createdAt: serverTimestamp(),
+  };
+  if (safeAvatar) {
+    payload.senderAvatarUrl = safeAvatar;
+  }
+  if (params.attachment?.attachmentUrl && params.attachment.attachmentUrl.length <= 260000) {
+    payload.attachmentName = clampStr(params.attachment.attachmentName, 200);
+    payload.attachmentUrl = params.attachment.attachmentUrl;
+    payload.attachmentMime = clampStr(params.attachment.attachmentMime, 120);
+  }
+
+  try {
+    await setDoc(doc(db, 'direct_messages', messageId), payload);
+    return mapDocToCloudDirectMessage(messageId, payload);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, `direct_messages/${messageId}`);
+    return null;
+  }
+}
+
+export async function deleteCloudDirectMessage(messageIdOrNumeric: number | string): Promise<void> {
+  const fbUser = auth.currentUser;
+  if (!isTrustedCloudAuthUser(fbUser) || !VALID_ID_REGEX.test(fbUser.uid)) return;
+  try {
+    const q = query(
+      collection(db, 'direct_messages'),
+      where('participants', 'array-contains', fbUser.uid)
+    );
+    const snaps = await getDocs(q);
+    for (const snap of snaps.docs) {
+      const d = snap.data();
+      if (
+        snap.id === String(messageIdOrNumeric) ||
+        Number(d.numericId) === Number(messageIdOrNumeric)
+      ) {
+        await deleteDoc(snap.ref);
+      }
+    }
+  } catch {
+    // ignore cloud DM delete failures
+  }
+}
+

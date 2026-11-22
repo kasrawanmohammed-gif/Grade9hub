@@ -22,3 +22,6 @@
 11. **Parentless Quiz Attempt**: Writing `/users/{otherUid}/quiz_attempts/{id}` or without parent `/users/{uid}` -> DENIED (Master Gate `get()`).
 12. **PII Injection into Leaderboard or Peer Presence**: Writing `email` into `/leaderboard_entries/{uid}` or `/peer_presence/{uid}`, or non-admin writing `/app_settings/global` -> DENIED.
 13. **Restricted & Main Admin Protection**: Non-admin user updating `isRestricted` on themselves, or any admin deleting/demoting/restricting `mohamdm791@gmail.com` -> DENIED.
+14. **Cross-User DM Snooping or Impersonation**: Reading `/direct_messages` where `request.auth.uid` is not in `participants`, listing without `participants` filter, or sending a DM with `senderUid != request.auth.uid` -> DENIED.
+15. **Unauthorized Announcement Creation or Revocation Forgery**: Non-teacher student creating/deleting `/announcements/{id}` or forging `createdAt != request.time`, or non-admin writing `/account_revocations/{id}` -> DENIED.
+

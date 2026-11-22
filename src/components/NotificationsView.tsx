@@ -9,6 +9,7 @@ import {
   MessageSquare,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { type PushUnsupportedReason } from '../hooks/usePushNotifications';
 import { useLanguage } from '../contexts/LanguageContext';
 import { NotificationItem, TabId } from '../types';
 import { formatUtcDateTime } from '../utils/dateFormat';
@@ -20,6 +21,7 @@ interface NotificationsViewProps {
   pushSubscribed: boolean;
   pushBusy: boolean;
   pushError: string | null;
+  pushUnsupportedReason?: PushUnsupportedReason;
   onEnablePush: () => Promise<boolean>;
   onDisablePush: () => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -33,6 +35,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   pushSubscribed,
   pushBusy,
   pushError,
+  pushUnsupportedReason = null,
   onEnablePush,
   onDisablePush,
   onRefresh,
@@ -132,6 +135,47 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
       {(pushError || actionError) && (
         <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-3 text-sm text-[#991B1B]">
           {actionError || pushError}
+        </div>
+      )}
+
+      {pushUnsupportedReason === 'ios_home_screen' && (
+        <div
+          role="region"
+          aria-label={t.notifications.iosBrowserTitle}
+          className="rounded-2xl border border-[#D9A62E]/45 bg-[#FBF4DF]/75 px-5 py-4 space-y-1.5"
+        >
+          <p className="text-sm font-bold text-[#6B1118] flex items-center gap-2">
+            <Bell className="w-4 h-4 text-[#D9A62E] shrink-0" />
+            <span>{t.notifications.iosBrowserTitle}</span>
+          </p>
+          <p className="text-xs sm:text-sm text-[#57534E] leading-relaxed">
+            {t.notifications.iosBrowserSteps}
+          </p>
+        </div>
+      )}
+
+      {pushUnsupportedReason === 'unsupported' && (
+        <div
+          role="region"
+          aria-label={t.notifications.unsupportedTitle}
+          className="rounded-2xl border border-[#E6DFD5] bg-[#FAF8F5] px-5 py-4 space-y-1.5"
+        >
+          <p className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
+            <BellOff className="w-4 h-4 text-[#57534E] shrink-0" />
+            <span>{t.notifications.unsupportedTitle}</span>
+          </p>
+          <p className="text-xs sm:text-sm text-[#57534E] leading-relaxed">
+            {t.notifications.unsupportedDesc}
+          </p>
+        </div>
+      )}
+
+      {pushUnsupportedReason === 'vapid_missing' && (
+        <div
+          role="status"
+          className="rounded-2xl border border-[#D9A62E]/45 bg-[#FBF4DF]/75 px-5 py-3.5 text-xs sm:text-sm text-[#57534E] leading-relaxed"
+        >
+          {t.notifications.vapidUnavailableDesc}
         </div>
       )}
 

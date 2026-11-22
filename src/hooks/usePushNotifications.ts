@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
+export type PushUnsupportedReason = 'ios_home_screen' | 'unsupported' | 'vapid_missing' | null;
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -10,6 +12,34 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+function detectIosDevice(): boolean {
+  try {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent.toLowerCase();
+    const isTouchMac =
+      ua.includes('macintosh') &&
+      typeof navigator.maxTouchPoints === 'number' &&
+      navigator.maxTouchPoints > 1;
+    return /iphone|ipad|ipod/.test(ua) || isTouchMac;
+  } catch {
+    return false;
+  }
+}
+
+function detectStandalonePwa(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    const standaloneMedia =
+      typeof window.matchMedia === 'function'
+        ? window.matchMedia('(display-mode: standalone)').matches
+        : false;
+    const navStandalone = (navigator as { standalone?: boolean }).standalone === true;
+    return standaloneMedia || navStandalone;
+  } catch {
+    return false;
+  }
 }
 
 async function getReadyRegistrationWithTimeout(timeoutMs = 3500): Promise<ServiceWorkerRegistration | null> {
@@ -34,21 +64,29 @@ export function usePushNotifications(
   const [supported, setSupported] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [hasPushSubscription, setHasPushSubscription] = useState(false);
+  const [isIosBrowserTab, setIsIosBrowserTab] = useState(false);
+  const [vapidMissing, setVapidMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refreshStatus = useCallback(() => {
+    const iosDevice = detectIosDevice();
+    const standalone = detectStandalonePwa();
     const hasNotificationApi = typeof window !== 'undefined' && 'Notification' in window;
+    const hasPushApi = hasNotificationApi && 'serviceWorker' in navigator && 'PushManager' in window;
+
+    setIsIosBrowserTab(iosDevice && !standalone && !hasPushApi);
     setSupported(hasNotificationApi);
 
     if (hasNotificationApi) {
-      setPermission(Notification.permission);
+      try {
+        setPermission(Notification.permission);
+      } catch {
+        setPermission('default');
+      }
     }
 
-    const isPushSupported =
-      hasNotificationApi && 'serviceWorker' in navigator && 'PushManager' in window;
-
-    if (isPushSupported && isAuthenticated) {
+    if (hasPushApi && isAuthenticated) {
       void getReadyRegistrationWithTimeout(3000).then((reg) => {
         if (!reg?.pushManager) return;
         reg.pushManager
@@ -72,11 +110,23 @@ export function usePushNotifications(
     userNotificationsEnabled &&
     (hasPushSubscription || (supported && permission === 'granted'));
 
+  const unsupportedReason: PushUnsupportedReason = isIosBrowserTab
+    ? 'ios_home_screen'
+    : !supported
+    ? 'unsupported'
+    : vapidMissing
+    ? 'vapid_missing'
+    : null;
+
   const subscribe = useCallback(async (options?: { silentError?: boolean }) => {
     const hasNotificationApi = typeof window !== 'undefined' && 'Notification' in window;
     if (!hasNotificationApi) {
       if (!options?.silentError) {
-        setError('Notifications are not supported by this browser.');
+        setError(
+          detectIosDevice() && !detectStandalonePwa()
+            ? 'On iPhone/iPad, open Share → Add to Home Screen first to enable system notifications.'
+            : 'Notifications are not supported by this browser.'
+        );
       }
       return false;
     }
@@ -105,21 +155,29 @@ export function usePushNotifications(
       if (canWebPush) {
         const registration = await getReadyRegistrationWithTimeout(3500);
         if (registration?.pushManager) {
-          const { publicKey } = await apiFetch<{ publicKey: string }>('/api/push/vapid-public-key');
-          const existing = await registration.pushManager.getSubscription();
-          const subscription =
-            existing ||
-            (await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(publicKey) as unknown as BufferSource,
-            }));
+          const vapidRes = await apiFetch<{ publicKey?: string | null }>('/api/push/vapid-public-key').catch(
+            () => ({ publicKey: null })
+          );
+          const publicKey = typeof vapidRes?.publicKey === 'string' ? vapidRes.publicKey.trim() : '';
+          if (!publicKey) {
+            setVapidMissing(true);
+          } else {
+            setVapidMissing(false);
+            const existing = await registration.pushManager.getSubscription();
+            const subscription =
+              existing ||
+              (await registration.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(publicKey) as unknown as BufferSource,
+              }));
 
-          await apiFetch('/api/push/subscribe', {
-            method: 'POST',
-            body: JSON.stringify({ subscription: subscription.toJSON() }),
-          });
-          setHasPushSubscription(true);
-          return true;
+            await apiFetch('/api/push/subscribe', {
+              method: 'POST',
+              body: JSON.stringify({ subscription: subscription.toJSON() }),
+            });
+            setHasPushSubscription(true);
+            return true;
+          }
         }
       }
 
@@ -149,13 +207,13 @@ export function usePushNotifications(
         await apiFetch('/api/push/unsubscribe', {
           method: 'POST',
           body: JSON.stringify({ endpoint: subscription.endpoint }),
-        });
-        await subscription.unsubscribe();
+        }).catch(() => {});
+        await subscription.unsubscribe().catch(() => {});
       } else {
         await apiFetch('/api/notifications/permission-choice', {
           method: 'POST',
           body: JSON.stringify({ choice: 'denied' }),
-        });
+        }).catch(() => {});
       }
       setHasPushSubscription(false);
     } catch (err) {
@@ -169,6 +227,9 @@ export function usePushNotifications(
     supported,
     permission,
     isSubscribed,
+    isIosBrowserTab,
+    vapidMissing,
+    unsupportedReason,
     busy,
     error,
     subscribe,
