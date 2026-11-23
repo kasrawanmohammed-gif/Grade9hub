@@ -341,6 +341,19 @@ export interface Translations {
     unsupportedTitle: string;
     unsupportedDesc: string;
     vapidUnavailableDesc: string;
+    sendTestPush: string;
+    sendingTestPush: string;
+    testPushSuccess: string;
+    testPushError: string;
+    statusLabel: string;
+    statusEnabled: string;
+    statusDisabled: string;
+    statusBlocked: string;
+    statusSetupRequired: string;
+    lockScreenGuideTitle: string;
+    lockScreenAndroidStep: string;
+    lockScreenIosStep: string;
+    lockScreenDesktopStep: string;
   };
   notifPrompt: {
     title: string;
@@ -1298,6 +1311,22 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         'Your current browser tab cannot receive lock-screen push notifications when closed. In-app alerts still update whenever you open Grade 9 Hub.',
       vapidUnavailableDesc:
         'Push subscription keys are not configured on this server yet. In-app notifications remain active.',
+      sendTestPush: 'Send Test Lock-Screen Notification',
+      sendingTestPush: 'Sending Test...',
+      testPushSuccess: 'Test push sent! Check your device notification banner or lock screen.',
+      testPushError: 'Could not deliver test push. Check permission and lock-screen settings below.',
+      statusLabel: 'System Delivery',
+      statusEnabled: 'Lock-Screen Push Active',
+      statusDisabled: 'Push Alerts Off',
+      statusBlocked: 'Blocked in Browser / Device',
+      statusSetupRequired: 'Setup Required',
+      lockScreenGuideTitle: 'Mobile & Lock-Screen Notification Guide',
+      lockScreenAndroidStep:
+        'Android (Chrome / Edge): Install or open Grade 9 Hub → Site Settings → Notifications → Allow, and in Android Settings → Apps → Chrome / Grade 9 Hub → Notifications, enable Pop on screen & Show on lock screen.',
+      lockScreenIosStep:
+        'iPhone / iPad (iOS 16.4+): Open in Safari → Share → Add to Home Screen, launch from the Home Screen icon, enable Background Push Alerts, and verify Lock Screen alerts are enabled in iOS Settings.',
+      lockScreenDesktopStep:
+        'Desktop (Windows / macOS): Click the lock/tune icon beside the address bar → set Notifications to Allow, and ensure System Focus / Do Not Disturb is turned off.',
     },
     notifPrompt: {
       title: 'Allow Grade 9 Hub to send you notifications?',
@@ -2258,6 +2287,22 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         'ئەم تابەی وێبگەڕە پشتگیری ئاگادارکردنەوەی شاشەی قوفڵ ناکات کاتێک ئەپەکە داخراوە. ئاگاداری ناو ئەپ هەمیشە نوێ دەبێتەوە.',
       vapidUnavailableDesc:
         'کلیلەکانی Push لەسەر ئەم سێرڤەرە هێشتا ڕێکنەخراون. ئاگاداری ناو ئەپ کارایە.',
+      sendTestPush: 'ناردنی ئاگاداری تاقیکردنەوە',
+      sendingTestPush: 'ناردنی تاقیکردنەوە...',
+      testPushSuccess: 'ئاگاداری تاقیکردنەوە نێردرا! سەیری شاشە یان شاشەی قوفڵ بکە.',
+      testPushError: 'ناردنی ئاگاداری تاقیکردنەوە سەرکەوتوو نەبوو. ڕێکخستنەکانی خوارەوە بپشکنە.',
+      statusLabel: 'دۆخی گەیاندن',
+      statusEnabled: 'ئاگاداری شاشەی قوفڵ چالاکە',
+      statusDisabled: 'ئاگاداری دەرەکی ناچالاکە',
+      statusBlocked: 'لە وێبگەڕ یان ئامێر بلۆک کراوە',
+      statusSetupRequired: 'پێویستی بە ڕێکخستنە',
+      lockScreenGuideTitle: 'ڕێنمایی ئاگادارکردنەوەی مۆبایل و شاشەی قوفڵ',
+      lockScreenAndroidStep:
+        'ئەندرۆید (Chrome / Edge): ئەپەکە دابمەزرێنە یان بیکەرەوە ← ڕێکخستنی ماڵپەڕ ← Notifications ← ڕێگەپێدان، و لە ڕێکخستنی مۆبایلدا Notifications و Show on lock screen و Pop on screen چالاک بکە.',
+      lockScreenIosStep:
+        'ئایفۆن / ئایپاد (iOS 16.4+): لە Safari دوگمەی Share داگرە ← Add to Home Screen، لە ئایکۆنی شاشەی سەرەکییەوە ئەپەکە بکەرەوە، ئاگاداری چالاک بکە و لە ڕێکخستنی iOS ڕێگە بە شاشەی قوفڵ بدە.',
+      lockScreenDesktopStep:
+        'کۆمپیوتەر (Windows / macOS): کلیک لەسەر ئایکۆنی تەنیشت ناونیشانی ماڵپەڕ بکە ← Notifications بکە بە Allow و دڵنیابە Do Not Disturb کوژاوەتەوە.',
     },
     notifPrompt: {
       title: 'ڕێگە بە ناوەندی پۆلی ٩ دەدەیت ئاگادارکردنەوەت بۆ بنێرێت؟',
@@ -3218,6 +3263,22 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
         'هذا المتصفح أو التبويب لا يدعم إشعارات شاشة القفل عند إغلاق التطبيق. ستستمر الإشعارات بالظهور داخل التطبيق عند فتحه.',
       vapidUnavailableDesc:
         'مفاتيح إشعارات Push غير مهيأة على هذا الخادم بعد. الإشعارات داخل التطبيق تعمل بشكل طبيعي.',
+      sendTestPush: 'إرسال إشعار تجريبي لشاشة القفل',
+      sendingTestPush: 'جاري إرسال التجربة...',
+      testPushSuccess: 'تم إرسال الإشعار التجريبي! تحقّق من شاشة الجهاز أو شاشة القفل.',
+      testPushError: 'تعذّر تسليم الإشعار التجريبي. تحقّق من الأذونات وإعدادات شاشة القفل أدناه.',
+      statusLabel: 'حالة التسليم',
+      statusEnabled: 'إشعارات شاشة القفل مفعّلة',
+      statusDisabled: 'تنبيهات الخلفية متوقفة',
+      statusBlocked: 'محظورة في المتصفح أو الجهاز',
+      statusSetupRequired: 'يتطلب التهيئة',
+      lockScreenGuideTitle: 'دليل وصول الإشعارات للهاتف وشاشة القفل',
+      lockScreenAndroidStep:
+        'أندرويد (Chrome / Edge): ثبّت التطبيق أو افتحه ← إعدادات الموقع ← الإشعارات ← سماح، وفي إعدادات الهاتف ← التطبيقات ← Chrome / Grade 9 Hub ← الإشعارات، فعّل الظهور على الشاشة وشاشة القفل.',
+      lockScreenIosStep:
+        'آيفون / آيباد (iOS 16.4+): افتح الموقع في Safari ← زر المشاركة (Share) ← إضافة إلى الشاشة الرئيسية، ثم افتح التطبيق من الأيقونة الجديدة وفعّل الإشعارات مع السماح بشاشة القفل في إعدادات iOS.',
+      lockScreenDesktopStep:
+        'الحاسوب (Windows / macOS): اضغط على أيقونة القفل/الإعدادات بجانب رابط الموقع ← اجعل الإشعارات "سماح"، وتأكد من إيقاف وضع عدم الإزعاج.',
     },
     notifPrompt: {
       title: 'هل تسمح لمنصة الصف التاسع بإرسال الإشعارات إليك؟',

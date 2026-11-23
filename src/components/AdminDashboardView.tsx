@@ -147,7 +147,7 @@ function mergeRegisteredAccountsWithCloud(
       lastLoginAt: c.lastLoginAt || '',
       isRestricted: !isMain && Boolean(c.isRestricted),
       restrictionReason: c.restrictionReason || '',
-      createdAt: c.createdAtIso || '',
+      created_at: c.createdAtIso || '',
       quizzesCompleted: c.quizzesCompleted || 0,
       questionsAnswered: c.quizzesCompleted ? c.correctAnswers : 0,
       correctAnswers: c.correctAnswers || 0,

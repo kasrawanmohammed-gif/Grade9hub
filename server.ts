@@ -53,7 +53,16 @@ import {
 } from './server/populateTranslations.ts';
 import { buildWrongOptionExplanation, SupportedLang } from './server/wrongOptionExplainer.ts';
 import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
-import { getPublicVapidKey, sendPushToAllStudents, sendPushToUser } from './server/push.ts';
+import {
+  countUserPushSubscriptions,
+  getPublicVapidKey,
+  LocalizedPushFactory,
+  normalizePushLang,
+  PushLang,
+  sanitizePushIconUrl,
+  sendPushToAllStudents,
+  sendPushToUser,
+} from './server/push.ts';
 import {
   generateStudyImage,
   getGeminiErrorStatus,
@@ -1287,8 +1296,13 @@ function notifyAllStudents(params: {
   body: string;
   category: 'announcement' | 'question' | 'chapter' | 'material';
   linkTab: string;
+  linkUrl?: string;
+  tag?: string;
+  icon?: string;
+  data?: Record<string, unknown>;
   excludeUserId?: number;
   includeTeachers?: boolean;
+  localizedFactory?: LocalizedPushFactory;
 }): void {
   const recipients = (
     params.includeTeachers
@@ -1312,12 +1326,25 @@ function notifyAllStudents(params: {
   });
   tx();
 
-  void sendPushToAllStudents({
-    title: params.title,
-    body: params.body,
-    url: '/',
-    tag: `grade9hub-${params.category}`,
-  });
+  const url = params.linkUrl || `/?tab=${encodeURIComponent(params.linkTab)}`;
+  const tag = params.tag || `grade9hub-${params.category}`;
+  const icon = sanitizePushIconUrl(params.icon);
+
+  void sendPushToAllStudents(
+    params.localizedFactory || {
+      title: params.title,
+      body: params.body,
+      url,
+      tab: params.linkTab,
+      tag,
+      icon,
+      data: params.data,
+    },
+    {
+      excludeUserId: params.excludeUserId,
+      includeTeachers: params.includeTeachers,
+    }
+  );
 }
 
 function notifySingleUser(params: {
@@ -1326,18 +1353,33 @@ function notifySingleUser(params: {
   body: string;
   category: 'announcement' | 'question' | 'chapter' | 'material' | 'reply';
   linkTab: string;
+  linkUrl?: string;
+  tag?: string;
+  icon?: string;
+  data?: Record<string, unknown>;
+  localizedFactory?: LocalizedPushFactory;
 }): void {
   db.prepare(
     `INSERT INTO notifications (user_id, title, body, category, link_tab)
      VALUES (?, ?, ?, ?, ?)`
   ).run(params.userId, params.title, params.body, params.category, params.linkTab);
 
-  void sendPushToUser(params.userId, {
-    title: params.title,
-    body: params.body,
-    url: '/',
-    tag: `grade9hub-${params.category}`,
-  });
+  const url = params.linkUrl || `/?tab=${encodeURIComponent(params.linkTab)}`;
+  const tag = params.tag || `grade9hub-${params.category}`;
+  const icon = sanitizePushIconUrl(params.icon);
+
+  void sendPushToUser(
+    params.userId,
+    params.localizedFactory || {
+      title: params.title,
+      body: params.body,
+      url,
+      tab: params.linkTab,
+      tag,
+      icon,
+      data: params.data,
+    }
+  );
 }
 
 async function compactAvatarToBase64(rawBuffer: Buffer, mimeType: string): Promise<string> {
@@ -4352,17 +4394,45 @@ async function startServer() {
         )
         .run(title, content, type, attachmentName, attachmentUrl, attachmentMime, user.id);
 
+      const announcementId = Number(result.lastInsertRowid);
       const notifTitle =
         type === 'material' ? `New Study Material: ${title}` : `Announcement: ${title}`;
       const notifBody = content.slice(0, 140);
+      const linkUrl = `/?tab=home&announcementId=${announcementId}`;
+      const pushTag = `grade9hub-announcement-${announcementId}`;
+      const pushIcon = sanitizePushIconUrl(user.avatar_url);
 
       notifyAllStudents({
         title: notifTitle,
         body: notifBody,
         category: type === 'material' ? 'material' : 'announcement',
         linkTab: 'home',
+        linkUrl,
+        tag: pushTag,
+        icon: pushIcon,
+        data: { announcementId },
         excludeUserId: user.id,
         includeTeachers: true,
+        localizedFactory: (lang: PushLang) => ({
+          title:
+            lang === 'ku'
+              ? type === 'material'
+                ? `مەلزەمەی نوێ: ${title}`
+                : `ڕاگەیاندن: ${title}`
+              : lang === 'ar'
+              ? type === 'material'
+                ? `مادة دراسية جديدة: ${title}`
+                : `إعلان: ${title}`
+              : notifTitle,
+          body: notifBody,
+          url: linkUrl,
+          tab: 'home',
+          tag: pushTag,
+          icon: pushIcon,
+          lang,
+          dir: lang === 'en' ? 'ltr' : 'rtl',
+          data: { announcementId },
+        }),
       });
 
       const created = db
@@ -4372,7 +4442,7 @@ async function startServer() {
            LEFT JOIN users u ON u.id = a.created_by
            WHERE a.id = ?`
         )
-        .get(result.lastInsertRowid);
+        .get(announcementId);
       broadcastToAllUsers({
         type: 'announcement:created',
         payload: created,
@@ -4384,6 +4454,8 @@ async function startServer() {
           body: notifBody,
           category: type === 'material' ? 'material' : 'announcement',
           linkTab: 'home',
+          linkUrl,
+          announcementId,
           createdBy: user.id,
         },
       });
@@ -4928,13 +5000,47 @@ async function startServer() {
           attachmentSize
         );
 
+      const teacherChatUrl = `/?tab=ask-teacher&studentId=${targetStudentId}`;
+      const teacherChatTag = `grade9hub-teacher-${targetStudentId}`;
+      const senderIcon = sanitizePushIconUrl(user.avatar_url);
+      const previewBody = messageText
+        ? messageText.slice(0, 120)
+        : `Sent an attachment: ${attachmentName}`;
+
       if (isPrivileged) {
+        const senderDisplay = user.name || 'Mr. Kasrawan';
         notifySingleUser({
           userId: targetStudentId,
-          title: 'Reply from Mr. Kasrawan',
-          body: messageText ? messageText.slice(0, 120) : `Sent an attachment: ${attachmentName}`,
+          title: `Reply from ${senderDisplay}`,
+          body: previewBody,
           category: 'reply',
           linkTab: 'ask-teacher',
+          linkUrl: teacherChatUrl,
+          tag: teacherChatTag,
+          icon: senderIcon,
+          data: { studentId: targetStudentId },
+          localizedFactory: (lang: PushLang) => ({
+            title:
+              lang === 'ku'
+                ? `وەڵام لە ${senderDisplay}`
+                : lang === 'ar'
+                ? `رد من ${senderDisplay}`
+                : `Reply from ${senderDisplay}`,
+            body: messageText
+              ? messageText.slice(0, 120)
+              : lang === 'ku'
+              ? `هاوپێچێکی نارد: ${attachmentName}`
+              : lang === 'ar'
+              ? `أرسل مرفقاً: ${attachmentName}`
+              : previewBody,
+            url: teacherChatUrl,
+            tab: 'ask-teacher',
+            tag: teacherChatTag,
+            icon: senderIcon,
+            lang,
+            dir: lang === 'en' ? 'ltr' : 'rtl',
+            data: { studentId: targetStudentId },
+          }),
         });
       } else {
         const teachers = db
@@ -4944,9 +5050,35 @@ async function startServer() {
           notifySingleUser({
             userId: t.id,
             title: `Question from ${user.name}`,
-            body: messageText ? messageText.slice(0, 120) : `Sent an attachment: ${attachmentName}`,
+            body: previewBody,
             category: 'reply',
             linkTab: 'ask-teacher',
+            linkUrl: teacherChatUrl,
+            tag: teacherChatTag,
+            icon: senderIcon,
+            data: { studentId: targetStudentId },
+            localizedFactory: (lang: PushLang) => ({
+              title:
+                lang === 'ku'
+                  ? `پرسیار لە ${user.name}`
+                  : lang === 'ar'
+                  ? `سؤال من ${user.name}`
+                  : `Question from ${user.name}`,
+              body: messageText
+                ? messageText.slice(0, 120)
+                : lang === 'ku'
+                ? `هاوپێچێکی نارد: ${attachmentName}`
+                : lang === 'ar'
+                ? `أرسل مرفقاً: ${attachmentName}`
+                : previewBody,
+              url: teacherChatUrl,
+              tab: 'ask-teacher',
+              tag: teacherChatTag,
+              icon: senderIcon,
+              lang,
+              dir: lang === 'en' ? 'ltr' : 'rtl',
+              data: { studentId: targetStudentId },
+            }),
           });
         }
       }
@@ -5039,37 +5171,115 @@ async function startServer() {
   });
 
   app.get('/api/push/vapid-public-key', (_req, res) => {
-    res.json({ publicKey: getPublicVapidKey() });
+    res.json({ publicKey: getPublicVapidKey(), configured: true });
+  });
+
+  app.get('/api/push/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const endpoint = typeof req.query?.endpoint === 'string' ? req.query.endpoint.trim() : '';
+    const subscriptionCount = countUserPushSubscriptions(user.id);
+    let currentEndpointRegistered = false;
+    if (endpoint) {
+      const match = db
+        .prepare('SELECT id FROM push_subscriptions WHERE endpoint = ? AND user_id = ?')
+        .get(endpoint, user.id) as { id: number } | undefined;
+      currentEndpointRegistered = Boolean(match);
+    }
+    res.json({
+      configured: true,
+      subscriptionCount,
+      currentEndpointRegistered,
+      persistence: 'sqlite',
+    });
   });
 
   app.post('/api/push/subscribe', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const user = req.user!;
-    const sub = req.body?.subscription;
-    if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
+    const sub = req.body?.subscription as
+      | { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }
+      | undefined;
+    const endpoint = typeof sub?.endpoint === 'string' ? sub.endpoint.trim() : '';
+    const p256dh = typeof sub?.keys?.p256dh === 'string' ? sub.keys.p256dh.trim() : '';
+    const authKey = typeof sub?.keys?.auth === 'string' ? sub.keys.auth.trim() : '';
+
+    if (
+      !endpoint ||
+      !/^https:\/\//i.test(endpoint) ||
+      endpoint.length > 2048 ||
+      !p256dh ||
+      !authKey
+    ) {
       res.status(400).json({ error: 'Invalid push subscription object.' });
       return;
     }
 
+    const lang = normalizePushLang(req.body?.lang);
+    const effectiveRole = user.role === 'teacher' || user.isAdmin ? 'teacher' : 'student';
+    const userAgent = String(req.headers['user-agent'] || '').slice(0, 250);
+    const updatedAt = new Date().toISOString();
+
     db.prepare(
-      `INSERT OR REPLACE INTO push_subscriptions (user_id, endpoint, keys_p256dh, keys_auth)
-       VALUES (?, ?, ?, ?)`
-    ).run(user.id, sub.endpoint, sub.keys.p256dh, sub.keys.auth);
+      `INSERT OR REPLACE INTO push_subscriptions
+       (user_id, endpoint, keys_p256dh, keys_auth, role, lang, user_agent, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(user.id, endpoint, p256dh, authKey, effectiveRole, lang, userAgent, updatedAt);
 
     db.prepare("UPDATE users SET notif_prompt_status = 'allowed', notifications_enabled = 1 WHERE id = ?").run(
       user.id
     );
 
-    res.json({ ok: true });
+    res.json({ ok: true, subscriptionCount: countUserPushSubscriptions(user.id) });
   });
 
   app.post('/api/push/unsubscribe', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const user = req.user!;
-    const endpoint = String(req.body?.endpoint || '');
+    const endpoint = String(req.body?.endpoint || '').trim();
     if (endpoint) {
-      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').run(endpoint);
+      db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').run(
+        endpoint,
+        user.id
+      );
     }
-    db.prepare('UPDATE users SET notifications_enabled = 0 WHERE id = ?').run(user.id);
-    res.json({ ok: true });
+    if (req.body?.keepEnabled !== true) {
+      db.prepare('UPDATE users SET notifications_enabled = 0 WHERE id = ?').run(user.id);
+    }
+    res.json({ ok: true, subscriptionCount: countUserPushSubscriptions(user.id) });
+  });
+
+  app.post('/api/push/test', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const lang = normalizePushLang(req.body?.lang);
+    const result = await sendPushToUser(user.id, {
+      title:
+        lang === 'ku'
+          ? 'تاقیکردنەوەی ئاگاداری پۆلی ٩'
+          : lang === 'ar'
+          ? 'اختبار إشعارات منصة الصف التاسع'
+          : 'Grade 9 Hub · Test Notification',
+      body:
+        lang === 'ku'
+          ? 'ئاگادارکردنەوەی سیستەم و شاشەی قوفڵ بە سەرکەوتوویی کار دەکات.'
+          : lang === 'ar'
+          ? 'تنبيهات النظام وشاشة القفل تعمل بنجاح على جهازك.'
+          : 'Background and lock-screen push alerts are active on this device.',
+      url: '/?tab=notifications',
+      tab: 'notifications',
+      tag: `grade9hub-test-${user.id}`,
+      icon: '/pwa-192x192.png',
+      lang,
+      dir: lang === 'en' ? 'ltr' : 'rtl',
+    });
+
+    if (result.sent === 0) {
+      res.status(400).json({
+        ok: false,
+        sent: 0,
+        error: 'No active push subscription found on this account. Enable Push Notifications first.',
+      });
+      return;
+    }
+
+    res.json({ ok: true, sent: result.sent, failed: result.failed, removed: result.removed });
   });
 
   // ---------------- GEMINI AI TUTOR & IMAGE GENERATOR ----------------

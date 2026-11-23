@@ -72,6 +72,8 @@ interface HomeViewProps {
   onNavigate: (tab: TabId) => void;
   onSelectChapter: (chapterNumber: number | 'all') => void;
   onRefreshAnnouncements: () => Promise<void>;
+  initialAnnouncementId?: number | null;
+  onClearInitialAnnouncementId?: () => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -86,6 +88,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigate,
   onSelectChapter,
   onRefreshAnnouncements,
+  initialAnnouncementId = null,
+  onClearInitialAnnouncementId,
 }) => {
   const { t, dir } = useLanguage();
   const canManageBanners = Boolean(user.isAdmin || user.role === 'teacher');
@@ -106,7 +110,29 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [leaderboard, setLeaderboard] = useState<CompetitionLeaderboardResponse | null>(null);
   const [pendingPoints, setPendingPoints] = useState(0);
   const [showTextbookPreview, setShowTextbookPreview] = useState(false);
+  const [highlightedAnnouncementId, setHighlightedAnnouncementId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!initialAnnouncementId || announcements.length === 0) return;
+    const exists = announcements.some((item) => item.id === initialAnnouncementId);
+    if (!exists) return;
+    setHighlightedAnnouncementId(initialAnnouncementId);
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `article[data-announcement-id="${initialAnnouncementId}"]`
+      );
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    onClearInitialAnnouncementId?.();
+    const timer = setTimeout(() => {
+      setHighlightedAnnouncementId((cur) => (cur === initialAnnouncementId ? null : cur));
+    }, 3500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [initialAnnouncementId, announcements, onClearInitialAnnouncementId]);
 
   const totalChapterQuestions = chapters.reduce((acc, c) => acc + c.question_count, 0);
   const ForwardIcon = dir === 'rtl' ? ArrowLeft : ArrowRight;
@@ -666,7 +692,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
             announcements.map((item) => (
               <article
                 key={item.id}
-                className="py-5 first:pt-2 last:pb-0 flex items-start justify-between gap-4"
+                data-announcement-id={item.id}
+                className={`py-5 first:pt-2 last:pb-0 flex items-start justify-between gap-4 rounded-xl transition-colors ${
+                  highlightedAnnouncementId === item.id
+                    ? 'bg-[#F9EFF0]/70 px-3 ring-2 ring-[#6B1118]/50'
+                    : ''
+                }`}
               >
                 <div className="space-y-1.5 min-w-0">
                   <div className="flex items-center gap-2 text-xs text-[#57534E]">

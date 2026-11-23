@@ -59,6 +59,21 @@ interface RegisterCommunityDeps {
     body: string;
     category: 'announcement' | 'question' | 'chapter' | 'material' | 'reply';
     linkTab: string;
+    linkUrl?: string;
+    tag?: string;
+    icon?: string;
+    data?: Record<string, unknown>;
+    localizedFactory?: (lang: 'en' | 'ku' | 'ar') => {
+      title: string;
+      body: string;
+      url?: string;
+      tab?: string;
+      tag?: string;
+      icon?: string;
+      lang?: 'en' | 'ku' | 'ar';
+      dir?: 'ltr' | 'rtl';
+      data?: Record<string, unknown>;
+    };
   }) => void;
   onAwardCurriculumPoints?: (params: {
     userId: number;
@@ -493,12 +508,34 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
     broadcastAdminDashboard();
 
     if (post.author_id !== user.id) {
+      const postUrl = `/?tab=community&communityTab=feed&postId=${postId}`;
+      const postTag = `grade9hub-post-${postId}`;
       notifySingleUser({
         userId: post.author_id,
         title: `${user.name} commented on your post`,
         body: content.slice(0, 120),
         category: 'reply',
         linkTab: 'community',
+        linkUrl: postUrl,
+        tag: postTag,
+        icon: user.avatar_url,
+        data: { communityTab: 'feed', postId },
+        localizedFactory: (lang) => ({
+          title:
+            lang === 'ku'
+              ? `${user.name} لێدوانی لەسەر پۆستەکەت نووسی`
+              : lang === 'ar'
+              ? `علّق ${user.name} على منشورك`
+              : `${user.name} commented on your post`,
+          body: content.slice(0, 120),
+          url: postUrl,
+          tab: 'community',
+          tag: postTag,
+          icon: user.avatar_url,
+          lang,
+          dir: lang === 'en' ? 'ltr' : 'rtl',
+          data: { communityTab: 'feed', postId },
+        }),
       });
     }
 
@@ -788,12 +825,42 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
       );
       broadcastAdminDashboard();
 
+      const dmUrl = `/?tab=community&communityTab=dm&peerId=${user.id}`;
+      const dmTag = `grade9hub-dm-${user.id}`;
+      const dmBody = messageText ? messageText.slice(0, 120) : `Sent an attachment: ${attachmentName}`;
+
       notifySingleUser({
         userId: peerId,
         title: `New message from ${user.name}`,
-        body: messageText ? messageText.slice(0, 120) : `Sent an attachment: ${attachmentName}`,
+        body: dmBody,
         category: 'reply',
         linkTab: 'community',
+        linkUrl: dmUrl,
+        tag: dmTag,
+        icon: user.avatar_url,
+        data: { communityTab: 'dm', peerId: user.id },
+        localizedFactory: (lang) => ({
+          title:
+            lang === 'ku'
+              ? `نامەیەکی نوێ لە ${user.name}`
+              : lang === 'ar'
+              ? `رسالة جديدة من ${user.name}`
+              : `New message from ${user.name}`,
+          body: messageText
+            ? messageText.slice(0, 120)
+            : lang === 'ku'
+            ? `هاوپێچێکی نارد: ${attachmentName}`
+            : lang === 'ar'
+            ? `أرسل مرفقاً: ${attachmentName}`
+            : dmBody,
+          url: dmUrl,
+          tab: 'community',
+          tag: dmTag,
+          icon: user.avatar_url,
+          lang,
+          dir: lang === 'en' ? 'ltr' : 'rtl',
+          data: { communityTab: 'dm', peerId: user.id },
+        }),
       });
 
       const wsPayload = { type: 'community:dm:new', payload: created };
@@ -1150,8 +1217,44 @@ export function registerCommunityRoutes(deps: RegisterCommunityDeps): void {
         .all(groupId) as Array<{ user_id: number }>;
 
       const evt = { type: 'community:group:message', payload: created };
+      const groupUrl = `/?tab=community&communityTab=groups&groupId=${groupId}`;
+      const groupTag = `grade9hub-group-${groupId}`;
+      const groupPreview = messageText
+        ? messageText.slice(0, 120)
+        : `Sent an attachment: ${attachmentName}`;
+
       for (const m of memberRows) {
         broadcastToUser(m.user_id, evt);
+        if (m.user_id !== user.id) {
+          notifySingleUser({
+            userId: m.user_id,
+            title: `${user.name} · ${group.name}`,
+            body: groupPreview,
+            category: 'reply',
+            linkTab: 'community',
+            linkUrl: groupUrl,
+            tag: groupTag,
+            icon: user.avatar_url,
+            data: { communityTab: 'groups', groupId },
+            localizedFactory: (lang) => ({
+              title: `${user.name} · ${group.name}`,
+              body: messageText
+                ? messageText.slice(0, 120)
+                : lang === 'ku'
+                ? `هاوپێچێکی نارد: ${attachmentName}`
+                : lang === 'ar'
+                ? `أرسل مرفقاً: ${attachmentName}`
+                : groupPreview,
+              url: groupUrl,
+              tab: 'community',
+              tag: groupTag,
+              icon: user.avatar_url,
+              lang,
+              dir: lang === 'en' ? 'ltr' : 'rtl',
+              data: { communityTab: 'groups', groupId },
+            }),
+          });
+        }
       }
       broadcastToAdmins(evt);
       broadcastToAdmins({ type: 'admin:community_event', payload: { kind: 'group_message_sent', groupId, messageId } });

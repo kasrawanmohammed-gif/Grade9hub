@@ -2,7 +2,18 @@ export interface DeviceScreenNotificationOptions {
   tag?: string;
   tab?: string;
   url?: string;
+  icon?: string;
+  lang?: string;
+  dir?: 'ltr' | 'rtl' | 'auto';
+  data?: Record<string, unknown>;
   requireInteraction?: boolean;
+}
+
+function sanitizeLocalNotificationIcon(raw?: string): string {
+  if (!raw || raw.length > 512) return '/pwa-192x192.png';
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  if (/^https:\/\//i.test(raw)) return raw;
+  return '/pwa-192x192.png';
 }
 
 /**
@@ -27,6 +38,7 @@ export async function showDeviceScreenNotification(
   const tag = options.tag || `grade9hub-notif-${Date.now()}`;
   const tab = options.tab || 'notifications';
   const url = options.url || `/?tab=${encodeURIComponent(tab)}`;
+  const icon = sanitizeLocalNotificationIcon(options.icon);
 
   if ('serviceWorker' in navigator) {
     try {
@@ -43,15 +55,23 @@ export async function showDeviceScreenNotification(
         const swOptions: NotificationOptions & {
           renotify?: boolean;
           vibrate?: number[];
+          timestamp?: number;
         } = {
           body: safeBody,
-          icon: '/pwa-192x192.png',
+          icon,
           badge: '/pwa-192x192.png',
           tag,
           renotify: true,
           vibrate: [180, 90, 180],
+          dir: options.dir || (options.lang === 'ku' || options.lang === 'ar' ? 'rtl' : 'ltr'),
+          lang: options.lang || 'en',
+          timestamp: Date.now(),
           requireInteraction: Boolean(options.requireInteraction),
-          data: { url, tab },
+          data: {
+            ...(options.data || {}),
+            url,
+            tab,
+          },
         };
         await registration.showNotification(safeTitle, swOptions);
         return true;
@@ -64,8 +84,10 @@ export async function showDeviceScreenNotification(
   try {
     const notification = new window.Notification(safeTitle, {
       body: safeBody,
-      icon: '/pwa-192x192.png',
+      icon,
       tag,
+      dir: options.dir || (options.lang === 'ku' || options.lang === 'ar' ? 'rtl' : 'ltr'),
+      lang: options.lang || 'en',
     });
     notification.onclick = () => {
       try {

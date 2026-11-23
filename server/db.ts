@@ -456,6 +456,17 @@ try {
       }
     }
 
+    const pushColumns = db.prepare('PRAGMA table_info(push_subscriptions)').all() as Array<{ name: string }>;
+    const ensurePushCol = (col: string, ddl: string) => {
+      if (!pushColumns.some((c) => c.name === col)) {
+        db.exec(`ALTER TABLE push_subscriptions ADD COLUMN ${col} ${ddl}`);
+      }
+    };
+    ensurePushCol('role', "TEXT NOT NULL DEFAULT 'student'");
+    ensurePushCol('lang', "TEXT NOT NULL DEFAULT 'en'");
+    ensurePushCol('user_agent', "TEXT NOT NULL DEFAULT ''");
+    ensurePushCol('updated_at', "TEXT NOT NULL DEFAULT ''");
+
     db.prepare(
       `INSERT OR IGNORE INTO schema_migrations (version, description)
        VALUES (?, ?)`

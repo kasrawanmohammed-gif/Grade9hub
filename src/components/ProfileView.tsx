@@ -37,6 +37,7 @@ import { formatMsg } from '../i18n/translations';
 import { AdminUserRecord, QuizAttempt, User } from '../types';
 import { UserAvatar } from './UserAvatar';
 import { AvatarCropModal } from './AvatarCropModal';
+import { type PushUnsupportedReason } from '../hooks/usePushNotifications';
 import { formatUtcDate } from '../utils/dateFormat';
 
 interface ProfileViewProps {
@@ -45,9 +46,15 @@ interface ProfileViewProps {
   onAccountDeleted: () => Promise<void> | void;
   pushSupported: boolean;
   pushSubscribed: boolean;
+  pushPermission?: NotificationPermission;
   pushBusy: boolean;
+  pushError?: string | null;
+  pushUnsupportedReason?: PushUnsupportedReason;
+  pushTestBusy?: boolean;
+  pushTestResult?: { ok: boolean; message: string } | null;
   onEnablePush: () => Promise<boolean>;
   onDisablePush: () => Promise<void>;
+  onSendTestPush?: () => Promise<boolean>;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -56,9 +63,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onAccountDeleted,
   pushSupported,
   pushSubscribed,
+  pushPermission = 'default',
   pushBusy,
+  pushError = null,
+  pushUnsupportedReason = null,
+  pushTestBusy = false,
+  pushTestResult = null,
   onEnablePush,
   onDisablePush,
+  onSendTestPush,
 }) => {
   const { language, t } = useLanguage();
   const isPrivileged = user.role === 'teacher' || Boolean(user.isAdmin);
@@ -141,7 +154,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         lastLoginAt: c.lastLoginAt || '',
         isRestricted: !isMain && Boolean(c.isRestricted),
         restrictionReason: c.restrictionReason || '',
-        createdAt: c.createdAtIso || '',
+        created_at: c.createdAtIso || '',
         quizzesCompleted: c.quizzesCompleted || 0,
         questionsAnswered: c.quizzesCompleted ? c.correctAnswers : 0,
         correctAnswers: c.correctAnswers || 0,
@@ -728,27 +741,92 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </form>
 
         <div className="lg:col-span-6 space-y-5">
-          {pushSupported && (
-            <div className="rounded-2xl bg-white border border-[#E6DFD5] p-6 flex items-center justify-between gap-4">
+          <div className="rounded-2xl bg-white border border-[#E6DFD5] p-6 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h3 className="text-base font-bold text-[#1C1917]">{t.profile.pushTitle}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-base font-bold text-[#1C1917]">{t.profile.pushTitle}</h3>
+                  <span
+                    className={`rounded-md px-2 py-0.5 text-[11px] font-semibold ${
+                      pushUnsupportedReason !== null
+                        ? 'bg-[#FBF4DF]/75 text-[#6B1118] border border-[#D9A62E]/40'
+                        : pushSubscribed
+                        ? 'bg-[#ECFDF5] text-[#065F46] border border-[#059669]/30'
+                        : pushPermission === 'denied'
+                        ? 'bg-[#FEF2F2] text-[#991B1B] border border-[#DC2626]/30'
+                        : 'bg-[#FAF8F5] text-[#57534E] border border-[#E6DFD5]'
+                    }`}
+                  >
+                    {pushUnsupportedReason !== null
+                      ? t.notifications.statusSetupRequired
+                      : pushSubscribed
+                      ? t.notifications.statusEnabled
+                      : pushPermission === 'denied'
+                      ? t.notifications.statusBlocked
+                      : t.notifications.statusDisabled}
+                  </span>
+                </div>
                 <p className="text-xs text-[#57534E] mt-1">{t.profile.pushDesc}</p>
               </div>
-              <button
-                type="button"
-                disabled={pushBusy}
-                onClick={pushSubscribed ? onDisablePush : onEnablePush}
-                className={`shrink-0 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold cursor-pointer min-h-[44px] ${
-                  pushSubscribed
-                    ? 'border border-[#E6DFD5] text-[#1C1917]'
-                    : 'bg-[#6B1118] text-white'
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {pushSupported && pushUnsupportedReason !== 'vapid_missing' && (
+                  <button
+                    type="button"
+                    disabled={pushBusy}
+                    onClick={pushSubscribed ? onDisablePush : onEnablePush}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold cursor-pointer min-h-[44px] disabled:opacity-60 ${
+                      pushSubscribed
+                        ? 'border border-[#E6DFD5] text-[#1C1917]'
+                        : 'bg-[#6B1118] text-white'
+                    }`}
+                  >
+                    <Bell className="w-4 h-4 text-[#E5B742]" />
+                    <span>{pushSubscribed ? t.profile.disablePush : t.profile.enablePush}</span>
+                  </button>
+                )}
+                {pushSubscribed && onSendTestPush && (
+                  <button
+                    type="button"
+                    disabled={pushTestBusy}
+                    onClick={() => void onSendTestPush()}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] cursor-pointer min-h-[44px] disabled:opacity-60"
+                  >
+                    <span>
+                      {pushTestBusy ? t.notifications.sendingTestPush : t.notifications.sendTestPush}
+                    </span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {pushTestResult && (
+              <p
+                role="status"
+                className={`rounded-xl border px-3.5 py-2 text-xs ${
+                  pushTestResult.ok
+                    ? 'border-[#059669]/30 bg-[#ECFDF5] text-[#065F46]'
+                    : 'border-[#DC2626]/30 bg-[#FEF2F2] text-[#991B1B]'
                 }`}
               >
-                <Bell className="w-4 h-4 text-[#E5B742]" />
-                <span>{pushSubscribed ? t.profile.disablePush : t.profile.enablePush}</span>
-              </button>
-            </div>
-          )}
+                {pushTestResult.ok ? t.notifications.testPushSuccess : t.notifications.testPushError}
+              </p>
+            )}
+
+            {!pushSubscribed &&
+              (pushUnsupportedReason !== null || pushPermission === 'denied' || pushError) && (
+                <p className="rounded-xl border border-[#D9A62E]/40 bg-[#FBF4DF]/60 px-3.5 py-2.5 text-xs text-[#57534E] leading-relaxed">
+                  {pushUnsupportedReason === 'ios_home_screen'
+                    ? t.notifications.iosBrowserSteps
+                    : pushUnsupportedReason === 'unsupported'
+                    ? t.notifications.unsupportedDesc
+                    : pushUnsupportedReason === 'vapid_missing'
+                    ? t.notifications.vapidUnavailableDesc
+                    : pushPermission === 'denied'
+                    ? t.settings.notificationsBlockedHelp
+                    : pushError}
+                </p>
+              )}
+          </div>
 
           <div className="rounded-2xl bg-white border border-[#E6DFD5] p-6">
             <div className="flex items-center gap-2 mb-4">

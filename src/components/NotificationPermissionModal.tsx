@@ -4,12 +4,14 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 interface NotificationPermissionModalProps {
   visible: boolean;
+  isIosBrowserTab?: boolean;
   onAllow: () => Promise<void> | void;
   onDontAllow: () => Promise<void> | void;
 }
 
 export const NotificationPermissionModal: React.FC<NotificationPermissionModalProps> = ({
   visible,
+  isIosBrowserTab = false,
   onAllow,
   onDontAllow,
 }) => {
@@ -45,7 +47,7 @@ export const NotificationPermissionModal: React.FC<NotificationPermissionModalPr
       aria-labelledby="notif-permission-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-[2px]"
     >
-      <div className="g9-animate-modal-pop w-full max-w-[350px] rounded-[28px] bg-white border border-[#E6DFD5] p-6 sm:p-7 shadow-2xl text-center">
+      <div className="g9-animate-modal-pop w-full max-w-[360px] rounded-[28px] bg-white border border-[#E6DFD5] p-6 sm:p-7 shadow-2xl text-center">
         <div className="mx-auto w-12 h-12 rounded-2xl bg-[#EFE9DF] flex items-center justify-center mb-4">
           <BellRing className="w-6 h-6 text-[#1C1917]" />
         </div>
@@ -60,6 +62,13 @@ export const NotificationPermissionModal: React.FC<NotificationPermissionModalPr
         <p className="mt-2 text-xs sm:text-sm text-[#57534E] leading-relaxed">
           {t.notifPrompt.subtitle}
         </p>
+
+        {isIosBrowserTab && (
+          <div className="mt-4 rounded-xl border border-[#D9A62E]/45 bg-[#FBF4DF]/80 px-3.5 py-2.5 text-start text-xs text-[#57534E] leading-relaxed">
+            <p className="font-bold text-[#6B1118] mb-0.5">{t.notifications.iosBrowserTitle}</p>
+            <p>{t.notifications.iosBrowserSteps}</p>
+          </div>
+        )}
 
         <div className="mt-6 space-y-2.5">
           <button

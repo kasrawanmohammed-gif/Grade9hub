@@ -3,8 +3,20 @@
   "functions": {
     "api/ai/*.ts": {
       "maxDuration": 60
+    },
+    "api/push/*.ts": {
+      "maxDuration": 30
     }
   },
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/((?!api/|assets/|.*\\..*).*)",

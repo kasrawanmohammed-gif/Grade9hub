@@ -66,7 +66,11 @@ import { PWAInstallButton } from './components/PWAInstallButton';
 import { NotificationPermissionModal } from './components/NotificationPermissionModal';
 import { AuthPage } from './components/AuthPage';
 import { HomeView } from './components/HomeView';
-import { CommunityView, LiveCommunityEvent } from './components/CommunityView';
+import {
+  CommunityNavTarget,
+  CommunityView,
+  LiveCommunityEvent,
+} from './components/CommunityView';
 import { CompetitionView } from './components/CompetitionView';
 import { AdminDashboardView } from './components/AdminDashboardView';
 import { MultipleChoiceView } from './components/MultipleChoiceView';
@@ -121,17 +125,58 @@ const VALID_TABS: ReadonlySet<TabId> = new Set<TabId>([
 
 const SESSION_NOTICE_KEY = 'grade9hub_session_notice';
 
-function getInitialTabFromUrl(): TabId {
+function parsePositiveInt(raw: string | null | undefined): number | null {
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+interface ParsedNotificationTarget {
+  tab: TabId;
+  announcementId: number | null;
+  studentId: number | null;
+  communityTarget: Omit<CommunityNavTarget, 'seq'> | null;
+}
+
+function getInitialTargetFromUrl(): ParsedNotificationTarget {
   try {
-    if (typeof window === 'undefined') return 'home';
-    const raw = new URLSearchParams(window.location.search).get('tab');
-    if (raw && VALID_TABS.has(raw as TabId)) {
-      return raw as TabId;
+    if (typeof window === 'undefined') {
+      return { tab: 'home', announcementId: null, studentId: null, communityTarget: null };
     }
+    const params = new URLSearchParams(window.location.search);
+    const rawTab = params.get('tab');
+    const tab: TabId = rawTab && VALID_TABS.has(rawTab as TabId) ? (rawTab as TabId) : 'home';
+    const announcementId = parsePositiveInt(params.get('announcementId'));
+    const studentId = parsePositiveInt(params.get('studentId'));
+    const rawCommunityTab = params.get('communityTab');
+    const communityTab =
+      rawCommunityTab === 'feed' ||
+      rawCommunityTab === 'active' ||
+      rawCommunityTab === 'dm' ||
+      rawCommunityTab === 'groups'
+        ? rawCommunityTab
+        : undefined;
+    const peerId = parsePositiveInt(params.get('peerId'));
+    const groupId = parsePositiveInt(params.get('groupId'));
+    const postId = parsePositiveInt(params.get('postId'));
+    const hasCommunityTarget = Boolean(communityTab || peerId || groupId || postId);
+
+    return {
+      tab: hasCommunityTarget && tab === 'home' && !rawTab ? 'community' : tab,
+      announcementId,
+      studentId,
+      communityTarget: hasCommunityTarget
+        ? {
+            tab: communityTab,
+            peerId,
+            groupId,
+            postId,
+          }
+        : null,
+    };
   } catch {
-    // ignore malformed URL params
+    return { tab: 'home', announcementId: null, studentId: null, communityTarget: null };
   }
-  return 'home';
 }
 
 export default function App() {
@@ -150,7 +195,8 @@ export default function App() {
     }
   });
 
-  const [activeTab, setActiveTab] = useState<TabId>(() => getInitialTabFromUrl());
+  const [initialUrlTarget] = useState<ParsedNotificationTarget>(() => getInitialTargetFromUrl());
+  const [activeTab, setActiveTab] = useState<TabId>(() => initialUrlTarget.tab);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [initialChapterSelection, setInitialChapterSelection] = useState<
@@ -171,7 +217,19 @@ export default function App() {
   const [liveCommunityEvent, setLiveCommunityEvent] = useState<LiveCommunityEvent | null>(null);
   const [leaderboardVersion, setLeaderboardVersion] = useState(0);
   const [focusAdminSearchTrigger, setFocusAdminSearchTrigger] = useState(0);
-  const [initialStudentChatId, setInitialStudentChatId] = useState<number | null>(null);
+  const [initialStudentChatId, setInitialStudentChatId] = useState<number | null>(
+    () => initialUrlTarget.studentId
+  );
+  const [initialAnnouncementId, setInitialAnnouncementId] = useState<number | null>(
+    () => initialUrlTarget.announcementId
+  );
+  const [initialCommunityTarget, setInitialCommunityTarget] = useState<CommunityNavTarget | null>(
+    () =>
+      initialUrlTarget.communityTarget
+        ? { seq: 1, ...initialUrlTarget.communityTarget }
+        : null
+  );
+  const communityNavSeqRef = useRef(1);
   const wsRef = useRef<WebSocket | null>(null);
   const wsEventSeqRef = useRef(0);
   const promptedFirstLoginUserIdsRef = useRef<Set<number>>(new Set());
@@ -183,11 +241,14 @@ export default function App() {
     userRef.current = user;
   }, [user]);
 
-  const push = usePushNotifications(
-    Boolean(user),
-    user ? user.notifications_enabled !== false : true
-  );
   const isPrivileged = Boolean(user && (user.role === 'teacher' || user.isAdmin));
+  const push = usePushNotifications({
+    isAuthenticated: Boolean(user),
+    userNotificationsEnabled: user ? user.notifications_enabled !== false : true,
+    language,
+    userId: user?.id ?? null,
+    userRole: isPrivileged ? 'teacher' : 'student',
+  });
 
   const fetchPublicSettings = useCallback(async () => {
     try {
@@ -948,7 +1009,7 @@ export default function App() {
     []
   );
 
-  // Automatically request official device notification permission once on first login/app open
+  // Prompt once via user-gesture modal on first login, and silently sync already-granted push subscriptions
   useEffect(() => {
     if (!user) {
       setShowNotifPrompt(false);
@@ -985,7 +1046,8 @@ export default function App() {
           void push.subscribe({ silentError: true });
         }
       } else if (
-        localChoice === 'dismissed' &&
+        (localChoice === 'dismissed' ||
+          (user.notif_prompt_status === 'allowed' && browserPerm === 'default')) &&
         hasNotificationApi &&
         browserPerm === 'default' &&
         !bannerClosed
@@ -1002,62 +1064,25 @@ export default function App() {
     }
     promptedFirstLoginUserIdsRef.current.add(user.id);
 
-    const requestOfficialPermissionOnce = async () => {
-      if (!hasNotificationApi) {
-        setShowNotifPrompt(true);
-        return;
-      }
-
-      if (Notification.permission === 'granted') {
-        setShowNotifBanner(false);
+    if (hasNotificationApi && browserPerm === 'granted') {
+      setShowNotifBanner(false);
+      void (async () => {
         await saveNotificationChoice(user.id, 'allowed');
         await push.subscribe({ silentError: true });
         push.refreshStatus();
-        return;
-      }
+      })();
+      return;
+    }
 
-      if (Notification.permission === 'denied') {
-        setShowNotifBanner(false);
-        await saveNotificationChoice(user.id, 'denied');
-        push.refreshStatus();
-        return;
-      }
+    if (hasNotificationApi && browserPerm === 'denied') {
+      setShowNotifBanner(false);
+      void saveNotificationChoice(user.id, 'denied');
+      push.refreshStatus();
+      return;
+    }
 
-      const startedAt = Date.now();
-      try {
-        const perm = await Notification.requestPermission();
-        push.refreshStatus();
-
-        if (perm === 'granted') {
-          await saveNotificationChoice(user.id, 'allowed');
-          await push.subscribe({ silentError: true });
-          setShowNotifPrompt(false);
-          setShowNotifBanner(false);
-        } else if (perm === 'denied') {
-          await saveNotificationChoice(user.id, 'denied');
-          setShowNotifPrompt(false);
-          setShowNotifBanner(false);
-        } else if (Date.now() - startedAt < 180) {
-          // Browser suppressed auto-prompt due to missing tap gesture (e.g. iOS Safari / Chrome)
-          setShowNotifPrompt(true);
-        } else {
-          // User dismissed the native permission prompt without blocking permanently
-          try {
-            window.localStorage.setItem(localPromptKey, 'dismissed');
-          } catch {
-            // ignore storage errors
-          }
-          setShowNotifPrompt(false);
-          if (!bannerClosed) {
-            setShowNotifBanner(true);
-          }
-        }
-      } catch {
-        setShowNotifPrompt(true);
-      }
-    };
-
-    void requestOfficialPermissionOnce();
+    // Show Grade 9 Hub permission dialog so Notification.requestPermission() runs from explicit tap/click
+    setShowNotifPrompt(true);
   }, [
     user?.id,
     user?.notif_prompt_status,
@@ -1184,6 +1209,8 @@ export default function App() {
         setAnnouncements([]);
         setInitialChapterSelection(null);
         setInitialStudentChatId(null);
+        setInitialAnnouncementId(null);
+        setInitialCommunityTarget(null);
         setUser(null);
         setActiveTab('home');
       } finally {
@@ -1363,11 +1390,72 @@ export default function App() {
   useEffect(() => {
     const handleSwMessage = (data: unknown) => {
       if (!data || typeof data !== 'object') return;
-      const msg = data as { type?: string; tab?: string };
-      if (msg.type === 'OPEN_TAB' && msg.tab && VALID_TABS.has(msg.tab as TabId)) {
+      const msg = data as {
+        type?: string;
+        tab?: string;
+        url?: string;
+        communityTab?: string;
+        peerId?: string | number;
+        groupId?: string | number;
+        studentId?: string | number;
+        announcementId?: string | number;
+        postId?: string | number;
+      };
+
+      if (msg.type === 'OPEN_NOTIFICATION_TARGET') {
+        const targetTab =
+          msg.tab && VALID_TABS.has(msg.tab as TabId) ? (msg.tab as TabId) : 'notifications';
+        setActiveTab(targetTab);
+        setMobileMenuOpen(false);
+
+        const annId = parsePositiveInt(
+          msg.announcementId !== undefined ? String(msg.announcementId) : null
+        );
+        if (annId) {
+          setInitialAnnouncementId(annId);
+          if (userRef.current) {
+            void fetchAnnouncements().catch(() => {});
+          }
+        }
+
+        const studentId = parsePositiveInt(
+          msg.studentId !== undefined ? String(msg.studentId) : null
+        );
+        if (studentId) {
+          setInitialStudentChatId(studentId);
+        }
+
+        const peerId = parsePositiveInt(msg.peerId !== undefined ? String(msg.peerId) : null);
+        const groupId = parsePositiveInt(msg.groupId !== undefined ? String(msg.groupId) : null);
+        const postId = parsePositiveInt(msg.postId !== undefined ? String(msg.postId) : null);
+        const communityTab =
+          msg.communityTab === 'feed' ||
+          msg.communityTab === 'active' ||
+          msg.communityTab === 'dm' ||
+          msg.communityTab === 'groups'
+            ? msg.communityTab
+            : undefined;
+
+        if (communityTab || peerId || groupId || postId) {
+          communityNavSeqRef.current += 1;
+          setInitialCommunityTarget({
+            seq: communityNavSeqRef.current,
+            tab: communityTab,
+            peerId,
+            groupId,
+            postId,
+          });
+        }
+
+        if (userRef.current) {
+          void fetchNotifications().catch(() => {});
+        }
+      } else if (msg.type === 'OPEN_TAB' && msg.tab && VALID_TABS.has(msg.tab as TabId)) {
         setActiveTab(msg.tab as TabId);
+        setMobileMenuOpen(false);
       } else if (msg.type === 'PUSH_RECEIVED' && userRef.current) {
         void fetchNotifications().catch(() => {});
+        void fetchAnnouncements().catch(() => {});
       }
     };
 
@@ -1407,7 +1495,7 @@ export default function App() {
         // ignore close failure
       }
     };
-  }, [fetchNotifications]);
+  }, [fetchNotifications, fetchAnnouncements]);
 
   const handleLogout = () => resetClientAuthState(true);
   const handleAccountDeleted = () => resetClientAuthState(false);
@@ -1524,6 +1612,7 @@ export default function App() {
       <OfflineIndicator />
       <NotificationPermissionModal
         visible={showNotifPrompt}
+        isIosBrowserTab={push.isIosBrowserTab}
         onAllow={handleAllowNotifications}
         onDontAllow={handleDontAllowNotifications}
       />
@@ -1947,6 +2036,8 @@ export default function App() {
                   onNavigate={navigateTo}
                   onSelectChapter={(target) => setInitialChapterSelection(target)}
                   onRefreshAnnouncements={fetchAnnouncements}
+                  initialAnnouncementId={initialAnnouncementId}
+                  onClearInitialAnnouncementId={() => setInitialAnnouncementId(null)}
                 />
               )}
 
@@ -1957,6 +2048,7 @@ export default function App() {
                   liveEvent={liveCommunityEvent}
                   wsConnected={wsConnected}
                   appSettings={appSettings}
+                  initialNavTarget={initialCommunityTarget}
                 />
               )}
 
@@ -2029,11 +2121,15 @@ export default function App() {
                   unreadCount={unreadCount}
                   pushSupported={push.supported}
                   pushSubscribed={push.isSubscribed}
+                  pushPermission={push.permission}
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
+                  pushTestBusy={push.testBusy}
+                  pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
                   onDisablePush={handleDisablePushFromApp}
+                  onSendTestPush={push.sendTestPush}
                   onRefresh={fetchNotifications}
                   onNavigate={navigateTo}
                 />
@@ -2065,9 +2161,15 @@ export default function App() {
                   onAccountDeleted={handleAccountDeleted}
                   pushSupported={push.supported}
                   pushSubscribed={push.isSubscribed}
+                  pushPermission={push.permission}
                   pushBusy={push.busy}
+                  pushError={push.error}
+                  pushUnsupportedReason={push.unsupportedReason}
+                  pushTestBusy={push.testBusy}
+                  pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
                   onDisablePush={handleDisablePushFromApp}
+                  onSendTestPush={push.sendTestPush}
                 />
               )}
 
@@ -2080,8 +2182,11 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
+                  pushTestBusy={push.testBusy}
+                  pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
                   onDisablePush={handleDisablePushFromApp}
+                  onSendTestPush={push.sendTestPush}
                 />
               )}
 

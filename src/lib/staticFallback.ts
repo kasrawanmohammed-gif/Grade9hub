@@ -1958,6 +1958,37 @@ export async function handleStaticApiFallback(
     return { announcements: merged };
   }
 
+async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<void> {
+  if (typeof window === 'undefined' || typeof fetch !== 'function') return;
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    const token =
+      window.localStorage.getItem('grade9hub_session_token') ||
+      window.sessionStorage.getItem('grade9hub_session_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    if (auth.currentUser) {
+      const fbToken = await auth.currentUser.getIdToken().catch(() => '');
+      if (fbToken) {
+        headers['X-Firebase-Id-Token'] = fbToken;
+      }
+    }
+    if (!headers['Authorization'] && !headers['X-Firebase-Id-Token']) return;
+
+    await fetch('/api/push/send', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // non-fatal background push dispatch error
+  }
+}
+
   if (pathname === '/api/announcements' && method === 'POST') {
     const user = getCachedUserLocal();
     if (!user) throw new StaticFallbackHttpError('Not signed in.', 401);
@@ -2039,6 +2070,15 @@ export async function handleStaticApiFallback(
       body: content.slice(0, 140),
       category: type === 'material' ? 'material' : 'announcement',
       link_tab: 'home',
+    });
+
+    void triggerVercelPushSend({
+      kind: 'announcement',
+      title,
+      preview: content.slice(0, 140),
+      announcementType: type,
+      announcementId: created.id,
+      senderIcon: user.avatar_url || '',
     });
 
     return { announcement: created };
@@ -2141,7 +2181,16 @@ export async function handleStaticApiFallback(
     return { ok: true };
   }
   if (pathname === '/api/push/vapid-public-key') {
-    return { publicKey: null };
+    const buildTimeKey =
+      typeof import.meta !== 'undefined' &&
+      import.meta.env &&
+      typeof import.meta.env.VITE_VAPID_PUBLIC_KEY === 'string'
+        ? import.meta.env.VITE_VAPID_PUBLIC_KEY.trim()
+        : '';
+    return { publicKey: buildTimeKey || null, configured: Boolean(buildTimeKey) };
+  }
+  if (pathname === '/api/push/status') {
+    return { configured: false, subscriptionCount: 0, currentEndpointRegistered: false };
   }
   if (pathname.startsWith('/api/push/')) {
     return { ok: true };
@@ -2545,6 +2594,23 @@ export async function handleStaticApiFallback(
       };
       store.dms.push(msg);
       saveStaticCommunityStore(store);
+
+      const dmPreview = messageText
+        ? messageText.slice(0, 120)
+        : encodedAttachment?.attachmentName
+        ? `Sent an attachment: ${encodedAttachment.attachmentName}`
+        : 'Sent a message';
+      void triggerVercelPushSend({
+        kind: 'dm',
+        preview: dmPreview,
+        recipientUid: targetAccount?.cloudUid || '',
+        recipientEmail: targetAccount?.email || '',
+        recipientUserId: peerId,
+        senderName: user.name,
+        senderUserId: user.id,
+        senderIcon: user.avatar_url || '',
+      });
+
       return { message: msg };
     }
   }

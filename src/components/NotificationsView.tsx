@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import {
   Bell,
   BellOff,
+  BellRing,
   BookOpen,
   CheckCheck,
   FileText,
   Megaphone,
   MessageSquare,
+  Monitor,
+  Smartphone,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { type PushUnsupportedReason } from '../hooks/usePushNotifications';
@@ -19,11 +22,15 @@ interface NotificationsViewProps {
   unreadCount: number;
   pushSupported: boolean;
   pushSubscribed: boolean;
+  pushPermission?: NotificationPermission;
   pushBusy: boolean;
   pushError: string | null;
   pushUnsupportedReason?: PushUnsupportedReason;
+  pushTestBusy?: boolean;
+  pushTestResult?: { ok: boolean; message: string } | null;
   onEnablePush: () => Promise<boolean>;
   onDisablePush: () => Promise<void>;
+  onSendTestPush?: () => Promise<boolean>;
   onRefresh: () => Promise<void>;
   onNavigate: (tab: TabId) => void;
 }
@@ -33,11 +40,15 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   unreadCount,
   pushSupported,
   pushSubscribed,
+  pushPermission = 'default',
   pushBusy,
   pushError,
   pushUnsupportedReason = null,
+  pushTestBusy = false,
+  pushTestResult = null,
   onEnablePush,
   onDisablePush,
+  onSendTestPush,
   onRefresh,
   onNavigate,
 }) => {
@@ -79,25 +90,48 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
     }
   };
 
+  const statusTone =
+    pushUnsupportedReason !== null
+      ? 'bg-[#FBF4DF]/80 text-[#6B1118] border border-[#D9A62E]/40'
+      : pushSubscribed
+      ? 'bg-[#ECFDF5] text-[#065F46] border border-[#059669]/30'
+      : pushPermission === 'denied'
+      ? 'bg-[#FEF2F2] text-[#991B1B] border border-[#DC2626]/30'
+      : 'bg-[#FAF8F5] text-[#57534E] border border-[#E6DFD5]';
+
+  const statusText =
+    pushUnsupportedReason !== null
+      ? t.notifications.statusSetupRequired
+      : pushSubscribed
+      ? t.notifications.statusEnabled
+      : pushPermission === 'denied'
+      ? t.notifications.statusBlocked
+      : t.notifications.statusDisabled;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-[#1C1917]">
-            {t.notifications.title}
-          </h2>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h2 className="text-2xl sm:text-3xl font-bold text-[#1C1917]">
+              {t.notifications.title}
+            </h2>
+            <span className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${statusTone}`}>
+              {statusText}
+            </span>
+          </div>
           <p className="text-sm text-[#57534E] mt-1 tabular-nums">
             {unreadCount} {t.notifications.unreadLabel}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {pushSupported && (
+          {pushSupported && pushUnsupportedReason !== 'vapid_missing' && (
             <button
               type="button"
               disabled={pushBusy}
               onClick={pushSubscribed ? onDisablePush : onEnablePush}
-              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer min-h-[44px] ${
+              className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors cursor-pointer min-h-[44px] disabled:opacity-60 ${
                 pushSubscribed
                   ? 'border border-[#E6DFD5] bg-white text-[#1C1917] hover:border-[#6B1118]'
                   : 'bg-[#6B1118] text-white hover:bg-[#530D12]'
@@ -119,6 +153,20 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
             </button>
           )}
 
+          {pushSubscribed && onSendTestPush && (
+            <button
+              type="button"
+              disabled={pushTestBusy}
+              onClick={() => void onSendTestPush()}
+              className="inline-flex items-center gap-2 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2.5 text-sm font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[44px] disabled:opacity-60"
+            >
+              <BellRing className="w-4 h-4 text-[#D9A62E]" />
+              <span>
+                {pushTestBusy ? t.notifications.sendingTestPush : t.notifications.sendTestPush}
+              </span>
+            </button>
+          )}
+
           {unreadCount > 0 && (
             <button
               type="button"
@@ -135,6 +183,28 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
       {(pushError || actionError) && (
         <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] px-4 py-3 text-sm text-[#991B1B]">
           {actionError || pushError}
+        </div>
+      )}
+
+      {pushTestResult && (
+        <div
+          role="status"
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            pushTestResult.ok
+              ? 'border-[#059669]/30 bg-[#ECFDF5] text-[#065F46]'
+              : 'border-[#DC2626]/30 bg-[#FEF2F2] text-[#991B1B]'
+          }`}
+        >
+          {pushTestResult.ok ? t.notifications.testPushSuccess : t.notifications.testPushError}
+        </div>
+      )}
+
+      {pushPermission === 'denied' && pushUnsupportedReason === null && (
+        <div
+          role="status"
+          className="rounded-2xl border border-[#DC2626]/30 bg-[#FEF2F2] px-5 py-4 text-xs sm:text-sm text-[#991B1B] leading-relaxed"
+        >
+          {t.settings.notificationsBlockedHelp}
         </div>
       )}
 
@@ -178,6 +248,28 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
           {t.notifications.vapidUnavailableDesc}
         </div>
       )}
+
+      {/* Lock-Screen & Mobile Delivery Guide */}
+      <section className="rounded-2xl border border-[#E6DFD5] bg-white p-5 space-y-3">
+        <div className="flex items-center gap-2">
+          <Smartphone className="w-4 h-4 text-[#6B1118] shrink-0" />
+          <h3 className="text-sm font-bold text-[#1C1917]">
+            {t.notifications.lockScreenGuideTitle}
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-[#57534E] leading-relaxed">
+          <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5">
+            {t.notifications.lockScreenAndroidStep}
+          </div>
+          <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5">
+            {t.notifications.lockScreenIosStep}
+          </div>
+          <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-3.5 flex items-start gap-2">
+            <Monitor className="w-4 h-4 text-[#6B1118] shrink-0 mt-0.5 hidden sm:block" />
+            <span>{t.notifications.lockScreenDesktopStep}</span>
+          </div>
+        </div>
+      </section>
 
       <div className="rounded-2xl bg-white border border-[#E6DFD5] divide-y divide-[#E6DFD5]">
         {notifications.length === 0 ? (

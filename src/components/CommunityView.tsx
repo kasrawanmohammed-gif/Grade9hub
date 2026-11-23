@@ -55,6 +55,14 @@ export interface LiveCommunityEvent {
   payload?: unknown;
 }
 
+export interface CommunityNavTarget {
+  seq: number;
+  tab?: 'feed' | 'active' | 'dm' | 'groups';
+  peerId?: number | null;
+  groupId?: number | null;
+  postId?: number | null;
+}
+
 interface CommunityViewProps {
   user: User;
   chapters: Chapter[];
@@ -62,6 +70,7 @@ interface CommunityViewProps {
   wsConnected?: boolean;
   appSettings?: AppSettings | null;
   onUserUpdated?: (patch: Partial<User>) => void;
+  initialNavTarget?: CommunityNavTarget | null;
 }
 
 type CommunityTab = 'feed' | 'active' | 'dm' | 'groups';
@@ -92,6 +101,7 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   liveEvent,
   wsConnected = false,
   appSettings,
+  initialNavTarget = null,
 }) => {
   const { t, dir } = useLanguage();
   const BackIcon = dir === 'rtl' ? ArrowRight : ArrowLeft;
@@ -101,7 +111,15 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   const postingPaused = Boolean(!isPrivileged && appSettings && !appSettings.communityPostingEnabled);
   const isReadOnly = isRestricted || postingPaused;
 
-  const [tab, setTab] = useState<CommunityTab>('feed');
+  const [tab, setTab] = useState<CommunityTab>(() => {
+    if (initialNavTarget?.tab) return initialNavTarget.tab;
+    if (initialNavTarget?.peerId) return 'dm';
+    if (initialNavTarget?.groupId) return 'groups';
+    return 'feed';
+  });
+  const [highlightedPostId, setHighlightedPostId] = useState<number | null>(
+    initialNavTarget?.postId ?? null
+  );
   const [statusBanner, setStatusBanner] = useState<{ kind: 'ok' | 'err'; text: string } | null>(
     null
   );
@@ -126,7 +144,9 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   // DM State
   const [dmThreads, setDmThreads] = useState<CommunityDmThread[]>([]);
   const [dmSearch, setDmSearch] = useState('');
-  const [selectedPeerId, setSelectedPeerId] = useState<number | null>(null);
+  const [selectedPeerId, setSelectedPeerId] = useState<number | null>(
+    initialNavTarget?.peerId ?? null
+  );
   const [dmMessages, setDmMessages] = useState<CommunityDirectMessage[]>([]);
   const [loadingDm, setLoadingDm] = useState(false);
   const [dmText, setDmText] = useState('');
@@ -138,7 +158,9 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
 
   // Groups State
   const [groups, setGroups] = useState<CommunityGroup[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(
+    initialNavTarget?.groupId ?? null
+  );
   const [activeGroupDetail, setActiveGroupDetail] = useState<CommunityGroup | null>(null);
   const [groupMembers, setGroupMembers] = useState<CommunityGroupMember[]>([]);
   const [groupMessages, setGroupMessages] = useState<CommunityGroupMessage[]>([]);
@@ -255,6 +277,48 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
   useEffect(() => {
     void Promise.all([fetchPeers(), fetchPosts(), fetchDmThreads(), fetchGroups()]);
   }, [fetchPeers, fetchPosts, fetchDmThreads, fetchGroups]);
+
+  // Apply deep-link target from OS notification clicks
+  useEffect(() => {
+    if (!initialNavTarget) return;
+    if (initialNavTarget.tab) {
+      setTab(initialNavTarget.tab);
+    } else if (initialNavTarget.peerId) {
+      setTab('dm');
+    } else if (initialNavTarget.groupId) {
+      setTab('groups');
+    } else if (initialNavTarget.postId) {
+      setTab('feed');
+    }
+
+    if (initialNavTarget.peerId) {
+      setDmError(null);
+      setSelectedPeerId(initialNavTarget.peerId);
+    }
+    if (initialNavTarget.groupId) {
+      setSelectedGroupId(initialNavTarget.groupId);
+    }
+    if (initialNavTarget.postId) {
+      setHighlightedPostId(initialNavTarget.postId);
+    }
+  }, [initialNavTarget]);
+
+  // Scroll highlighted feed post into view once loaded
+  useEffect(() => {
+    if (!highlightedPostId || tab !== 'feed' || posts.length === 0) return;
+    if (!posts.some((p) => p.id === highlightedPostId)) return;
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector(`article[data-post-id="${highlightedPostId}"]`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const timer = setTimeout(() => {
+      setHighlightedPostId((cur) => (cur === highlightedPostId ? null : cur));
+    }, 3500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [highlightedPostId, tab, posts]);
 
   // 15s polling fallback for live presence & messages when WebSockets are inactive (e.g., Vercel static host)
   useEffect(() => {
@@ -1139,7 +1203,10 @@ export const CommunityView: React.FC<CommunityViewProps> = ({
                 return (
                   <article
                     key={post.id}
-                    className="rounded-2xl bg-white border border-[#E6DFD5] p-5 sm:p-6 space-y-4"
+                    data-post-id={post.id}
+                    className={`rounded-2xl bg-white border border-[#E6DFD5] p-5 sm:p-6 space-y-4 transition-all ${
+                      highlightedPostId === post.id ? 'ring-2 ring-[#6B1118]/50' : ''
+                    }`}
                   >
                     {/* Post Author Header */}
                     <div className="flex items-start justify-between gap-3">

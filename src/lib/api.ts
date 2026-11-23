@@ -1,5 +1,6 @@
 import { getActivePassport, saveUserPassport } from './recoveryVault';
 import { recordFreshLoginTimestamp } from './cloudAccounts';
+import { auth } from './firebase';
 import {
   handleStaticApiFallback,
   isStaticHostMode,
@@ -236,6 +237,16 @@ async function performFetch(url: string, options: RequestInit): Promise<Response
   if (token) {
     baseHeaders['Authorization'] = `Bearer ${token}`;
   }
+  if (url.startsWith('/api/push/') && auth.currentUser) {
+    try {
+      const fbToken = await auth.currentUser.getIdToken();
+      if (fbToken) {
+        baseHeaders['X-Firebase-Id-Token'] = fbToken;
+      }
+    } catch {
+      // ignore token lookup error
+    }
+  }
 
   const headers: HeadersInit = {
     ...baseHeaders,
@@ -295,7 +306,9 @@ export async function apiFetch<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const isAiEndpoint = url.startsWith('/api/ai/');
-  if (isStaticHostMode() && !API_BASE && url.startsWith('/api/') && !isAiEndpoint) {
+  const isPushEndpoint = url.startsWith('/api/push/');
+  const isServerlessDirectEndpoint = isAiEndpoint || isPushEndpoint;
+  if (isStaticHostMode() && !API_BASE && url.startsWith('/api/') && !isServerlessDirectEndpoint) {
     return invokeStaticFallback<T>(url, options);
   }
 
@@ -303,7 +316,7 @@ export async function apiFetch<T>(
   try {
     response = await performFetch(url, options);
   } catch (networkErr) {
-    if (!API_BASE && url.startsWith('/api/') && (isStaticHostMode() || isAiEndpoint)) {
+    if (!API_BASE && url.startsWith('/api/') && (isStaticHostMode() || isServerlessDirectEndpoint)) {
       return invokeStaticFallback<T>(url, options);
     }
     throw networkErr;
@@ -317,7 +330,10 @@ export async function apiFetch<T>(
     !API_BASE &&
     url.startsWith('/api/') &&
     (response.status === 404 || response.status === 405) &&
-    (!isJsonResponse || typeof data.error !== 'string' || isAlwaysBackendApiPath(url) || isAiEndpoint);
+    (!isJsonResponse ||
+      typeof data.error !== 'string' ||
+      isAlwaysBackendApiPath(url) ||
+      isServerlessDirectEndpoint);
 
   if (shouldFallbackToStatic) {
     return invokeStaticFallback<T>(url, options);
