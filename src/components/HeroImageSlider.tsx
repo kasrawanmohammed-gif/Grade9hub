@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowUpRight,
-  ChevronLeft,
-  ChevronRight,
   Image as ImageIcon,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -10,7 +8,6 @@ import { HERO_SLIDES, HeroSlide, getHeroSlideCopy } from '../config/heroSlides';
 import { isSafeHeroSlideLink } from '../lib/heroSlidesStore';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useSettings } from '../contexts/SettingsContext';
-import { formatMsg } from '../i18n/translations';
 
 interface HeroImageSliderProps {
   slides?: HeroSlide[];
@@ -25,7 +22,7 @@ interface HeroImageSliderProps {
 
 export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   slides = HERO_SLIDES,
-  intervalMs = 3000,
+  intervalMs = 4500,
   pauseOnHover = true,
   externalPaused = false,
   canManage = false,
@@ -137,7 +134,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
     goToIndex(activeIndex - 1);
   }, [activeIndex, goToIndex]);
 
-  // 3-second auto-advance whenever 2 or more slides are present, resetting cleanly on manual interaction
+  // 4.5-second auto-advance whenever 2 or more slides are present, resetting cleanly on manual interaction
   useEffect(() => {
     if (totalSlides <= 1 || isPaused) {
       return;
@@ -204,9 +201,6 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
   const hasOverlayContent = Boolean(
     currentCopy?.caption || currentCopy?.subtitle || currentSafeLink
   );
-
-  const PrevChevron = isRtl ? ChevronRight : ChevronLeft;
-  const NextChevron = isRtl ? ChevronLeft : ChevronRight;
 
   const handleSlideLinkClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     if (didSwipeRef.current) {
@@ -340,11 +334,7 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
 
       {/* Optional Slide Title, Subtitle & Link Affordance */}
       {hasOverlayContent && (
-        <div
-          className={`pointer-events-none absolute inset-x-0 bottom-0 z-[4] bg-gradient-to-t from-black/80 via-black/45 to-transparent px-4 pt-8 ${
-            totalSlides > 1 ? 'pb-11 sm:pb-12' : 'pb-3.5 sm:pb-4'
-          }`}
-        >
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[4] bg-gradient-to-t from-black/80 via-black/45 to-transparent px-4 pt-8 pb-3.5 sm:pb-4">
           <div className="flex items-end justify-between gap-3 max-w-full">
             <div className="min-w-0 space-y-0.5 text-start">
               {currentCopy?.caption && (
@@ -366,69 +356,6 @@ export const HeroImageSlider: React.FC<HeroImageSliderProps> = ({
             )}
           </div>
         </div>
-      )}
-
-      {/* Multi-slide Controls & Subtle Indicator Dots (only shown when > 1 slide exists) */}
-      {totalSlides > 1 && (
-        <>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handlePrev();
-            }}
-            aria-label={t.home.prevSlideBtn}
-            className="absolute start-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/95 backdrop-blur-md transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
-          >
-            <PrevChevron className="h-4 w-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleNext();
-            }}
-            aria-label={t.home.nextSlideBtn}
-            className="absolute end-3 top-1/2 -translate-y-1/2 z-[5] inline-flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/95 backdrop-blur-md transition-colors hover:bg-black/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E5B742] cursor-pointer"
-          >
-            <NextChevron className="h-4 w-4" />
-          </button>
-
-          <div
-            role="tablist"
-            aria-label={t.home.heroSliderLabel}
-            className="absolute bottom-2.5 sm:bottom-3 left-1/2 -translate-x-1/2 z-[5] flex items-center gap-1 rounded-full border border-white/15 bg-black/40 px-2.5 py-1 backdrop-blur-md"
-          >
-            {safeSlides.map((slide, index) => {
-              const isCurrent = index === activeIndex;
-              return (
-                <button
-                  key={slide.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={isCurrent}
-                  aria-label={formatMsg(t.home.goToSlideBtn, { n: index + 1 })}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    goToIndex(index);
-                  }}
-                  className="inline-flex h-6 items-center justify-center px-1 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#E5B742] rounded-full"
-                >
-                  <span
-                    className={`block h-1.5 rounded-full ${
-                      reduceMotion ? '' : 'transition-all duration-300'
-                    } ${
-                      isCurrent
-                        ? 'w-5 bg-[#E5B742]'
-                        : 'w-1.5 bg-white/45 hover:bg-white/80'
-                    }`}
-                  />
-                </button>
-              );
-            })}
-          </div>
-        </>
       )}
     </section>
   );

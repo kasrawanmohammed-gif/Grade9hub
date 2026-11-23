@@ -393,7 +393,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <div className="space-y-2">
         <HeroImageSlider
           slides={heroSlides}
-          intervalMs={3000}
+          intervalMs={4500}
           pauseOnHover={true}
           externalPaused={showBannerManager}
           canManage={canManageBanners}
