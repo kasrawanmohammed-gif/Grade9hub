@@ -278,7 +278,7 @@ export default function App() {
   // Real-time cloud hero banner synchronization across devices & tabs
   useEffect(() => {
     const unsubBanners = subscribeCloudHeroBanners((cloudSlides) => {
-      if (cloudSlides.length === 0) return;
+      if (!Array.isArray(cloudSlides) || cloudSlides.length === 0) return;
       saveLocalHeroSlides(cloudSlides);
       broadcastHeroBannersUpdated(cloudSlides);
       setAppSettings((prev) =>
@@ -318,57 +318,83 @@ export default function App() {
   }, [isPrivileged, wsConnected, fetchAdminDashboard]);
 
   const fetchChapters = useCallback(async () => {
-    const data = await apiFetch<{ chapters: Chapter[]; generalCount: number }>(
-      `/api/chapters?lang=${language}`
-    );
-    setChapters(data.chapters);
-    setGeneralCount(data.generalCount);
+    try {
+      const data = await apiFetch<{ chapters?: Chapter[]; generalCount?: number }>(
+        `/api/chapters?lang=${language}`
+      );
+      if (Array.isArray(data?.chapters)) {
+        setChapters(data.chapters);
+      }
+      if (typeof data?.generalCount === 'number') {
+        setGeneralCount(data.generalCount);
+      }
+    } catch {
+      // ignore transient chapter fetch errors
+    }
   }, [language]);
 
   const fetchAnnouncements = useCallback(async () => {
-    const data = await apiFetch<{ announcements: Announcement[] }>(
-      '/api/announcements'
-    );
-    setAnnouncements(data.announcements);
+    try {
+      const data = await apiFetch<{ announcements?: Announcement[] }>(
+        '/api/announcements'
+      );
+      if (Array.isArray(data?.announcements)) {
+        setAnnouncements(data.announcements);
+      }
+    } catch {
+      // ignore transient announcement fetch errors
+    }
   }, []);
 
   const fetchNotifications = useCallback(async () => {
-    const data = await apiFetch<{
-      notifications: NotificationItem[];
-      unreadCount: number;
-    }>('/api/notifications');
-    setNotifications(data.notifications);
-    setUnreadCount(data.unreadCount);
+    try {
+      const data = await apiFetch<{
+        notifications?: NotificationItem[];
+        unreadCount?: number;
+      }>('/api/notifications');
+      if (!Array.isArray(data?.notifications)) {
+        return;
+      }
+      const nextNotifications = data.notifications;
+      const nextUnread =
+        typeof data.unreadCount === 'number'
+          ? data.unreadCount
+          : nextNotifications.filter((n) => n.is_read === 0).length;
+      setNotifications(nextNotifications);
+      setUnreadCount(nextUnread);
 
-    if (user && data.notifications.length > 0) {
-      const lastKey = `grade9hub_last_notif_${user.id}`;
-      try {
-        const stored = window.localStorage.getItem(lastKey);
-        const maxId = data.notifications[0].id;
-        if (stored === null) {
-          window.localStorage.setItem(lastKey, String(maxId));
-        } else {
-          const prevId = Number(stored) || 0;
-          if (maxId > prevId) {
+      if (user && nextNotifications.length > 0) {
+        const lastKey = `grade9hub_last_notif_${user.id}`;
+        try {
+          const stored = window.localStorage.getItem(lastKey);
+          const maxId = nextNotifications[0].id;
+          if (stored === null) {
             window.localStorage.setItem(lastKey, String(maxId));
-            const newUnread = data.notifications.filter(
-              (n) => n.id > prevId && n.is_read === 0
-            );
-            if (
-              newUnread.length > 0 &&
-              user.notifications_enabled !== false
-            ) {
-              const latest = newUnread[0];
-              void showDeviceScreenNotification(latest.title, latest.body, {
-                tag: `grade9hub-notif-${latest.id}`,
-                tab: latest.link_tab || 'notifications',
-              });
+          } else {
+            const prevId = Number(stored) || 0;
+            if (maxId > prevId) {
+              window.localStorage.setItem(lastKey, String(maxId));
+              const newUnread = nextNotifications.filter(
+                (n) => n.id > prevId && n.is_read === 0
+              );
+              if (
+                newUnread.length > 0 &&
+                user.notifications_enabled !== false
+              ) {
+                const latest = newUnread[0];
+                void showDeviceScreenNotification(latest.title, latest.body, {
+                  tag: `grade9hub-notif-${latest.id}`,
+                  tab: latest.link_tab || 'notifications',
+                });
+              }
             }
           }
+        } catch {
+          // ignore storage errors
         }
-      } catch {
-        // ignore storage errors
       }
+    } catch {
+      // ignore transient notification fetch errors
     }
   }, [user]);
 

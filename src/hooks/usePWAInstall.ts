@@ -5,9 +5,25 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+let earlyDeferredPrompt: BeforeInstallPromptEvent | null = null;
+let earlyAppInstalled = false;
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e: Event) => {
+    e.preventDefault();
+    earlyDeferredPrompt = e as BeforeInstallPromptEvent;
+  });
+  window.addEventListener('appinstalled', () => {
+    earlyAppInstalled = true;
+    earlyDeferredPrompt = null;
+  });
+}
+
 export function usePWAInstall() {
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isInstalled, setIsInstalled] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(
+    () => earlyDeferredPrompt
+  );
+  const [isInstalled, setIsInstalled] = useState(() => earlyAppInstalled);
   const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
@@ -17,6 +33,7 @@ export function usePWAInstall() {
           ? window.matchMedia('(display-mode: standalone)').matches
           : false;
       const isStandalone =
+        earlyAppInstalled ||
         standaloneMedia ||
         (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
       setIsInstalled(isStandalone);
@@ -25,16 +42,23 @@ export function usePWAInstall() {
       const maxTouchPoints = window.navigator?.maxTouchPoints || 0;
       const isIPadOS = /macintosh/.test(userAgent) && maxTouchPoints > 1;
       setIsIOS(/iphone|ipad|ipod/.test(userAgent) || isIPadOS);
+
+      if (earlyDeferredPrompt && !deferredPrompt) {
+        setDeferredPrompt(earlyDeferredPrompt);
+      }
     } catch {
       // ignore browser environment errors
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      earlyDeferredPrompt = e as BeforeInstallPromptEvent;
+      setDeferredPrompt(earlyDeferredPrompt);
     };
 
     const handleAppInstalled = () => {
+      earlyAppInstalled = true;
+      earlyDeferredPrompt = null;
       setIsInstalled(true);
       setDeferredPrompt(null);
     };
@@ -49,10 +73,13 @@ export function usePWAInstall() {
   }, []);
 
   const install = async () => {
-    if (!deferredPrompt) return false;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
+    const promptEvent = deferredPrompt || earlyDeferredPrompt;
+    if (!promptEvent) return false;
+    await promptEvent.prompt();
+    const { outcome } = await promptEvent.userChoice;
     if (outcome === 'accepted') {
+      earlyAppInstalled = true;
+      earlyDeferredPrompt = null;
       setIsInstalled(true);
       setDeferredPrompt(null);
       return true;
@@ -61,7 +88,7 @@ export function usePWAInstall() {
   };
 
   return {
-    isInstallable: !!deferredPrompt,
+    isInstallable: Boolean(deferredPrompt || earlyDeferredPrompt),
     isInstalled,
     isIOS,
     install,

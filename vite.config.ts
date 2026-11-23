@@ -58,6 +58,7 @@ export default defineConfig(() => {
         },
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
+          globIgnores: ['**/assets/aistudio/Screenshot_*', '**/assets/aistudio/image_*'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         },
         devOptions: {

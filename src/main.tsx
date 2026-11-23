@@ -5,12 +5,15 @@ import App from './App.tsx';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { FirestoreErrorBoundary } from './components/FirestoreErrorBoundary';
+import { getOrRegisterServiceWorker } from './utils/serviceWorker';
 import './index.css';
 
 const SW_RELOAD_GUARD_KEY = 'grade9hub_sw_reloaded_at';
 
 try {
   if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    const hadControllerAtBoot = Boolean(navigator.serviceWorker.controller);
+
     const updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
@@ -22,17 +25,27 @@ try {
       },
       onRegisteredSW(_swUrl, registration) {
         if (registration) {
+          if (registration.waiting) {
+            try {
+              registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+            } catch {
+              // ignore
+            }
+          }
           void registration.update().catch(() => {});
         }
       },
       onRegisterError() {
-        // ignore SW registration failure in private/iOS Safari contexts
+        void getOrRegisterServiceWorker();
       },
     });
 
+    // In dev or if virtual:pwa-register did not create a registration, register /sw.js directly
+    void getOrRegisterServiceWorker();
+
     let refreshing = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (refreshing || !navigator.serviceWorker.controller) return;
+      if (!hadControllerAtBoot || refreshing || !navigator.serviceWorker.controller) return;
       try {
         const lastReloadRaw = window.sessionStorage?.getItem(SW_RELOAD_GUARD_KEY);
         const lastReload = lastReloadRaw ? Number(lastReloadRaw) : 0;

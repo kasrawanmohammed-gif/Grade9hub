@@ -49,6 +49,7 @@ import { User } from '../types';
 import { LanguageSwitcher, useLanguage } from '../contexts/LanguageContext';
 import { ThemeToggleButton } from '../contexts/SettingsContext';
 import { PWAInstallButton } from './PWAInstallButton';
+import { LoginInstallAppButton } from './LoginInstallAppButton';
 import { RotatingQuote } from './RotatingQuote';
 import { SuccessHeroBackdrop } from './SuccessHeroBackdrop';
 
@@ -774,6 +775,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                     </span>
                   </button>
                 </div>
+
+                <LoginInstallAppButton />
 
                 <p className="flex items-center justify-center gap-1.5 text-[11px] text-[#57534E] text-center pt-0.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-[#059669] shrink-0" />

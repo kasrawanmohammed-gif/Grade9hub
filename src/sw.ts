@@ -21,6 +21,20 @@ interface PushNotificationPayload {
   data?: Record<string, unknown>;
 }
 
+self.addEventListener('install', (event: ExtendableEvent) => {
+  event.waitUntil(self.skipWaiting());
+});
+
+self.addEventListener('activate', (event: ExtendableEvent) => {
+  event.waitUntil(self.clients.claim());
+});
+
+self.addEventListener('message', (event: ExtendableMessageEvent) => {
+  if (event.data && (event.data as { type?: string }).type === 'SKIP_WAITING') {
+    event.waitUntil(self.skipWaiting());
+  }
+});
+
 self.skipWaiting();
 clientsClaim();
 cleanupOutdatedCaches();

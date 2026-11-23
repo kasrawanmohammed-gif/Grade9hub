@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppLanguage } from '../i18n/translations';
 import { apiFetch } from '../lib/api';
+import { ensureServiceWorkerActive } from '../utils/serviceWorker';
 
 export type PushUnsupportedReason = 'ios_home_screen' | 'unsupported' | 'vapid_missing' | null;
 
@@ -86,23 +87,6 @@ function detectStandalonePwa(): boolean {
     return standaloneMedia || navStandalone;
   } catch {
     return false;
-  }
-}
-
-async function getReadyRegistrationWithTimeout(
-  timeoutMs = 3500
-): Promise<ServiceWorkerRegistration | null> {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-    return null;
-  }
-  try {
-    const registration = await Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
-    return registration;
-  } catch {
-    return null;
   }
 }
 
@@ -197,7 +181,7 @@ export function usePushNotifications({
     if (hasPushApi && isAuthenticated) {
       void (async () => {
         const [reg, vapidInfo] = await Promise.all([
-          getReadyRegistrationWithTimeout(3000),
+          ensureServiceWorkerActive({ timeoutMs: 6000 }),
           resolveVapidKey(),
         ]);
         const keyPresent = Boolean(vapidInfo.publicKey);
@@ -320,7 +304,7 @@ export function usePushNotifications({
           return false;
         }
 
-        const registration = await getReadyRegistrationWithTimeout(4000);
+        const registration = await ensureServiceWorkerActive({ timeoutMs: 12000 });
         if (!registration?.pushManager) {
           if (!options?.silentError) {
             setError('Service Worker is not active yet. Please reload the page and try again.');
@@ -374,7 +358,10 @@ export function usePushNotifications({
     setError(null);
     setTestResult(null);
     try {
-      const registration = await getReadyRegistrationWithTimeout(2500);
+      const registration = await ensureServiceWorkerActive({
+        timeoutMs: 4000,
+        forceRegisterIfMissing: false,
+      });
       const subscription = await registration?.pushManager?.getSubscription();
       if (subscription) {
         await apiFetch('/api/push/unsubscribe', {

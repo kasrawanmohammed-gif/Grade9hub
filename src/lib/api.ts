@@ -329,7 +329,9 @@ export async function apiFetch<T>(
   const shouldFallbackToStatic =
     !API_BASE &&
     url.startsWith('/api/') &&
-    (response.status === 404 || response.status === 405) &&
+    (response.status === 404 ||
+      response.status === 405 ||
+      (response.ok && contentType.includes('text/html'))) &&
     (!isJsonResponse ||
       typeof data.error !== 'string' ||
       isAlwaysBackendApiPath(url) ||

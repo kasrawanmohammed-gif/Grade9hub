@@ -1,3 +1,5 @@
+import { ensureServiceWorkerActive } from './serviceWorker';
+
 export interface DeviceScreenNotificationOptions {
   tag?: string;
   tab?: string;
@@ -42,14 +44,7 @@ export async function showDeviceScreenNotification(
 
   if ('serviceWorker' in navigator) {
     try {
-      const regPromise = navigator.serviceWorker.ready;
-      const timeoutPromise = new Promise<null>((resolve) => {
-        window.setTimeout(() => resolve(null), 1800);
-      });
-      const registration = (await Promise.race([
-        regPromise,
-        timeoutPromise,
-      ])) as ServiceWorkerRegistration | null;
+      const registration = await ensureServiceWorkerActive({ timeoutMs: 2500 });
 
       if (registration && typeof registration.showNotification === 'function') {
         const swOptions: NotificationOptions & {
