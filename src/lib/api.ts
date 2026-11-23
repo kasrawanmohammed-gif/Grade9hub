@@ -237,7 +237,7 @@ async function performFetch(url: string, options: RequestInit): Promise<Response
   if (token) {
     baseHeaders['Authorization'] = `Bearer ${token}`;
   }
-  if (url.startsWith('/api/push/') && auth.currentUser) {
+  if (url.startsWith('/api/push/') && url !== '/api/push/vapid-public-key' && auth.currentUser) {
     try {
       const fbToken = await auth.currentUser.getIdToken();
       if (fbToken) {

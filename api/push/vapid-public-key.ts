@@ -1,9 +1,11 @@
-import { getVapidConfig, jsonResponse } from './_lib.ts';
+import { ensureWebPushConfigured, getVapidConfig, jsonResponse } from './_lib.ts';
 
 export async function GET(): Promise<Response> {
   const cfg = getVapidConfig();
+  const valid = cfg.configured && ensureWebPushConfigured();
   return jsonResponse({
-    publicKey: cfg.configured ? cfg.publicKey : null,
-    configured: cfg.configured,
+    publicKey: valid ? cfg.publicKey : null,
+    configured: valid,
+    ...(valid ? {} : { missing: cfg.missingVars }),
   });
 }

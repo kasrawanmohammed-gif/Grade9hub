@@ -2181,12 +2181,19 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
     return { ok: true };
   }
   if (pathname === '/api/push/vapid-public-key') {
-    const buildTimeKey =
+    const rawKey =
       typeof import.meta !== 'undefined' &&
       import.meta.env &&
       typeof import.meta.env.VITE_VAPID_PUBLIC_KEY === 'string'
         ? import.meta.env.VITE_VAPID_PUBLIC_KEY.trim()
         : '';
+    const unwrapped =
+      rawKey.length >= 2 &&
+      ((rawKey.startsWith('"') && rawKey.endsWith('"')) ||
+        (rawKey.startsWith("'") && rawKey.endsWith("'")))
+        ? rawKey.slice(1, -1).trim()
+        : rawKey;
+    const buildTimeKey = unwrapped.replace(/\s+/g, '').replace(/=+$/, '');
     return { publicKey: buildTimeKey || null, configured: Boolean(buildTimeKey) };
   }
   if (pathname === '/api/push/status') {

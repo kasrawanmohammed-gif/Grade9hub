@@ -1,5 +1,5 @@
 import {
-  getVapidConfig,
+  ensureWebPushConfigured,
   hashEndpoint,
   isPersistentStoreConfigured,
   jsonResponse,
@@ -9,7 +9,7 @@ import {
 } from './_lib.ts';
 
 export async function GET(request: Request): Promise<Response> {
-  const cfg = getVapidConfig();
+  const configured = ensureWebPushConfigured();
   const caller = await verifyPushCaller(request);
   if (!caller) {
     return jsonResponse({ error: 'Authentication required.' }, 401);
@@ -26,7 +26,7 @@ export async function GET(request: Request): Promise<Response> {
   );
 
   return jsonResponse({
-    configured: cfg.configured,
+    configured,
     subscriptionCount: mine.length,
     currentEndpointRegistered,
     persistence: isPersistentStoreConfigured() ? 'redis' : 'memory',

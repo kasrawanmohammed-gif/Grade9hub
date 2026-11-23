@@ -12,16 +12,32 @@ interface VapidKeys {
   privateKey: string;
 }
 
-function getOrCreateVapidKeys(): VapidKeys {
-  const envPublic = (process.env.VAPID_PUBLIC_KEY || '').trim();
-  const envPrivate = (process.env.VAPID_PRIVATE_KEY || '').trim();
-  if (envPublic && envPrivate) {
-    return {
-      publicKey: envPublic,
-      privateKey: envPrivate,
-    };
+function cleanEnvValue(raw?: string): string {
+  const trimmed = String(raw || '').trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim();
   }
+  return trimmed;
+}
 
+function cleanVapidKey(raw?: string): string {
+  return cleanEnvValue(raw).replace(/\s+/g, '').replace(/=+$/, '');
+}
+
+function normalizeVapidSubject(raw?: string): string {
+  const cleaned = cleanEnvValue(raw);
+  if (!cleaned) return 'mailto:mohamdm791@gmail.com';
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) return cleaned;
+  if (/^https:\/\/.+/i.test(cleaned)) return cleaned;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return `mailto:${cleaned}`;
+  return 'mailto:mohamdm791@gmail.com';
+}
+
+function getOrCreateSqliteVapidKeys(): VapidKeys {
   const pubRow = db
     .prepare("SELECT value FROM app_settings WHERE key = 'vapid_public_key'")
     .get() as { value: string } | undefined;
@@ -42,10 +58,32 @@ function getOrCreateVapidKeys(): VapidKeys {
   return generated;
 }
 
-const vapidKeys = getOrCreateVapidKeys();
-const vapidSubject = (process.env.VAPID_SUBJECT || 'mailto:mohamdm791@gmail.com').trim();
+function initVapidDetails(): VapidKeys {
+  const envPublic = cleanVapidKey(
+    process.env.VAPID_PUBLIC_KEY ||
+      process.env.VITE_VAPID_PUBLIC_KEY ||
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  );
+  const envPrivate = cleanVapidKey(
+    process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY
+  );
+  const subject = normalizeVapidSubject(process.env.VAPID_SUBJECT);
 
-webpush.setVapidDetails(vapidSubject, vapidKeys.publicKey, vapidKeys.privateKey);
+  if (envPublic && envPrivate) {
+    try {
+      webpush.setVapidDetails(subject, envPublic, envPrivate);
+      return { publicKey: envPublic, privateKey: envPrivate };
+    } catch (err) {
+      console.warn('[push] Invalid VAPID_* environment variables; falling back to local keys:', err);
+    }
+  }
+
+  const localKeys = getOrCreateSqliteVapidKeys();
+  webpush.setVapidDetails(subject, localKeys.publicKey, localKeys.privateKey);
+  return localKeys;
+}
+
+const vapidKeys = initVapidDetails();
 
 export function getPublicVapidKey(): string {
   return vapidKeys.publicKey;

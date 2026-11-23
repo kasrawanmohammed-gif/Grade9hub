@@ -30,7 +30,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ visible }) => {
           <div className="g9-animate-progress-fill h-full w-full bg-gradient-to-r from-[#6B1118] to-[#D9A62E]" />
         </div>
       </div>
-      <p className="text-xs font-medium tracking-wide text-[#57534E]">
+      <p dir="ltr" className="text-xs font-medium tracking-wide text-[#57534E]">
         {t.brand.poweredBy}
       </p>
     </div>

@@ -1,6 +1,6 @@
 import {
   dispatchPushToSubscriptions,
-  getVapidConfig,
+  ensureWebPushConfigured,
   jsonResponse,
   listAllPushSubscriptions,
   matchesCaller,
@@ -11,8 +11,7 @@ import {
 } from './_lib.ts';
 
 export async function POST(request: Request): Promise<Response> {
-  const cfg = getVapidConfig();
-  if (!cfg.configured) {
+  if (!ensureWebPushConfigured()) {
     return jsonResponse({ error: 'VAPID keys are not configured on this server.' }, 503);
   }
 

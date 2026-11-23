@@ -12,15 +12,53 @@ export interface UsePushNotificationsParams {
   userRole?: 'student' | 'teacher';
 }
 
+function cleanClientVapidKey(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  let trimmed = raw.trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed.replace(/\s+/g, '').replace(/=+$/, '');
+}
+
+function getBuildTimeVapidPublicKey(): string {
+  try {
+    return cleanClientVapidKey(import.meta.env?.VITE_VAPID_PUBLIC_KEY);
+  } catch {
+    return '';
+  }
+}
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const cleaned = cleanClientVapidKey(base64String);
+  const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
+  const base64 = (cleaned + padding).replace(/-/g, '+').replace(/_/g, '/');
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i);
   }
   return outputArray;
+}
+
+function subscriptionMatchesPublicKey(sub: PushSubscription, expectedKey: string): boolean {
+  try {
+    const existingBuf = sub.options?.applicationServerKey;
+    if (!existingBuf) return true;
+    const expected = urlBase64ToUint8Array(expectedKey);
+    const actual = new Uint8Array(existingBuf);
+    if (actual.length !== expected.length) return false;
+    for (let i = 0; i < actual.length; i += 1) {
+      if (actual[i] !== expected[i]) return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
 }
 
 function detectIosDevice(): boolean {
@@ -108,6 +146,34 @@ export function usePushNotifications({
     [language, userRole, userId]
   );
 
+  const resolveVapidKey = useCallback(async (): Promise<{
+    publicKey: string;
+    serverExplicitlyMissing: boolean;
+  }> => {
+    const buildTimeKey = getBuildTimeVapidPublicKey();
+    try {
+      const res = await apiFetch<{ publicKey?: string | null; configured?: boolean }>(
+        '/api/push/vapid-public-key'
+      );
+      const serverKey = cleanClientVapidKey(res?.publicKey);
+      if (serverKey) {
+        return { publicKey: serverKey, serverExplicitlyMissing: false };
+      }
+      if (res && res.configured === false) {
+        return { publicKey: '', serverExplicitlyMissing: true };
+      }
+      return {
+        publicKey: buildTimeKey,
+        serverExplicitlyMissing: !buildTimeKey,
+      };
+    } catch {
+      return {
+        publicKey: buildTimeKey,
+        serverExplicitlyMissing: false,
+      };
+    }
+  }, []);
+
   const refreshStatus = useCallback(() => {
     const iosDevice = detectIosDevice();
     const standalone = detectStandalonePwa();
@@ -130,19 +196,32 @@ export function usePushNotifications({
 
     if (hasPushApi && isAuthenticated) {
       void (async () => {
-        const [reg, vapidRes] = await Promise.all([
+        const [reg, vapidInfo] = await Promise.all([
           getReadyRegistrationWithTimeout(3000),
-          apiFetch<{ publicKey?: string | null; configured?: boolean }>(
-            '/api/push/vapid-public-key'
-          ).catch(() => ({ publicKey: null, configured: false })),
+          resolveVapidKey(),
         ]);
-        const keyPresent = Boolean(
-          typeof vapidRes?.publicKey === 'string' && vapidRes.publicKey.trim()
-        );
-        setVapidMissing(!keyPresent);
+        const keyPresent = Boolean(vapidInfo.publicKey);
+        setVapidMissing(vapidInfo.serverExplicitlyMissing && !keyPresent);
 
         if (!reg?.pushManager) return;
-        const sub = await reg.pushManager.getSubscription().catch(() => null);
+        let sub = await reg.pushManager.getSubscription().catch(() => null);
+
+        if (sub && keyPresent && !subscriptionMatchesPublicKey(sub, vapidInfo.publicKey)) {
+          await sub.unsubscribe().catch(() => {});
+          sub = null;
+          lastSyncSigRef.current = '';
+          if (Notification.permission === 'granted' && userNotificationsEnabled) {
+            sub = await reg.pushManager
+              .subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(
+                  vapidInfo.publicKey
+                ) as unknown as BufferSource,
+              })
+              .catch(() => null);
+          }
+        }
+
         const active = Boolean(sub) && keyPresent;
         setHasPushSubscription(active);
 
@@ -156,10 +235,19 @@ export function usePushNotifications({
       })();
     } else if (!isAuthenticated) {
       setHasPushSubscription(false);
+      setVapidMissing(false);
       setSubscriptionCount(0);
       lastSyncSigRef.current = '';
     }
-  }, [isAuthenticated, userNotificationsEnabled, language, userId, userRole, syncSubscriptionRecord]);
+  }, [
+    isAuthenticated,
+    userNotificationsEnabled,
+    language,
+    userId,
+    userRole,
+    syncSubscriptionRecord,
+    resolveVapidKey,
+  ]);
 
   useEffect(() => {
     refreshStatus();
@@ -240,14 +328,11 @@ export function usePushNotifications({
           return false;
         }
 
-        const vapidRes = await apiFetch<{ publicKey?: string | null; configured?: boolean }>(
-          '/api/push/vapid-public-key'
-        ).catch(() => ({ publicKey: null, configured: false }));
-        const publicKey =
-          typeof vapidRes?.publicKey === 'string' ? vapidRes.publicKey.trim() : '';
+        const vapidInfo = await resolveVapidKey();
+        const publicKey = vapidInfo.publicKey;
 
         if (!publicKey) {
-          setVapidMissing(true);
+          setVapidMissing(vapidInfo.serverExplicitlyMissing);
           setHasPushSubscription(false);
           if (!options?.silentError) {
             setError('VAPID push keys are not configured on the server yet.');
@@ -256,7 +341,11 @@ export function usePushNotifications({
         }
 
         setVapidMissing(false);
-        const existing = await registration.pushManager.getSubscription();
+        let existing = await registration.pushManager.getSubscription();
+        if (existing && !subscriptionMatchesPublicKey(existing, publicKey)) {
+          await existing.unsubscribe().catch(() => {});
+          existing = null;
+        }
         const subscription =
           existing ||
           (await registration.pushManager.subscribe({
@@ -277,7 +366,7 @@ export function usePushNotifications({
         setBusy(false);
       }
     },
-    [language, userId, userRole, syncSubscriptionRecord]
+    [language, userId, userRole, syncSubscriptionRecord, resolveVapidKey]
   );
 
   const unsubscribe = useCallback(async () => {

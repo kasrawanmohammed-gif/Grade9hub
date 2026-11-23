@@ -66,7 +66,7 @@ export const AboutView: React.FC = () => {
               <BookOpen className="w-3.5 h-3.5 text-[#6B1118]" />
               {t.brand.appName}
             </span>
-            <span className="font-semibold text-[#6B1118]">{t.brand.poweredBy}</span>
+            <span dir="ltr" className="font-semibold text-[#6B1118]">{t.brand.poweredBy}</span>
           </div>
         </div>
       </div>

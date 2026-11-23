@@ -1740,7 +1740,9 @@ export default function App() {
 
           {!sidebarCollapsed && (
             <p className="text-[11px] font-medium text-[#57534E] px-2">
-              {t.brand.poweredBy}
+              <span dir="ltr" className="inline-block">
+                {t.brand.poweredBy}
+              </span>
             </p>
           )}
         </div>
@@ -1843,7 +1845,7 @@ export default function App() {
                   <LogOut className="w-4 h-4" />
                   <span>{t.nav.logOut}</span>
                 </button>
-                <p className="text-center text-xs text-[#57534E]">
+                <p dir="ltr" className="text-center text-xs text-[#57534E]">
                   {t.brand.poweredBy}
                 </p>
               </div>
@@ -1961,7 +1963,7 @@ export default function App() {
         </header>
 
         {/* Scrollable Workspace Content */}
-        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-5 sm:py-7 pb-24 lg:pb-10 max-w-6xl w-full mx-auto">
+        <main className="flex-1 px-4 sm:px-6 lg:px-10 py-5 sm:py-7 pb-6 sm:pb-8 lg:pb-10 max-w-6xl w-full mx-auto">
           {activeTab !== 'home' && (
             <div
               role="status"
@@ -2195,9 +2197,14 @@ export default function App() {
           </FirestoreErrorBoundary>
         </main>
 
-        <footer className="hidden lg:flex items-center justify-between px-10 py-4 border-t border-[#E6DFD5] text-xs text-[#57534E] max-w-6xl w-full mx-auto">
+        <footer className="flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-4 px-4 sm:px-6 lg:px-10 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))] lg:py-4 border-t border-[#E6DFD5] text-xs text-[#57534E] max-w-6xl w-full mx-auto text-center sm:text-start">
           <span>{t.brand.schoolTag}</span>
-          <span className="font-semibold text-[#6B1118]">{t.brand.poweredBy}</span>
+          <span
+            dir="ltr"
+            className="font-semibold text-[#6B1118] tracking-wide whitespace-nowrap"
+          >
+            {t.brand.poweredBy}
+          </span>
         </footer>
       </div>
 

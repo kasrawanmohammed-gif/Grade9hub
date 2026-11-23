@@ -55,33 +55,77 @@ const FIREBASE_JWKS = createRemoteJWKSet(
   new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')
 );
 
+function cleanEnvValue(raw?: string): string {
+  const trimmed = String(raw || '').trim();
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function cleanVapidKey(raw?: string): string {
+  return cleanEnvValue(raw).replace(/\s+/g, '').replace(/=+$/, '');
+}
+
+function normalizeVapidSubject(raw?: string): string {
+  const cleaned = cleanEnvValue(raw);
+  if (!cleaned) return `mailto:${MAIN_ADMIN_EMAIL}`;
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) return cleaned;
+  if (/^https:\/\/.+/i.test(cleaned)) return cleaned;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return `mailto:${cleaned}`;
+  return `mailto:${MAIN_ADMIN_EMAIL}`;
+}
+
 export function getVapidConfig(): {
   publicKey: string;
   privateKey: string;
   subject: string;
   configured: boolean;
+  missingVars: string[];
 } {
-  const publicKey = (process.env.VAPID_PUBLIC_KEY || process.env.VITE_VAPID_PUBLIC_KEY || '').trim();
-  const privateKey = (process.env.VAPID_PRIVATE_KEY || '').trim();
-  const subject = (process.env.VAPID_SUBJECT || `mailto:${MAIN_ADMIN_EMAIL}`).trim();
+  const publicKey = cleanVapidKey(
+    process.env.VAPID_PUBLIC_KEY ||
+      process.env.VITE_VAPID_PUBLIC_KEY ||
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  );
+  const privateKey = cleanVapidKey(
+    process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY
+  );
+  const subject = normalizeVapidSubject(process.env.VAPID_SUBJECT);
+  const missingVars: string[] = [];
+  if (!publicKey) missingVars.push('VAPID_PUBLIC_KEY');
+  if (!privateKey) missingVars.push('VAPID_PRIVATE_KEY');
+
   return {
     publicKey,
     privateKey,
     subject,
     configured: Boolean(publicKey && privateKey),
+    missingVars,
   };
 }
 
 let lastConfiguredVapidSig = '';
+let lastConfiguredVapidValid = false;
 export function ensureWebPushConfigured(): boolean {
   const cfg = getVapidConfig();
   if (!cfg.configured) return false;
   const sig = `${cfg.subject}|${cfg.publicKey}|${cfg.privateKey}`;
   if (lastConfiguredVapidSig !== sig) {
-    webpush.setVapidDetails(cfg.subject, cfg.publicKey, cfg.privateKey);
-    lastConfiguredVapidSig = sig;
+    try {
+      webpush.setVapidDetails(cfg.subject, cfg.publicKey, cfg.privateKey);
+      lastConfiguredVapidSig = sig;
+      lastConfiguredVapidValid = true;
+    } catch {
+      lastConfiguredVapidSig = sig;
+      lastConfiguredVapidValid = false;
+    }
   }
-  return true;
+  return lastConfiguredVapidValid;
 }
 
 export function normalizePushLang(raw: unknown): PushLang {

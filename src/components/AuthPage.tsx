@@ -937,7 +937,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           </div>
 
           <footer className="pt-1.5 mt-1.5 sm:pt-2.5 sm:mt-3 text-center border-t border-[#E6DFD5]">
-            <p className="text-[11px] sm:text-xs font-semibold tracking-wide text-[#6B1118]">
+            <p dir="ltr" className="text-[11px] sm:text-xs font-semibold tracking-wide text-[#6B1118]">
               {t.brand.poweredBy}
             </p>
           </footer>
