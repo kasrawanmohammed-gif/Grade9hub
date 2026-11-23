@@ -3,6 +3,7 @@ import { db } from './db.ts';
 import { CHAPTER_TRANSLATIONS, CHAPTER_1_TRANSLATIONS } from './translationsCh1.ts';
 import { CHAPTER_2_TRANSLATIONS } from './translationsCh2.ts';
 import { CHAPTER_3_TRANSLATIONS } from './translationsCh3.ts';
+import { CHAPTER_4_TRANSLATIONS } from './translationsCh4.ts';
 import { normalizeScientificUnits } from './unitSanitizer.ts';
 
 export function populateTranslations123(): void {
@@ -60,6 +61,7 @@ export function populateTranslations123(): void {
     ...CHAPTER_1_TRANSLATIONS,
     ...CHAPTER_2_TRANSLATIONS,
     ...CHAPTER_3_TRANSLATIONS,
+    ...CHAPTER_4_TRANSLATIONS,
   ];
 
   const tx = db.transaction(() => {
@@ -167,6 +169,81 @@ export function populateTranslations123(): void {
 
     db.prepare(
       "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('seeded_translations_123_v2', 'true')"
+    ).run();
+    db.prepare(
+      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('seeded_translations_ch4_v1', 'true')"
+    ).run();
+  });
+
+  tx();
+}
+
+export function populateTranslations4(): void {
+  const alreadyDone = db
+    .prepare("SELECT value FROM app_settings WHERE key = 'seeded_translations_ch4_v1'")
+    .get() as { value: string } | undefined;
+
+  if (alreadyDone?.value === 'true') {
+    return;
+  }
+
+  const ch4Meta = CHAPTER_TRANSLATIONS.find((c) => c.chapterNumber === 4);
+  const updateChapterStmt = db.prepare(
+    `UPDATE chapters
+     SET title_ku = ?, description_ku = ?, title_ar = ?, description_ar = ?
+     WHERE chapter_number = 4`
+  );
+
+  const updateQuestionStmt = db.prepare(
+    `UPDATE questions
+     SET question_text_ku = ?,
+         option_a_ku = ?,
+         option_b_ku = ?,
+         option_c_ku = ?,
+         option_d_ku = ?,
+         explanation_ku = ?,
+         question_text_ar = ?,
+         option_a_ar = ?,
+         option_b_ar = ?,
+         option_c_ar = ?,
+         option_d_ar = ?,
+         explanation_ar = ?
+     WHERE scope = 'chapter'
+       AND chapter_number = ?
+       AND question_text = ?`
+  );
+
+  const tx = db.transaction(() => {
+    if (ch4Meta) {
+      updateChapterStmt.run(
+        normalizeScientificUnits(ch4Meta.titleKu),
+        normalizeScientificUnits(ch4Meta.descriptionKu),
+        normalizeScientificUnits(ch4Meta.titleAr),
+        normalizeScientificUnits(ch4Meta.descriptionAr)
+      );
+    }
+
+    for (const q of CHAPTER_4_TRANSLATIONS) {
+      updateQuestionStmt.run(
+        normalizeScientificUnits(q.ku.questionText),
+        normalizeScientificUnits(q.ku.optionA),
+        normalizeScientificUnits(q.ku.optionB),
+        normalizeScientificUnits(q.ku.optionC),
+        normalizeScientificUnits(q.ku.optionD),
+        normalizeScientificUnits(q.ku.explanation),
+        normalizeScientificUnits(q.ar.questionText),
+        normalizeScientificUnits(q.ar.optionA),
+        normalizeScientificUnits(q.ar.optionB),
+        normalizeScientificUnits(q.ar.optionC),
+        normalizeScientificUnits(q.ar.optionD),
+        normalizeScientificUnits(q.ar.explanation),
+        q.chapterNumber,
+        q.questionText
+      );
+    }
+
+    db.prepare(
+      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('seeded_translations_ch4_v1', 'true')"
     ).run();
   });
 

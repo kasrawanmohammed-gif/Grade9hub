@@ -614,6 +614,10 @@ export interface HeroSlideItem {
   caption?: string;
   captionKu?: string;
   captionAr?: string;
+  subtitle?: string;
+  subtitleKu?: string;
+  subtitleAr?: string;
+  link?: string;
   objectPosition?: string;
 }
 

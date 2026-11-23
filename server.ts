@@ -45,9 +45,12 @@ import {
   verifySessionJwt,
 } from './server/authSecret.ts';
 import { seedChapters1To3IfNeeded } from './server/seedChapters123.ts';
+import { seedChapter4IfNeeded } from './server/seedChapter4.ts';
 import { populateMissingExplanations123 } from './server/explanations123.ts';
+import { populateMissingExplanations4 } from './server/explanationsCh4.ts';
 import {
   populateTranslations123,
+  populateTranslations4,
   autoTranslateQuestionInBackground,
   autoTranslateChapterInBackground,
 } from './server/populateTranslations.ts';
@@ -692,6 +695,10 @@ interface ServerHeroSlide {
   caption?: string;
   captionKu?: string;
   captionAr?: string;
+  subtitle?: string;
+  subtitleKu?: string;
+  subtitleAr?: string;
+  link?: string;
   objectPosition?: string;
 }
 
@@ -733,6 +740,26 @@ function isValidServerHeroSlideSrc(src: unknown): src is string {
   return /^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(trimmed);
 }
 
+function sanitizeServerHeroLink(val: unknown): string | undefined {
+  if (typeof val !== 'string') return undefined;
+  const trimmed = val.trim();
+  if (!trimmed || trimmed.length > 500) return undefined;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return !/[\s<>"'`]/.test(trimmed) ? trimmed : undefined;
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return (parsed.protocol === 'https:' || parsed.protocol === 'http:') && Boolean(parsed.hostname)
+        ? trimmed
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
 function sanitizeServerHeroSlides(raw: unknown): ServerHeroSlide[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const seenIds = new Set<string>();
@@ -758,6 +785,11 @@ function sanitizeServerHeroSlides(raw: unknown): ServerHeroSlide[] | undefined {
         ? val.replace(/[\r\n\t]+/g, ' ').trim().slice(0, max)
         : undefined;
 
+    const subtitle = pickStr(rec.subtitle, 160);
+    const subtitleKu = pickStr(rec.subtitleKu, 160);
+    const subtitleAr = pickStr(rec.subtitleAr, 160);
+    const link = sanitizeServerHeroLink(rec.link);
+
     clean.push({
       id,
       src: rec.src.trim(),
@@ -767,6 +799,10 @@ function sanitizeServerHeroSlides(raw: unknown): ServerHeroSlide[] | undefined {
       ...(pickStr(rec.caption, 140) ? { caption: pickStr(rec.caption, 140) } : {}),
       ...(pickStr(rec.captionKu, 140) ? { captionKu: pickStr(rec.captionKu, 140) } : {}),
       ...(pickStr(rec.captionAr, 140) ? { captionAr: pickStr(rec.captionAr, 140) } : {}),
+      ...(subtitle ? { subtitle } : {}),
+      ...(subtitleKu ? { subtitleKu } : {}),
+      ...(subtitleAr ? { subtitleAr } : {}),
+      ...(link ? { link } : {}),
       ...(pickStr(rec.objectPosition, 40) ? { objectPosition: pickStr(rec.objectPosition, 40) } : {}),
     });
   }
@@ -1454,8 +1490,11 @@ async function startServer() {
   }
   db.prepare("DELETE FROM sessions WHERE julianday(expires_at) < julianday('now')").run();
   seedChapters1To3IfNeeded();
+  seedChapter4IfNeeded();
   populateMissingExplanations123();
+  populateMissingExplanations4();
   populateTranslations123();
+  populateTranslations4();
   seedTextbooksIfNeeded();
   await migrateDiskAvatarsToBase64();
   checkpointDatabase();

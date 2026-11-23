@@ -130,7 +130,7 @@ export function normalizeScientificUnits(text: string): string {
   // 3. Arabic/Kurdish digits directly paired with Latin SI unit symbols -> ASCII digits + Latin unit
   out = out.replace(
     new RegExp(
-      `${NUM_RE}\\s*(°\\s*[CF]|m\\/s²|m\\/s\\^2|m\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|J\\/s|N\\/m²|kg|mg|km|cm|mm|Hz|Pa|kJ|kW|kPa|m|g|s|N|J|W|K|A|V|Ω)(?![A-Za-z\\p{L}])`,
+      `${NUM_RE}\\s*(°\\s*[CF]|m\\/s²|m\\/s\\^2|m\\/s|km\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|J\\/s|N\\/m²|kg|mg|km|cm|mm|nm|μm|Hz|Pa|kJ|kW|kPa|m|g|s|N|J|W|K|A|V|Ω)(?![A-Za-z\\p{L}])`,
       'gu'
     ),
     (_m, numStr: string, unit: string) => `${toAsciiDigits(numStr)} ${unit.replace(/\s+/g, '')}`

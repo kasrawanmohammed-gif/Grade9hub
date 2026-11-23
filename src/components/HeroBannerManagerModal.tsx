@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ArrowDown,
   ArrowUp,
   Check,
+  ExternalLink,
   ImagePlus,
+  Loader2,
   Pencil,
   Plus,
   RotateCcw,
@@ -13,8 +16,11 @@ import {
 } from 'lucide-react';
 import { HERO_SLIDES, type HeroSlide } from '../config/heroSlides';
 import {
+  MAX_HERO_LINK_LENGTH,
   MAX_HERO_SLIDES,
+  isSafeHeroSlideLink,
   isSafeHeroSlideSrc,
+  normalizeHeroSlideLink,
   readAndCompressBannerFile,
 } from '../lib/heroSlidesStore';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -31,8 +37,9 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
   onSave,
   onClose,
 }) => {
-  const { t } = useLanguage();
+  const { t, dir } = useLanguage();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollBodyRef = useRef<HTMLDivElement | null>(null);
 
   const [draftSlides, setDraftSlides] = useState<HeroSlide[]>(() =>
     slides.length > 0 ? [...slides] : [...HERO_SLIDES]
@@ -41,6 +48,8 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
   const [editingSlideId, setEditingSlideId] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [caption, setCaption] = useState('');
+  const [subtitle, setSubtitle] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
   const [altLabel, setAltLabel] = useState('');
   const [previewFailed, setPreviewFailed] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -57,7 +66,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !saving) {
+      if (e.key === 'Escape' && !saving && !uploadingFile) {
         onClose();
       }
     };
@@ -66,7 +75,12 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [onClose, saving]);
+  }, [onClose, saving, uploadingFile]);
+
+  const showError = (message: string) => {
+    setFormError(message);
+    scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const trimmedPreviewSrc = imageUrl.trim();
   const hasPreviewCandidate = Boolean(trimmedPreviewSrc) && isSafeHeroSlideSrc(trimmedPreviewSrc);
@@ -79,6 +93,8 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
     setEditingSlideId(null);
     setImageUrl('');
     setCaption('');
+    setSubtitle('');
+    setLinkUrl('');
     setAltLabel('');
     setPreviewFailed(false);
     setFormError(null);
@@ -89,8 +105,11 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
     setEditingSlideId(slide.id);
     setImageUrl(slide.src || '');
     setCaption(slide.caption || '');
+    setSubtitle(slide.subtitle || '');
+    setLinkUrl(slide.link || '');
     setAltLabel(slide.alt || '');
     setPreviewFailed(false);
+    scrollBodyRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,7 +131,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
       }
     } catch (err) {
       const code = err instanceof Error ? err.message : '';
-      setFormError(
+      showError(
         code === 'IMAGE_TOO_LARGE'
           ? t.home.bannerFileTooLargeErr
           : t.home.bannerInvalidImageErr
@@ -122,50 +141,66 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
     }
   };
 
-  const handleAddOrUpdateSlide = () => {
-    setFormError(null);
+  const buildSlideListWithForm = (
+    baseList: HeroSlide[]
+  ): { ok: true; next: HeroSlide[]; committedPending: boolean } | { ok: false; error: string } => {
     const src = imageUrl.trim();
+    const trimmedLink = linkUrl.trim();
+    const hasFormContent =
+      Boolean(src) ||
+      Boolean(caption.trim()) ||
+      Boolean(subtitle.trim()) ||
+      Boolean(trimmedLink) ||
+      Boolean(altLabel.trim());
+
+    if (!isEditing && !hasFormContent) {
+      return { ok: true, next: baseList, committedPending: false };
+    }
+
     if (!src) {
-      setFormError(t.home.bannerEmptyUrlErr);
-      return;
+      return { ok: false, error: t.home.bannerEmptyUrlErr };
     }
     if (!isSafeHeroSlideSrc(src) || previewFailed) {
-      setFormError(t.home.bannerInvalidImageErr);
-      return;
+      return { ok: false, error: t.home.bannerInvalidImageErr };
+    }
+    if (trimmedLink && !isSafeHeroSlideLink(trimmedLink)) {
+      return { ok: false, error: t.home.bannerInvalidLinkErr };
     }
 
     const cleanCaption = caption.trim().slice(0, 140);
+    const cleanSubtitle = subtitle.trim().slice(0, 160);
+    const cleanLink = normalizeHeroSlideLink(trimmedLink);
     const cleanAlt =
       altLabel.trim().slice(0, 180) ||
       cleanCaption ||
-      `Grade 9 Science banner ${draftSlides.length + 1}`;
+      cleanSubtitle ||
+      `Grade 9 Science banner ${baseList.length + 1}`;
 
     if (isEditing && editingSlideId) {
-      setDraftSlides((prev) =>
-        prev.map((slide) => {
-          if (slide.id !== editingSlideId) return slide;
-          const updated: HeroSlide = {
-            ...slide,
-            src,
-            alt: cleanAlt,
-            objectPosition: slide.objectPosition || 'center center',
-          };
-          if (cleanCaption) {
-            updated.caption = cleanCaption;
-          } else {
-            delete updated.caption;
-          }
-          return updated;
-        })
-      );
-      setHasLocalEdits(true);
-      clearEditorForm();
-      return;
+      const next = baseList.map((slide) => {
+        if (slide.id !== editingSlideId) return slide;
+        const updated: HeroSlide = {
+          ...slide,
+          src,
+          alt: cleanAlt,
+          objectPosition: slide.objectPosition || 'center center',
+        };
+        if (cleanCaption) updated.caption = cleanCaption;
+        else delete updated.caption;
+        if (cleanSubtitle) updated.subtitle = cleanSubtitle;
+        else delete updated.subtitle;
+        if (cleanLink) updated.link = cleanLink;
+        else delete updated.link;
+        return updated;
+      });
+      return { ok: true, next, committedPending: true };
     }
 
-    if (draftSlides.length >= MAX_HERO_SLIDES) {
-      setFormError(formatMsg(t.home.bannerMaxSlidesErr, { max: MAX_HERO_SLIDES }));
-      return;
+    if (baseList.length >= MAX_HERO_SLIDES) {
+      return {
+        ok: false,
+        error: formatMsg(t.home.bannerMaxSlidesErr, { max: MAX_HERO_SLIDES }),
+      };
     }
 
     const newSlide: HeroSlide = {
@@ -173,10 +208,26 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
       src,
       alt: cleanAlt,
       ...(cleanCaption ? { caption: cleanCaption } : {}),
+      ...(cleanSubtitle ? { subtitle: cleanSubtitle } : {}),
+      ...(cleanLink ? { link: cleanLink } : {}),
       objectPosition: 'center center',
     };
 
-    setDraftSlides((prev) => [...prev, newSlide]);
+    return { ok: true, next: [...baseList, newSlide], committedPending: true };
+  };
+
+  const handleAddOrUpdateSlide = () => {
+    setFormError(null);
+    if (!imageUrl.trim()) {
+      showError(t.home.bannerEmptyUrlErr);
+      return;
+    }
+    const built = buildSlideListWithForm(draftSlides);
+    if (!built.ok) {
+      showError(built.error);
+      return;
+    }
+    setDraftSlides(built.next);
     setHasLocalEdits(true);
     clearEditorForm();
   };
@@ -196,7 +247,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
 
   const handleDelete = (index: number) => {
     if (draftSlides.length <= 1) {
-      setFormError(t.home.bannerMinOneSlideMsg);
+      showError(t.home.bannerMinOneSlideMsg);
       return;
     }
     const targetId = draftSlides[index]?.id;
@@ -216,48 +267,62 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
   };
 
   const handleSave = async () => {
-    if (saving) return;
-    setSaving(true);
+    if (saving || uploadingFile) return;
     setFormError(null);
+
+    const built = buildSlideListWithForm(draftSlides);
+    if (!built.ok) {
+      showError(built.error);
+      return;
+    }
+
+    const next = built.next.length > 0 ? built.next : [...HERO_SLIDES];
+    if (built.committedPending) {
+      setDraftSlides(next);
+      setHasLocalEdits(true);
+      clearEditorForm();
+    }
+
+    setSaving(true);
     try {
-      const next = draftSlides.length > 0 ? draftSlides : [...HERO_SLIDES];
       const result = await onSave(next);
       if (result.ok) {
         onClose();
       } else {
-        setFormError(result.notice || t.home.bannerSaveFailedErr);
+        showError(result.notice || t.home.bannerSaveFailedErr);
       }
     } catch {
-      setFormError(t.home.bannerSaveFailedErr);
+      showError(t.home.bannerSaveFailedErr);
     } finally {
       setSaving(false);
     }
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 backdrop-blur-xs p-3 sm:p-5"
+      dir={dir}
+      className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center bg-black/65 backdrop-blur-xs p-0 sm:p-5 overflow-hidden"
       role="dialog"
       aria-modal="true"
       aria-label={t.home.bannerManagerTitle}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !saving) {
+        if (e.target === e.currentTarget && !saving && !uploadingFile) {
           onClose();
         }
       }}
     >
-      <div className="g9-animate-modal-pop w-full max-w-2xl max-h-[90dvh] flex flex-col rounded-2xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] shadow-2xl overflow-hidden">
-        {/* Modal Header */}
-        <header className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-5 py-4 shrink-0">
+      <div className="g9-animate-modal-pop w-full sm:max-w-2xl max-h-[90dvh] flex flex-col rounded-t-2xl sm:rounded-2xl border border-[#E6DFD5] bg-[#FAF8F5] shadow-2xl overflow-hidden">
+        {/* Sticky Modal Header */}
+        <header className="flex items-start justify-between gap-3 border-b border-[#E6DFD5] bg-white px-4 py-3.5 sm:px-5 sm:py-4 shrink-0">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#F9EFF0] dark:bg-[#3A171C] border border-[#E6DFD5] dark:border-[#7F1D1D] flex items-center justify-center shrink-0">
-              <ImagePlus className="w-5 h-5 text-[#6B1118] dark:text-[#FCA5A5]" />
+            <div className="w-10 h-10 rounded-xl bg-[#F9EFF0] border border-[#E6DFD5] flex items-center justify-center shrink-0">
+              <ImagePlus className="w-5 h-5 text-[#6B1118]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-base sm:text-lg font-bold text-[#1C1917] dark:text-[#F8FAFC] truncate">
+              <h3 className="text-base sm:text-lg font-bold text-[#1C1917] truncate">
                 {t.home.bannerManagerTitle}
               </h3>
-              <p className="text-xs text-[#57534E] dark:text-[#CBD5E1] mt-0.5 leading-relaxed">
+              <p className="text-xs text-[#57534E] mt-0.5 leading-relaxed">
                 {t.home.bannerManagerSub}
               </p>
             </div>
@@ -265,19 +330,25 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
 
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || uploadingFile}
             onClick={onClose}
             aria-label={t.home.bannerCancelBtn}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] text-[#57534E] dark:text-[#CBD5E1] hover:text-[#1C1917] dark:hover:text-white hover:border-[#6B1118]/40 transition-colors cursor-pointer shrink-0"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] text-[#57534E] hover:text-[#1C1917] hover:border-[#6B1118]/40 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
           >
             <X className="w-4 h-4" />
           </button>
         </header>
 
         {/* Scrollable Modal Body */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 space-y-5">
+        <div
+          ref={scrollBodyRef}
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-5"
+        >
           {formError && (
-            <div className="rounded-xl border border-[#DC2626]/30 bg-[#FEF2F2] dark:bg-[#451418] px-3.5 py-2.5 text-xs sm:text-sm font-medium text-[#991B1B] dark:text-[#FECACA]">
+            <div
+              role="alert"
+              className="rounded-xl border border-[#DC2626]/35 bg-[#FEF2F2] px-3.5 py-2.5 text-xs sm:text-sm font-medium text-[#991B1B]"
+            >
               {formError}
             </div>
           )}
@@ -286,13 +357,13 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
           <section
             className={`rounded-xl border p-4 space-y-3.5 ${
               isEditing
-                ? 'border-[#6B1118]/45 bg-[#FFFDF9] dark:border-[#E5B742]/45 dark:bg-[#1E293B]'
-                : 'border-[#E6DFD5] dark:border-[#334155] bg-white dark:bg-[#1E293B]'
+                ? 'border-[#6B1118]/50 bg-[#FBF4DF]/45'
+                : 'border-[#E6DFD5] bg-white'
             }`}
           >
             {isEditing && (
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#E6DFD5] dark:border-[#334155]">
-                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#6B1118] dark:text-[#FDE68A]">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[#E6DFD5]">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#6B1118]">
                   <Pencil className="w-3.5 h-3.5" />
                   <span>
                     {t.home.bannerEditingTitle} #{editingIndex + 1}
@@ -301,7 +372,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                 <button
                   type="button"
                   onClick={clearEditorForm}
-                  className="text-xs font-semibold text-[#57534E] dark:text-[#CBD5E1] hover:text-[#1C1917] dark:hover:text-white underline cursor-pointer"
+                  className="text-xs font-semibold text-[#57534E] hover:text-[#1C1917] underline cursor-pointer"
                 >
                   {t.home.bannerCancelEditBtn}
                 </button>
@@ -312,7 +383,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
               <div>
                 <label
                   htmlFor="hero-banner-url"
-                  className="block text-xs font-semibold text-[#1C1917] dark:text-[#F1F5F9] mb-1"
+                  className="block text-xs font-semibold text-[#1C1917] mb-1"
                 >
                   {t.home.bannerUrlLabel}
                 </label>
@@ -326,7 +397,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                     setFormError(null);
                   }}
                   placeholder={t.home.bannerUrlPlaceholder}
-                  className="w-full rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-3.5 py-2.5 text-sm text-[#1C1917] dark:text-[#F8FAFC] focus:outline-none focus:border-[#6B1118] min-h-[42px]"
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[42px]"
                 />
               </div>
 
@@ -334,18 +405,28 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/*"
                   className="hidden"
                   onChange={handleFileChange}
                 />
                 <button
                   type="button"
-                  disabled={uploadingFile}
+                  disabled={uploadingFile || saving}
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-4 py-2.5 text-xs font-semibold text-[#6B1118] dark:text-[#FDE68A] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[42px] whitespace-nowrap"
+                  className="inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2.5 text-xs font-semibold text-[#6B1118] hover:border-[#6B1118] transition-colors cursor-pointer min-h-[42px] whitespace-nowrap disabled:opacity-60"
                 >
-                  <Upload className="w-4 h-4 shrink-0" />
-                  <span>{isEditing ? t.home.bannerReplacePhoto : t.home.bannerUploadBtn}</span>
+                  {uploadingFile ? (
+                    <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4 shrink-0" />
+                  )}
+                  <span>
+                    {uploadingFile
+                      ? t.home.bannerUploadingStatus
+                      : isEditing
+                      ? t.home.bannerReplacePhoto
+                      : t.home.bannerUploadBtn}
+                  </span>
                 </button>
               </div>
             </div>
@@ -354,7 +435,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
               <div>
                 <label
                   htmlFor="hero-banner-caption"
-                  className="block text-xs font-semibold text-[#1C1917] dark:text-[#F1F5F9] mb-1"
+                  className="block text-xs font-semibold text-[#1C1917] mb-1"
                 >
                   {t.home.bannerCaptionLabel}
                 </label>
@@ -365,14 +446,53 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
                   placeholder={t.home.bannerCaptionPlaceholder}
-                  className="w-full rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-3.5 py-2 text-sm text-[#1C1917] dark:text-[#F8FAFC] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="hero-banner-subtitle"
+                  className="block text-xs font-semibold text-[#1C1917] mb-1"
+                >
+                  {t.home.bannerSubtitleLabel}
+                </label>
+                <input
+                  id="hero-banner-subtitle"
+                  type="text"
+                  maxLength={160}
+                  value={subtitle}
+                  onChange={(e) => setSubtitle(e.target.value)}
+                  placeholder={t.home.bannerSubtitlePlaceholder}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="hero-banner-link"
+                  className="block text-xs font-semibold text-[#1C1917] mb-1"
+                >
+                  {t.home.bannerLinkLabel}
+                </label>
+                <input
+                  id="hero-banner-link"
+                  type="text"
+                  maxLength={MAX_HERO_LINK_LENGTH}
+                  value={linkUrl}
+                  onChange={(e) => {
+                    setLinkUrl(e.target.value);
+                    setFormError(null);
+                  }}
+                  placeholder={t.home.bannerLinkPlaceholder}
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
                 />
               </div>
 
               <div>
                 <label
                   htmlFor="hero-banner-alt"
-                  className="block text-xs font-semibold text-[#1C1917] dark:text-[#F1F5F9] mb-1"
+                  className="block text-xs font-semibold text-[#1C1917] mb-1"
                 >
                   {t.home.bannerAltLabel}
                 </label>
@@ -383,7 +503,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                   value={altLabel}
                   onChange={(e) => setAltLabel(e.target.value)}
                   placeholder={t.home.bannerAltPlaceholder}
-                  className="w-full rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-3.5 py-2 text-sm text-[#1C1917] dark:text-[#F8FAFC] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
+                  className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118] min-h-[40px]"
                 />
               </div>
             </div>
@@ -391,19 +511,35 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
             {/* Live Image Preview */}
             {trimmedPreviewSrc && (
               <div className="space-y-1.5">
-                <span className="block text-[11px] font-semibold text-[#57534E] dark:text-[#CBD5E1]">
+                <span className="block text-[11px] font-semibold text-[#57534E]">
                   {t.home.bannerPreviewLabel}
                 </span>
-                <div className="relative h-32 w-full rounded-xl overflow-hidden border border-[#E6DFD5] dark:border-[#334155] bg-[#32050A] flex items-center justify-center">
+                <div className="relative h-36 w-full rounded-xl overflow-hidden border border-[#E6DFD5] bg-[#32050A] flex items-center justify-center">
                   {hasPreviewCandidate && !previewFailed ? (
-                    <img
-                      src={trimmedPreviewSrc}
-                      alt={altLabel.trim() || t.home.bannerPreviewLabel}
-                      referrerPolicy="no-referrer"
-                      onLoad={() => setPreviewFailed(false)}
-                      onError={() => setPreviewFailed(true)}
-                      className="h-full w-full object-contain"
-                    />
+                    <>
+                      <img
+                        src={trimmedPreviewSrc}
+                        alt={altLabel.trim() || t.home.bannerPreviewLabel}
+                        referrerPolicy="no-referrer"
+                        onLoad={() => setPreviewFailed(false)}
+                        onError={() => setPreviewFailed(true)}
+                        className="h-full w-full object-contain"
+                      />
+                      {(caption.trim() || subtitle.trim()) && (
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 py-2 text-start">
+                          {caption.trim() && (
+                            <p className="text-xs font-bold text-white truncate">
+                              {caption.trim()}
+                            </p>
+                          )}
+                          {subtitle.trim() && (
+                            <p className="text-[11px] text-white/85 truncate">
+                              {subtitle.trim()}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <p className="px-4 text-center text-xs font-medium text-white/85">
                       {t.home.bannerInvalidImageErr}
@@ -418,14 +554,14 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                 <button
                   type="button"
                   onClick={clearEditorForm}
-                  className="rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-3.5 py-2 text-xs font-semibold text-[#57534E] dark:text-[#CBD5E1] hover:text-[#1C1917] dark:hover:text-white transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+                  className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
                 >
                   {t.home.bannerCancelEditBtn}
                 </button>
               )}
               <button
                 type="button"
-                disabled={!trimmedPreviewSrc || previewFailed || uploadingFile}
+                disabled={!trimmedPreviewSrc || previewFailed || uploadingFile || saving}
                 onClick={handleAddOrUpdateSlide}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-4 py-2 text-xs font-semibold text-white hover:bg-[#530D12] disabled:opacity-45 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
               >
@@ -442,10 +578,10 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
           {/* Current Ordered Slides */}
           <section className="space-y-2.5">
             <div className="flex items-center justify-between gap-2">
-              <h4 className="text-sm font-bold text-[#1C1917] dark:text-[#F8FAFC]">
+              <h4 className="text-sm font-bold text-[#1C1917]">
                 {t.home.bannerCurrentTitle}
               </h4>
-              <span className="text-xs font-medium text-[#57534E] dark:text-[#CBD5E1] tabular-nums">
+              <span className="text-xs font-medium text-[#57534E] tabular-nums">
                 {formatMsg(t.home.bannerCountLabel, { count: draftSlides.length })}
               </span>
             </div>
@@ -459,11 +595,11 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                     key={slide.id}
                     className={`flex items-center gap-3 rounded-xl border p-2.5 sm:p-3 transition-colors ${
                       isBeingEdited
-                        ? 'border-[#6B1118] bg-[#F9EFF0]/70 dark:border-[#E5B742] dark:bg-[#27181B]'
-                        : 'border-[#E6DFD5] dark:border-[#334155] bg-white dark:bg-[#1E293B]'
+                        ? 'border-[#6B1118] bg-[#F9EFF0]/70'
+                        : 'border-[#E6DFD5] bg-white'
                     }`}
                   >
-                    <div className="h-14 w-24 sm:h-16 sm:w-28 rounded-lg overflow-hidden border border-[#E6DFD5] dark:border-[#334155] bg-[#32050A] shrink-0 flex items-center justify-center">
+                    <div className="h-14 w-24 sm:h-16 sm:w-28 rounded-lg overflow-hidden border border-[#E6DFD5] bg-[#32050A] shrink-0 flex items-center justify-center">
                       <img
                         src={slide.src}
                         alt={slide.alt}
@@ -472,14 +608,27 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                       />
                     </div>
 
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                      <p className="text-xs sm:text-sm font-semibold text-[#1C1917] dark:text-[#F8FAFC] truncate">
+                    <div className="min-w-0 flex-1 space-y-0.5 text-start">
+                      <p className="text-xs sm:text-sm font-semibold text-[#1C1917] truncate">
                         {slide.caption || slide.alt}
                       </p>
-                      <p className="text-[11px] text-[#57534E] dark:text-[#CBD5E1] truncate tabular-nums">
-                        #{index + 1}
-                        {isDefault ? ` · ${t.home.bannerDefaultTag}` : ''}
-                      </p>
+                      {slide.subtitle && (
+                        <p className="text-[11px] text-[#57534E] truncate">
+                          {slide.subtitle}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 text-[11px] text-[#57534E] tabular-nums">
+                        <span>
+                          #{index + 1}
+                          {isDefault ? ` · ${t.home.bannerDefaultTag}` : ''}
+                        </span>
+                        {slide.link && (
+                          <span className="inline-flex items-center gap-1 truncate text-[#6B1118]">
+                            <ExternalLink className="w-3 h-3 shrink-0" />
+                            <span className="truncate max-w-[140px]">{slide.link}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     <div className="flex items-center gap-1 shrink-0">
@@ -491,7 +640,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                         className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors cursor-pointer ${
                           isBeingEdited
                             ? 'border-[#6B1118] bg-[#6B1118] text-white'
-                            : 'border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] text-[#6B1118] dark:text-[#FDE68A] hover:border-[#6B1118]/50'
+                            : 'border-[#E6DFD5] bg-[#FAF8F5] text-[#6B1118] hover:border-[#6B1118]/50'
                         }`}
                       >
                         <Pencil className="w-3.5 h-3.5" />
@@ -502,7 +651,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                         onClick={() => handleMove(index, -1)}
                         aria-label={t.home.bannerMoveUp}
                         title={t.home.bannerMoveUp}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] text-[#1C1917] dark:text-[#F8FAFC] hover:border-[#6B1118]/50 disabled:opacity-35 cursor-pointer"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] text-[#1C1917] hover:border-[#6B1118]/50 disabled:opacity-35 cursor-pointer"
                       >
                         <ArrowUp className="w-4 h-4" />
                       </button>
@@ -512,7 +661,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                         onClick={() => handleMove(index, 1)}
                         aria-label={t.home.bannerMoveDown}
                         title={t.home.bannerMoveDown}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] text-[#1C1917] dark:text-[#F8FAFC] hover:border-[#6B1118]/50 disabled:opacity-35 cursor-pointer"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] text-[#1C1917] hover:border-[#6B1118]/50 disabled:opacity-35 cursor-pointer"
                       >
                         <ArrowDown className="w-4 h-4" />
                       </button>
@@ -521,7 +670,7 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
                         onClick={() => handleDelete(index)}
                         aria-label={t.home.bannerDeleteSlide}
                         title={t.home.bannerDeleteSlide}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] text-[#57534E] dark:text-[#CBD5E1] hover:text-[#DC2626] hover:border-[#DC2626]/40 cursor-pointer"
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[#E6DFD5] bg-[#FAF8F5] text-[#57534E] hover:text-[#DC2626] hover:border-[#DC2626]/40 cursor-pointer"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -534,12 +683,12 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
         </div>
 
         {/* Sticky Footer Actions */}
-        <footer className="flex flex-wrap items-center justify-between gap-2.5 border-t border-[#E6DFD5] dark:border-[#334155] bg-white dark:bg-[#1E293B] px-4 py-3 sm:px-5 shrink-0">
+        <footer className="flex flex-wrap items-center justify-between gap-2.5 border-t border-[#E6DFD5] bg-white px-4 py-3 pb-safe sm:px-5 shrink-0">
           <button
             type="button"
-            disabled={saving}
+            disabled={saving || uploadingFile}
             onClick={handleResetDefault}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-3.5 py-2 text-xs font-semibold text-[#57534E] dark:text-[#CBD5E1] hover:text-[#1C1917] dark:hover:text-white hover:border-[#6B1118]/40 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2 text-xs font-semibold text-[#57534E] hover:text-[#1C1917] hover:border-[#6B1118]/40 transition-colors cursor-pointer min-h-[42px] whitespace-nowrap disabled:opacity-50"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>{t.home.bannerResetDefault}</span>
@@ -548,23 +697,29 @@ export const HeroBannerManagerModal: React.FC<HeroBannerManagerModalProps> = ({
           <div className="flex items-center gap-2 ms-auto">
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || uploadingFile}
               onClick={onClose}
-              className="rounded-xl border border-[#E6DFD5] dark:border-[#334155] bg-[#FAF8F5] dark:bg-[#0F172A] px-4 py-2 text-xs sm:text-sm font-semibold text-[#1C1917] dark:text-[#F8FAFC] hover:border-[#6B1118]/40 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+              className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-4 py-2 text-xs sm:text-sm font-semibold text-[#1C1917] hover:border-[#6B1118]/40 transition-colors cursor-pointer min-h-[42px] whitespace-nowrap disabled:opacity-50"
             >
               {t.home.bannerCancelBtn}
             </button>
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || uploadingFile}
               onClick={handleSave}
-              className="rounded-xl bg-[#6B1118] px-5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] disabled:opacity-55 transition-colors cursor-pointer min-h-[40px] whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 rounded-xl bg-[#6B1118] px-5 py-2 text-xs sm:text-sm font-semibold text-white hover:bg-[#530D12] disabled:opacity-55 transition-colors cursor-pointer min-h-[42px] whitespace-nowrap"
             >
-              {saving ? t.home.bannerSavingBtn : t.home.bannerSaveBtn}
+              {saving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>{saving ? t.home.bannerSavingBtn : t.home.bannerSaveBtn}</span>
             </button>
           </div>
         </footer>
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined' && document.body) {
+    return createPortal(modalContent, document.body);
+  }
+  return modalContent;
 };

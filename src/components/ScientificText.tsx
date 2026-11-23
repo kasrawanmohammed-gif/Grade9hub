@@ -7,13 +7,13 @@ import { useLanguage } from '../contexts/LanguageContext';
  * without BiDi scrambling of minus signs, slashes, or parentheses.
  */
 const SCI_QTY =
-  '[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*(?:°\\s*[CFK]|m\\/s²|m\\/s\\^2|m\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|J\\/s|N\\/m²|kg|mg|km|cm|mm|Hz|Pa|kJ|kW|kPa|m|g|s|N|J|W|K|A|V|Ω)(?![A-Za-z0-9_])';
+  '[+-]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:\\s*[×x]\\s*10[⁰¹²³⁴⁵⁶⁷⁸⁹+−\\-0-9]+)?\\s*(?:°\\s*[CFK]|°|m\\/s²|m\\/s\\^2|m\\/s|km\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|J\\/s|N\\/m²|kg|mg|km|cm|mm|nm|μm|Hz|Pa|kJ|kW|kPa|m|g|s|N|J|W|K|A|V|Ω)(?![A-Za-z0-9_])';
 
 const PAREN_UNIT =
-  '\\(\\s*(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?\\s*)?(?:°[CFK]|m\\/s²|m\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|kg|mg|km|cm|mm|Hz|Pa|kJ|kW|kPa|N|J|W|K|m|g|s)\\s*\\)';
+  '\\(\\s*(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:\\s*[×x]\\s*10[⁰¹²³⁴⁵⁶⁷⁸⁹+−\\-0-9]+)?\\s*)?(?:°[CFK]|°|m\\/s²|m\\/s|km\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|kg|mg|km|cm|mm|nm|μm|Hz|Pa|kJ|kW|kPa|N|J|W|K|m|g|s)\\s*\\)';
 
 const ASCII_EQUATION =
-  '(?:Δ?[A-Za-z][A-Za-z0-9_]*)\\s*=\\s*(?:\\([^()]*\\)|[A-Za-z0-9_,+−\\-*/^²³·×÷Δ°%≈]|\\.(?=\\d)|\\s(?=[A-Za-z0-9_Δ(+\\-−°]))+(?:\\s*(?:°\\s*[CFK]|m\\/s²|m\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|kg|cm|mm|km|Hz|Pa|N|J|W|K|m|g|s))?';
+  '(?:Δ?[A-Za-zθ][A-Za-z0-9_′]*)\\s*=\\s*(?:\\([^()]*\\)|[A-Za-z0-9_θ′,+−\\-*/^²³·×÷Δ°%≈]|\\.(?=\\d)|\\s(?=[A-Za-z0-9_θ′Δ(+\\-−°]))+(?:\\s*(?:°\\s*[CFK]|°|m\\/s²|m\\/s|km\\/s|km\\/h|N·m|J\\/\\(kg·°[CF]\\)|J\\/kg·°[CF]|kg|cm|mm|nm|μm|km|Hz|Pa|N|J|W|K|m|g|s))?';
 
 const SCIENTIFIC_SEGMENT_RE = new RegExp(
   `(${PAREN_UNIT}|${ASCII_EQUATION}|${SCI_QTY})`,

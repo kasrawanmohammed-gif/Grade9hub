@@ -289,6 +289,10 @@ service cloud.firestore {
           'caption',
           'captionKu',
           'captionAr',
+          'subtitle',
+          'subtitleKu',
+          'subtitleAr',
+          'link',
           'objectPosition',
           'updatedAt'
         ]) &&
@@ -302,6 +306,10 @@ service cloud.firestore {
         (!data.keys().hasAny(['caption']) || (data.caption is string && data.caption.size() <= 140)) &&
         (!data.keys().hasAny(['captionKu']) || (data.captionKu is string && data.captionKu.size() <= 140)) &&
         (!data.keys().hasAny(['captionAr']) || (data.captionAr is string && data.captionAr.size() <= 140)) &&
+        (!data.keys().hasAny(['subtitle']) || (data.subtitle is string && data.subtitle.size() <= 160)) &&
+        (!data.keys().hasAny(['subtitleKu']) || (data.subtitleKu is string && data.subtitleKu.size() <= 160)) &&
+        (!data.keys().hasAny(['subtitleAr']) || (data.subtitleAr is string && data.subtitleAr.size() <= 160)) &&
+        (!data.keys().hasAny(['link']) || (data.link is string && data.link.size() <= 500)) &&
         (!data.keys().hasAny(['objectPosition']) || (data.objectPosition is string && data.objectPosition.size() <= 40)) &&
         data.updatedAt is timestamp;
     }

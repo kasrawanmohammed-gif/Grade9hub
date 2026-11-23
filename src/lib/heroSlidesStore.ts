@@ -5,6 +5,8 @@ export const HERO_BANNERS_UPDATED_EVENT = 'grade9hub:hero-banners-updated';
 export const HERO_BANNERS_CHANNEL_NAME = 'grade9hub-banners';
 export const MAX_HERO_SLIDES = 12;
 export const MAX_HERO_DATA_URL_LENGTH = 260_000;
+const TARGET_COMPRESSED_DATA_URL_LENGTH = 215_000;
+export const MAX_HERO_LINK_LENGTH = 500;
 
 export function isSafeHeroSlideSrc(src: unknown): src is string {
   if (typeof src !== 'string') return false;
@@ -27,6 +29,32 @@ export function isSafeHeroSlideSrc(src: unknown): src is string {
     return true;
   }
   return false;
+}
+
+export function isSafeHeroSlideLink(link: unknown): link is string {
+  if (typeof link !== 'string') return false;
+  const trimmed = link.trim();
+  if (!trimmed || trimmed.length > MAX_HERO_LINK_LENGTH) return false;
+  if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return !/[\s<>"'`]/.test(trimmed);
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      return (
+        (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+        Boolean(parsed.hostname)
+      );
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export function normalizeHeroSlideLink(link: unknown): string | undefined {
+  if (!isSafeHeroSlideLink(link)) return undefined;
+  return link.trim();
 }
 
 function cleanShortText(value: unknown, maxLen: number): string | undefined {
@@ -60,6 +88,10 @@ export function sanitizeHeroSlidesList(raw: unknown): HeroSlide[] {
     const caption = cleanShortText(record.caption, 140);
     const captionKu = cleanShortText(record.captionKu, 140);
     const captionAr = cleanShortText(record.captionAr, 140);
+    const subtitle = cleanShortText(record.subtitle, 160);
+    const subtitleKu = cleanShortText(record.subtitleKu, 160);
+    const subtitleAr = cleanShortText(record.subtitleAr, 160);
+    const link = normalizeHeroSlideLink(record.link);
     const objectPosition = cleanShortText(record.objectPosition, 40);
 
     sanitized.push({
@@ -71,6 +103,10 @@ export function sanitizeHeroSlidesList(raw: unknown): HeroSlide[] {
       ...(caption ? { caption } : {}),
       ...(captionKu ? { captionKu } : {}),
       ...(captionAr ? { captionAr } : {}),
+      ...(subtitle ? { subtitle } : {}),
+      ...(subtitleKu ? { subtitleKu } : {}),
+      ...(subtitleAr ? { subtitleAr } : {}),
+      ...(link ? { link } : {}),
       ...(objectPosition ? { objectPosition } : {}),
     });
   }
@@ -145,8 +181,22 @@ export function broadcastHeroBannersUpdated(slides: HeroSlide[]): void {
 
 export function readAndCompressBannerFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-    if (!allowed.includes(file.type.toLowerCase())) {
+    const allowedMime = [
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+      'image/gif',
+      'image/bmp',
+      'image/avif',
+    ];
+    const mimeLower = (file.type || '').toLowerCase();
+    const hasAllowedExt = /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.name || '');
+    if (
+      (mimeLower && !allowedMime.includes(mimeLower) && !mimeLower.startsWith('image/')) ||
+      mimeLower === 'image/svg+xml' ||
+      (!mimeLower && !hasAllowedExt)
+    ) {
       reject(new Error('INVALID_IMAGE_TYPE'));
       return;
     }
@@ -155,10 +205,15 @@ export function readAndCompressBannerFile(file: File): Promise<string> {
       return;
     }
 
-    // Preserve compact GIFs or tiny images verbatim if already safely within cloud/local budget
+    // Preserve compact GIFs or already lightweight images verbatim
     if (
-      (file.type === 'image/gif' && file.size <= 180 * 1024) ||
-      (file.type !== 'image/gif' && file.size <= 130 * 1024)
+      (mimeLower === 'image/gif' && file.size <= 180 * 1024) ||
+      (mimeLower !== 'image/gif' &&
+        (mimeLower === 'image/png' ||
+          mimeLower === 'image/jpeg' ||
+          mimeLower === 'image/jpg' ||
+          mimeLower === 'image/webp') &&
+        file.size <= 115 * 1024)
     ) {
       const reader = new FileReader();
       reader.onload = () => {
@@ -181,8 +236,9 @@ export function readAndCompressBannerFile(file: File): Promise<string> {
           { maxW: 1280, maxH: 680 },
           { maxW: 1080, maxH: 580 },
           { maxW: 880, maxH: 480 },
+          { maxW: 720, maxH: 400 },
         ];
-        const qualitySteps = [0.82, 0.72, 0.6, 0.48];
+        const qualitySteps = [0.84, 0.72, 0.6, 0.48, 0.36];
         let bestDataUrl = '';
 
         for (const dims of sizeSteps) {
@@ -211,13 +267,13 @@ export function readAndCompressBannerFile(file: File): Promise<string> {
             const webpCandidate = canvas.toDataURL('image/webp', quality);
             if (
               webpCandidate.startsWith('data:image/webp;') &&
-              webpCandidate.length <= MAX_HERO_DATA_URL_LENGTH - 8000
+              webpCandidate.length <= TARGET_COMPRESSED_DATA_URL_LENGTH
             ) {
               bestDataUrl = webpCandidate;
               break;
             }
             const jpegCandidate = canvas.toDataURL('image/jpeg', quality);
-            if (jpegCandidate.length <= MAX_HERO_DATA_URL_LENGTH - 8000) {
+            if (jpegCandidate.length <= TARGET_COMPRESSED_DATA_URL_LENGTH) {
               bestDataUrl = jpegCandidate;
               break;
             }

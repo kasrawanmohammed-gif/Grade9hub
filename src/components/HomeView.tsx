@@ -14,7 +14,7 @@ import {
   Trash2,
   Trophy,
 } from 'lucide-react';
-import { apiFetch, isStaticBackendActive } from '../lib/api';
+import { ApiError, apiFetch, isStaticBackendActive } from '../lib/api';
 import {
   COMPETITION_UPDATED_EVENT,
   getCachedLeaderboard,
@@ -210,8 +210,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
       const savedList = sanitizeHeroSlidesList(res?.settings?.heroSlides);
       const finalSlides = savedList.length > 0 ? savedList : cleanSlides;
 
+      let cloudSynced = Boolean(res?.cloudSynced);
       if (!isStaticBackendActive()) {
-        await saveCloudHeroBanners(finalSlides).catch(() => false);
+        cloudSynced = await saveCloudHeroBanners(finalSlides).catch(() => false);
       }
 
       setHeroSlides(finalSlides);
@@ -220,27 +221,73 @@ export const HomeView: React.FC<HomeViewProps> = ({
       if (res?.settings && onAppSettingsUpdated) {
         onAppSettingsUpdated(res.settings);
       }
-      setBannerStatusNotice(t.home.bannerSavedMsg);
+      setBannerStatusNotice(
+        isStaticBackendActive() && !cloudSynced
+          ? t.home.bannerStorageFallbackMsg
+          : t.home.bannerSavedMsg
+      );
       return { ok: true };
-    } catch {
+    } catch (err) {
+      const isAuthDenied = err instanceof ApiError && (err.status === 401 || err.status === 403);
       const [cloudOk, localResult] = await Promise.all([
         saveCloudHeroBanners(cleanSlides).catch(() => false),
-        Promise.resolve(saveLocalHeroSlides(cleanSlides)),
+        Promise.resolve(
+          isAuthDenied ? { ok: false, slides: cleanSlides } : saveLocalHeroSlides(cleanSlides)
+        ),
       ]);
       if (!cloudOk && !localResult.ok) {
-        return { ok: false, notice: t.home.bannerSaveFailedErr };
+        return {
+          ok: false,
+          notice:
+            isAuthDenied && err instanceof Error && err.message
+              ? err.message
+              : t.home.bannerSaveFailedErr,
+        };
       }
       setHeroSlides(localResult.slides);
       broadcastHeroBannersUpdated(localResult.slides);
-      if (onAppSettingsUpdated && appSettings) {
+      if (onAppSettingsUpdated) {
         onAppSettingsUpdated({
-          ...appSettings,
+          allowStudentRegistration: appSettings?.allowStudentRegistration ?? true,
+          communityEnabled: appSettings?.communityEnabled ?? true,
+          communityPostingEnabled: appSettings?.communityPostingEnabled ?? true,
+          aiTutorEnabled: appSettings?.aiTutorEnabled ?? true,
+          defaultLanguage: appSettings?.defaultLanguage ?? 'en',
+          maintenanceMessage: appSettings?.maintenanceMessage ?? '',
           heroSlides: localResult.slides,
+          updatedAt: new Date().toISOString(),
         });
       }
       setBannerStatusNotice(cloudOk ? t.home.bannerSavedMsg : t.home.bannerStorageFallbackMsg);
       return { ok: true };
     }
+  };
+
+  const handleOpenBannerLink = (link: string): boolean => {
+    const normalized = link.trim().replace(/\/+$/, '') || '/';
+    const routeMap: Record<string, TabId> = {
+      '/': 'home',
+      '/home': 'home',
+      '/community': 'community',
+      '/competition': 'competition',
+      '/multiple-choice': 'multiple-choice',
+      '/quizzes': 'multiple-choice',
+      '/textbooks-qa': 'textbooks-qa',
+      '/textbooks': 'textbooks-qa',
+      '/general-questions': 'general-questions',
+      '/ask-teacher': 'ask-teacher',
+      '/notifications': 'notifications',
+      '/ai-studio': 'ai-studio',
+      '/profile': 'profile',
+      '/settings': 'settings',
+      '/about': 'about',
+    };
+    const targetTab = routeMap[normalized];
+    if (targetTab) {
+      onNavigate(targetTab);
+      return true;
+    }
+    return false;
   };
 
   useEffect(() => {
@@ -346,10 +393,11 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <div className="space-y-2">
         <HeroImageSlider
           slides={heroSlides}
-          intervalMs={3500}
+          intervalMs={3000}
           pauseOnHover={true}
           externalPaused={showBannerManager}
           canManage={canManageBanners}
+          onOpenLink={handleOpenBannerLink}
           onOpenManager={() => {
             setBannerStatusNotice(null);
             setShowBannerManager(true);

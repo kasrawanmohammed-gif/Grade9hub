@@ -1298,6 +1298,10 @@ function mapBannerDocsToSlides(docs: Array<{ id: string; data: Record<string, un
           ...(d.caption ? { caption: clampStr(d.caption, 140) } : {}),
           ...(d.captionKu ? { captionKu: clampStr(d.captionKu, 140) } : {}),
           ...(d.captionAr ? { captionAr: clampStr(d.captionAr, 140) } : {}),
+          ...(d.subtitle ? { subtitle: clampStr(d.subtitle, 160) } : {}),
+          ...(d.subtitleKu ? { subtitleKu: clampStr(d.subtitleKu, 160) } : {}),
+          ...(d.subtitleAr ? { subtitleAr: clampStr(d.subtitleAr, 160) } : {}),
+          ...(d.link ? { link: clampStr(d.link, 500) } : {}),
           ...(d.objectPosition ? { objectPosition: clampStr(d.objectPosition, 40) } : {}),
         } as HeroSlide,
       };
@@ -1329,6 +1333,12 @@ export async function saveCloudHeroBanners(slides: HeroSlide[]): Promise<boolean
   const clean = sanitizeHeroSlidesList(slides);
   if (clean.length === 0) return false;
 
+  for (const slide of clean) {
+    if (slide.src.trim().length > 278_000) {
+      return false;
+    }
+  }
+
   try {
     const q = query(collection(db, 'hero_banners'), where('scope', '==', 'public'));
     const existingSnaps = await getDocs(q).catch(() => null);
@@ -1340,9 +1350,6 @@ export async function saveCloudHeroBanners(slides: HeroSlide[]): Promise<boolean
         slide.id.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 128) || `slide-${i + 1}`;
       desiredIds.add(safeId);
       const srcStr = slide.src.trim();
-      if (srcStr.length > 278_000) {
-        return false;
-      }
 
       const payload: Record<string, unknown> = {
         bannerId: safeId,
@@ -1357,6 +1364,10 @@ export async function saveCloudHeroBanners(slides: HeroSlide[]): Promise<boolean
       if (slide.caption) payload.caption = clampStr(slide.caption, 140);
       if (slide.captionKu) payload.captionKu = clampStr(slide.captionKu, 140);
       if (slide.captionAr) payload.captionAr = clampStr(slide.captionAr, 140);
+      if (slide.subtitle) payload.subtitle = clampStr(slide.subtitle, 160);
+      if (slide.subtitleKu) payload.subtitleKu = clampStr(slide.subtitleKu, 160);
+      if (slide.subtitleAr) payload.subtitleAr = clampStr(slide.subtitleAr, 160);
+      if (slide.link) payload.link = clampStr(slide.link, 500);
       if (slide.objectPosition) payload.objectPosition = clampStr(slide.objectPosition, 40);
 
       await setDoc(doc(db, 'hero_banners', safeId), payload);

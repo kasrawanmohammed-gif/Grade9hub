@@ -7,7 +7,7 @@ export interface ChapterTranslationItem {
 }
 
 export interface QuestionTranslationItem {
-  chapterNumber: 1 | 2 | 3;
+  chapterNumber: 1 | 2 | 3 | 4;
   questionText: string;
   ku: {
     questionText: string;
@@ -51,10 +51,10 @@ export const CHAPTER_TRANSLATIONS: ChapterTranslationItem[] = [
   },
   {
     chapterNumber: 4,
-    titleKu: 'بەشی ٤',
-    descriptionKu: 'هەڵسەنگاندنی فرەبژاردەی بەشی ٤ی پەرتووک',
-    titleAr: 'الفصل ٤',
-    descriptionAr: 'اختبار الاختيار من متعدد للفصل ٤ من الكتاب المدرسي',
+    titleKu: 'ڕووناکی',
+    descriptionKu: 'ڕووناکی، شەبەنگی کارۆموگناتیسی و دانەوە · بانکی پرسیارە گشتگیرەکان (٦٧ پرسیار)',
+    titleAr: 'الضوء',
+    descriptionAr: 'الضوء والطيف الكهرومغناطيسي والانعكاس · بنك الأسئلة الشامل (٦٧ سؤالاً)',
   },
   {
     chapterNumber: 5,

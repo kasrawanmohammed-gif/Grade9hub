@@ -224,6 +224,13 @@ export interface Translations {
     bannerCancelEditBtn: string;
     bannerMaxSlidesErr: string;
     bannerSaveFailedErr: string;
+    bannerSubtitleLabel: string;
+    bannerSubtitlePlaceholder: string;
+    bannerLinkLabel: string;
+    bannerLinkPlaceholder: string;
+    bannerInvalidLinkErr: string;
+    bannerUploadingStatus: string;
+    bannerOpenLinkLabel: string;
     announcementLiveDelivered: string;
   };
   quiz: {
@@ -1153,7 +1160,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       goToSlideBtn: 'Go to slide {n}',
       manageBannersBtn: 'Manage Banners',
       bannerManagerTitle: 'Manage Home Banner Slides',
-      bannerManagerSub: 'Add, preview, reorder, or remove hero banner images. Slides auto-advance every 3.5 seconds.',
+      bannerManagerSub: 'Add, preview, reorder, or remove hero banner images. Slides auto-advance every 3 seconds.',
       bannerUrlLabel: 'Image URL',
       bannerUrlPlaceholder: 'https://... or /assets/...',
       bannerUploadBtn: 'Upload Image',
@@ -1191,6 +1198,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerCancelEditBtn: 'Cancel Edit',
       bannerMaxSlidesErr: 'Maximum of {max} banner slides reached. Remove or edit an existing slide.',
       bannerSaveFailedErr: 'Could not save banners. Remove an oversized image or try signing in again.',
+      bannerSubtitleLabel: 'Subtitle (Optional)',
+      bannerSubtitlePlaceholder: 'e.g. Practice key physics formulas and review quizzes',
+      bannerLinkLabel: 'Link (Optional)',
+      bannerLinkPlaceholder: 'https://... or /multiple-choice',
+      bannerInvalidLinkErr: 'Enter a valid link starting with https://, http://, or /',
+      bannerUploadingStatus: 'Optimizing image...',
+      bannerOpenLinkLabel: 'Open link',
       announcementLiveDelivered: 'Delivered live to all accounts and notification feeds.',
     },
     quiz: {
@@ -2129,7 +2143,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       goToSlideBtn: 'چوون بۆ وێنەی {n}',
       manageBannersBtn: 'بەڕێوەبردنی پۆستەرەکان',
       bannerManagerTitle: 'بەڕێوەبردنی سلایدەکانی سەرەوە',
-      bannerManagerSub: 'وێنەی نوێ زیاد بکە، پێشبینینی بکە، ڕیزبەندیان بگۆڕە یان لایان ببە. سلایدەکان هەر ٣.٥ چرکە جارێک دەگۆڕێن.',
+      bannerManagerSub: 'وێنەی نوێ زیاد بکە، پێشبینینی بکە، ڕیزبەندیان بگۆڕە یان لایان ببە. سلایدەکان هەر ٣ چرکە جارێک دەگۆڕێن.',
       bannerUrlLabel: 'بەستەری وێنە (URL)',
       bannerUrlPlaceholder: 'https://... یان /assets/...',
       bannerUploadBtn: 'بارکردنی وێنە',
@@ -2167,6 +2181,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerCancelEditBtn: 'پاشگەزبوونەوە لە دەستکاری',
       bannerMaxSlidesErr: 'گەیشتوویتە زۆرترین ژمارەی سلاید ({max}). سلایدێک بسڕەوە یان دەستکاری بکە.',
       bannerSaveFailedErr: 'پاشەکەوتکردنی پۆستەرەکان سەرکەوتوو نەبوو. وێنەیەکی قورس لاببە یان دووبارە بچۆرە ژوورەوە.',
+      bannerSubtitleLabel: 'ژێرنووس (ئارەزوومەندانە)',
+      bannerSubtitlePlaceholder: 'بۆ نموونە: پێداچوونەوەی یاساکانی فیزیا و تاقیکردنەوەکان',
+      bannerLinkLabel: 'بەستەر (ئارەزوومەندانە)',
+      bannerLinkPlaceholder: 'https://... یان /multiple-choice',
+      bannerInvalidLinkErr: 'بەستەرێکی دروست بنووسە کە بە https://، http:// یان / دەست پێ بکات',
+      bannerUploadingStatus: 'ڕێکخستنی وێنە...',
+      bannerOpenLinkLabel: 'کردنەوەی بەستەر',
       announcementLiveDelivered: 'بە شێوەی ڕاستەوخۆ گەیشتە هەموو هەژمارەکان و ئاگادارکردنەوەکان.',
     },
     quiz: {
@@ -3105,7 +3126,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       goToSlideBtn: 'الانتقال إلى الشريحة {n}',
       manageBannersBtn: 'إدارة الشرائح',
       bannerManagerTitle: 'إدارة شرائح اللافتة الرئيسية',
-      bannerManagerSub: 'أضف صوراً جديدة، عاينها، أعد ترتيبها أو احذفها. تتبدّل الشرائح تلقائياً كل ٣.٥ ثوانٍ.',
+      bannerManagerSub: 'أضف صوراً جديدة، عاينها، أعد ترتيبها أو احذفها. تتبدّل الشرائح تلقائياً كل ٣ ثوانٍ.',
       bannerUrlLabel: 'رابط الصورة (URL)',
       bannerUrlPlaceholder: 'https://... أو /assets/...',
       bannerUploadBtn: 'رفع صورة',
@@ -3143,6 +3164,13 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       bannerCancelEditBtn: 'إلغاء التعديل',
       bannerMaxSlidesErr: 'تم بلوغ الحد الأقصى وهو {max} شريحة. احذف شريحة أو عدّل شريحة حالية.',
       bannerSaveFailedErr: 'تعذّر حفظ الشرائح. أزل الصور كبيرة الحجم أو أعد تسجيل الدخول وحاول مجدداً.',
+      bannerSubtitleLabel: 'العنوان الفرعي (اختياري)',
+      bannerSubtitlePlaceholder: 'مثال: مراجعة قوانين الفيزياء والاختبارات التفاعلية',
+      bannerLinkLabel: 'الرابط (اختياري)',
+      bannerLinkPlaceholder: 'https://... أو /multiple-choice',
+      bannerInvalidLinkErr: 'أدخل رابطاً صالحاً يبدأ بـ https:// أو http:// أو /',
+      bannerUploadingStatus: 'جاري ضغط الصورة...',
+      bannerOpenLinkLabel: 'فتح الرابط',
       announcementLiveDelivered: 'تم الإرسال مباشرة إلى جميع الحسابات وصناديق الإشعارات.',
     },
     quiz: {

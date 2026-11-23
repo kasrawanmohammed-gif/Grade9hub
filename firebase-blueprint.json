@@ -734,6 +734,26 @@
           "maxLength": 140,
           "description": "Optional Arabic banner caption."
         },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Optional English banner subtitle."
+        },
+        "subtitleKu": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Optional Kurdish banner subtitle."
+        },
+        "subtitleAr": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Optional Arabic banner subtitle."
+        },
+        "link": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional safe HTTP/HTTPS URL or internal route link."
+        },
         "objectPosition": {
           "type": "string",
           "maxLength": 40,

@@ -9,6 +9,10 @@ export interface HeroSlide {
   caption?: string;
   captionKu?: string;
   captionAr?: string;
+  subtitle?: string;
+  subtitleKu?: string;
+  subtitleAr?: string;
+  link?: string;
   objectPosition?: string;
 }
 
@@ -16,7 +20,7 @@ export interface HeroSlide {
  * Easy-to-extend configuration for the Home banner slider.
  *
  * To add more slides in the future, append entries below with:
- * `{ id: 'unique-id', src: '/assets/...', alt: '...', caption?: '...' }`.
+ * `{ id: 'unique-id', src: '/assets/...', alt: '...', caption?: '...', subtitle?: '...', link?: '...' }`.
  * When 2 or more slides exist, smooth auto-advance, prev/next controls,
  * and indicator dots appear automatically.
  */
@@ -34,21 +38,24 @@ export const HERO_SLIDES: HeroSlide[] = [
 export function getHeroSlideCopy(
   slide: HeroSlide,
   language: AppLanguage
-): { alt: string; caption?: string } {
+): { alt: string; caption?: string; subtitle?: string } {
   if (language === 'ku') {
     return {
       alt: slide.altKu || slide.alt,
       caption: slide.captionKu ?? slide.caption,
+      subtitle: slide.subtitleKu ?? slide.subtitle,
     };
   }
   if (language === 'ar') {
     return {
       alt: slide.altAr || slide.alt,
       caption: slide.captionAr ?? slide.caption,
+      subtitle: slide.subtitleAr ?? slide.subtitle,
     };
   }
   return {
     alt: slide.alt,
     caption: slide.caption,
+    subtitle: slide.subtitle,
   };
 }
