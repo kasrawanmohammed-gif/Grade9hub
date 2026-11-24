@@ -36,26 +36,10 @@ export const LoginInstallAppButton: React.FC = () => {
       <button
         type="button"
         onClick={() => void handleClick()}
-        className="w-full flex items-center justify-center gap-2.5 rounded-xl border border-[#D9A62E] bg-[#FBF4DF] px-3.5 py-2.5 text-[#6B1118] hover:bg-[#F7EAC3] shadow-xs transition-colors cursor-pointer min-h-[44px]"
+        className="w-full flex items-center justify-center gap-2 rounded-xl border border-[#D9A62E] bg-[#FBF4DF] px-4 py-2 text-sm font-semibold text-[#6B1118] hover:bg-[#F7EAC3] shadow-xs transition-colors cursor-pointer min-h-[40px] sm:min-h-[42px]"
       >
         <Download className="w-4 h-4 shrink-0" />
-        <span className="flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-y-0.5 sm:gap-x-2 text-center min-w-0">
-          <span dir="rtl" className="text-xs font-bold leading-snug break-words">
-            ئەپەکە دابەزێنە ئێستا
-          </span>
-          <span aria-hidden="true" className="hidden sm:inline opacity-60">
-            ·
-          </span>
-          <span dir="ltr" className="text-xs font-bold leading-snug break-words">
-            Install App Now
-          </span>
-          <span aria-hidden="true" className="hidden sm:inline opacity-60">
-            ·
-          </span>
-          <span dir="rtl" className="text-xs font-bold leading-snug break-words">
-            حمّل التطبيق الآن
-          </span>
-        </span>
+        <span className="truncate">{t.brand.installAppNow}</span>
       </button>
 
       {hintMode === 'ios' && (

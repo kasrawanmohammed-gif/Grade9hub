@@ -30,6 +30,7 @@ export interface Translations {
     splashSubtitle: string;
     offlineMode: string;
     installApp: string;
+    installAppNow: string;
     installIOS: string;
     installIOSTitle: string;
     installIOSSub: string;
@@ -995,6 +996,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       splashSubtitle: 'Grade 9 Science Interactive Learning Platform',
       offlineMode: 'Offline Mode — Viewing cached content',
       installApp: 'Install App',
+      installAppNow: 'Install App Now',
       installIOS: 'Install on iOS',
       installIOSTitle: 'Install Grade 9 Hub on iOS',
       installIOSSub: 'Add to your Home Screen',
@@ -1979,6 +1981,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       splashSubtitle: 'پلاتفۆرمی فێربوونی کارلێکەری زانست بۆ پۆلی ٩',
       offlineMode: 'دۆخی بێ ئینتەرنێت — بینینی ناوەڕۆکی پاشەکەوتکراو',
       installApp: 'دابەزاندنی ئەپ',
+      installAppNow: 'ئەپەکە دابەزێنە ئێستا',
       installIOS: 'دابەزاندن لەسەر iOS',
       installIOSTitle: 'دابەزاندنی ناوەندی پۆلی ٩ لەسەر ئایفۆن',
       installIOSSub: 'زیادکردن بۆ سەر شاشەی سەرەکی',
@@ -2962,6 +2965,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       splashSubtitle: 'منصة تفاعلية لتعلّم العلوم للصف التاسع',
       offlineMode: 'وضع عدم الاتصال — عرض المحتوى المحفوظ',
       installApp: 'تثبيت التطبيق',
+      installAppNow: 'حمّل التطبيق الآن',
       installIOS: 'التثبيت على iOS',
       installIOSTitle: 'تثبيت منصة الصف التاسع على آيفون',
       installIOSSub: 'الإضافة إلى الشاشة الرئيسية',
