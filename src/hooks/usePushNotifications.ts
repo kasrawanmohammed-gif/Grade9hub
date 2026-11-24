@@ -133,27 +133,38 @@ export function usePushNotifications({
   const resolveVapidKey = useCallback(async (): Promise<{
     publicKey: string;
     serverExplicitlyMissing: boolean;
+    missingVars?: string[];
+    errorDetail?: string;
   }> => {
     const buildTimeKey = getBuildTimeVapidPublicKey();
     try {
-      const res = await apiFetch<{ publicKey?: string | null; configured?: boolean }>(
-        '/api/push/vapid-public-key'
-      );
+      const res = await apiFetch<{
+        publicKey?: string | null;
+        configured?: boolean;
+        missing?: string[];
+        configError?: string;
+      }>('/api/push/vapid-public-key');
       const serverKey = cleanClientVapidKey(res?.publicKey);
       if (serverKey) {
         return { publicKey: serverKey, serverExplicitlyMissing: false };
       }
       if (res && res.configured === false) {
-        return { publicKey: '', serverExplicitlyMissing: true };
+        return {
+          publicKey: '',
+          serverExplicitlyMissing: true,
+          missingVars: Array.isArray(res.missing) ? res.missing : undefined,
+          errorDetail: typeof res.configError === 'string' ? res.configError : undefined,
+        };
       }
       return {
         publicKey: buildTimeKey,
         serverExplicitlyMissing: !buildTimeKey,
       };
-    } catch {
+    } catch (err) {
       return {
         publicKey: buildTimeKey,
         serverExplicitlyMissing: false,
+        errorDetail: err instanceof Error ? err.message : undefined,
       };
     }
   }, []);
@@ -319,7 +330,17 @@ export function usePushNotifications({
           setVapidMissing(vapidInfo.serverExplicitlyMissing);
           setHasPushSubscription(false);
           if (!options?.silentError) {
-            setError('VAPID push keys are not configured on the server yet.');
+            if (!vapidInfo.serverExplicitlyMissing && vapidInfo.errorDetail) {
+              setError(`Push key endpoint error: ${vapidInfo.errorDetail}`);
+            } else if (vapidInfo.missingVars && vapidInfo.missingVars.length > 0) {
+              setError(
+                `VAPID push keys are not configured on the server yet (missing: ${vapidInfo.missingVars.join(', ')}).`
+              );
+            } else if (vapidInfo.errorDetail) {
+              setError(`VAPID push configuration error: ${vapidInfo.errorDetail}`);
+            } else {
+              setError('VAPID push keys are not configured on the server yet.');
+            }
           }
           return false;
         }

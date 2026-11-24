@@ -1,12 +1,12 @@
 import crypto from 'crypto';
 import fs from 'fs';
-import { createRequire } from 'module';
 import path from 'path';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import * as webPushNs from 'web-push';
 import type webPushTypes from 'web-push';
 
-const require = createRequire(import.meta.url);
-const webpush = require('web-push') as typeof webPushTypes;
+const webpush = ((webPushNs as unknown as { default?: typeof webPushTypes }).default ||
+  webPushNs) as typeof webPushTypes;
 
 export type PushLang = 'en' | 'ku' | 'ar';
 export type PushRole = 'student' | 'teacher';
@@ -111,21 +111,32 @@ export function getVapidConfig(): {
 
 let lastConfiguredVapidSig = '';
 let lastConfiguredVapidValid = false;
+let lastConfiguredVapidError: string | null = null;
 export function ensureWebPushConfigured(): boolean {
   const cfg = getVapidConfig();
-  if (!cfg.configured) return false;
+  if (!cfg.configured) {
+    lastConfiguredVapidError = null;
+    return false;
+  }
   const sig = `${cfg.subject}|${cfg.publicKey}|${cfg.privateKey}`;
   if (lastConfiguredVapidSig !== sig) {
     try {
       webpush.setVapidDetails(cfg.subject, cfg.publicKey, cfg.privateKey);
       lastConfiguredVapidSig = sig;
       lastConfiguredVapidValid = true;
-    } catch {
+      lastConfiguredVapidError = null;
+    } catch (err) {
       lastConfiguredVapidSig = sig;
       lastConfiguredVapidValid = false;
+      lastConfiguredVapidError =
+        err instanceof Error ? err.message : 'Invalid VAPID key configuration.';
     }
   }
   return lastConfiguredVapidValid;
+}
+
+export function getVapidConfigError(): string | null {
+  return lastConfiguredVapidError;
 }
 
 export function normalizePushLang(raw: unknown): PushLang {

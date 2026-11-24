@@ -1,9 +1,9 @@
-import { createRequire } from 'module';
+import * as webPushNs from 'web-push';
 import type webPushTypes from 'web-push';
 import { db } from './db.ts';
 
-const require = createRequire(import.meta.url);
-const webpush = require('web-push') as typeof webPushTypes;
+const webpush = ((webPushNs as unknown as { default?: typeof webPushTypes }).default ||
+  webPushNs) as typeof webPushTypes;
 
 export type PushLang = 'en' | 'ku' | 'ar';
 
