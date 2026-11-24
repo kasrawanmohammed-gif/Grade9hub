@@ -25,16 +25,40 @@ function cleanEnvValue(raw?: string): string {
 }
 
 function cleanVapidKey(raw?: string): string {
-  return cleanEnvValue(raw).replace(/\s+/g, '').replace(/=+$/, '');
+  return cleanEnvValue(raw)
+    .replace(/\s+/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
-function normalizeVapidSubject(raw?: string): string {
+function pickFirstCleanedVapidKey(...candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    const cleaned = cleanVapidKey(candidate);
+    if (cleaned) return cleaned;
+  }
+  return '';
+}
+
+function normalizeVapidSubject(raw?: string): { subject: string; fromEnv: boolean } {
   const cleaned = cleanEnvValue(raw);
-  if (!cleaned) return 'mailto:mohamdm791@gmail.com';
-  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) return cleaned;
-  if (/^https:\/\/.+/i.test(cleaned)) return cleaned;
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return `mailto:${cleaned}`;
-  return 'mailto:mohamdm791@gmail.com';
+  if (!cleaned) return { subject: 'mailto:mohamdm791@gmail.com', fromEnv: false };
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) {
+    return { subject: `mailto:${cleaned.slice(7).trim()}`, fromEnv: true };
+  }
+  if (/^https:\/\/[^\s]+$/i.test(cleaned)) {
+    return { subject: cleaned, fromEnv: true };
+  }
+  if (/^http:\/\/[^\s]+$/i.test(cleaned) && !/^http:\/\/localhost(?::|\/|$)/i.test(cleaned)) {
+    return { subject: `https://${cleaned.slice(7)}`, fromEnv: true };
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
+    return { subject: `mailto:${cleaned}`, fromEnv: true };
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s]*)?$/i.test(cleaned)) {
+    return { subject: `https://${cleaned}`, fromEnv: true };
+  }
+  return { subject: 'mailto:mohamdm791@gmail.com', fromEnv: false };
 }
 
 function getOrCreateSqliteVapidKeys(): VapidKeys {
@@ -58,20 +82,31 @@ function getOrCreateSqliteVapidKeys(): VapidKeys {
   return generated;
 }
 
+let vapidSource: 'env' | 'sqlite' = 'sqlite';
+let vapidChecks = { hasPublicKey: false, hasPrivateKey: false, hasSubject: false };
+
 function initVapidDetails(): VapidKeys {
-  const envPublic = cleanVapidKey(
-    process.env.VAPID_PUBLIC_KEY ||
-      process.env.VITE_VAPID_PUBLIC_KEY ||
-      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const envPublic = pickFirstCleanedVapidKey(
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VITE_VAPID_PUBLIC_KEY,
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    process.env.WEB_PUSH_PUBLIC_KEY
   );
-  const envPrivate = cleanVapidKey(
-    process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY
+  const envPrivate = pickFirstCleanedVapidKey(
+    process.env.VAPID_PRIVATE_KEY,
+    process.env.WEB_PUSH_PRIVATE_KEY
   );
-  const subject = normalizeVapidSubject(process.env.VAPID_SUBJECT);
+  const { subject, fromEnv: subjectFromEnv } = normalizeVapidSubject(process.env.VAPID_SUBJECT);
+  vapidChecks = {
+    hasPublicKey: Boolean(envPublic),
+    hasPrivateKey: Boolean(envPrivate),
+    hasSubject: subjectFromEnv,
+  };
 
   if (envPublic && envPrivate) {
     try {
       webpush.setVapidDetails(subject, envPublic, envPrivate);
+      vapidSource = 'env';
       return { publicKey: envPublic, privateKey: envPrivate };
     } catch (err) {
       console.warn('[push] Invalid VAPID_* environment variables; falling back to local keys:', err);
@@ -80,6 +115,7 @@ function initVapidDetails(): VapidKeys {
 
   const localKeys = getOrCreateSqliteVapidKeys();
   webpush.setVapidDetails(subject, localKeys.publicKey, localKeys.privateKey);
+  vapidSource = 'sqlite';
   return localKeys;
 }
 
@@ -87,6 +123,13 @@ const vapidKeys = initVapidDetails();
 
 export function getPublicVapidKey(): string {
   return vapidKeys.publicKey;
+}
+
+export function getVapidKeyMeta(): {
+  source: 'env' | 'sqlite';
+  checks: { hasPublicKey: boolean; hasPrivateKey: boolean; hasSubject: boolean };
+} {
+  return { source: vapidSource, checks: vapidChecks };
 }
 
 export function normalizePushLang(raw: unknown): PushLang {

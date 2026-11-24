@@ -2193,8 +2193,17 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
         (rawKey.startsWith("'") && rawKey.endsWith("'")))
         ? rawKey.slice(1, -1).trim()
         : rawKey;
-    const buildTimeKey = unwrapped.replace(/\s+/g, '').replace(/=+$/, '');
-    return { publicKey: buildTimeKey || null, configured: Boolean(buildTimeKey) };
+    const buildTimeKey = unwrapped
+      .replace(/\s+/g, '')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+    return {
+      publicKey: buildTimeKey || null,
+      configured: Boolean(buildTimeKey),
+      source: 'client-env',
+      ...(buildTimeKey ? {} : { missing: ['VITE_VAPID_PUBLIC_KEY'] }),
+    };
   }
   if (pathname === '/api/push/status') {
     return { configured: false, subscriptionCount: 0, currentEndpointRegistered: false };

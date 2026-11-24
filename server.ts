@@ -59,6 +59,7 @@ import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
 import {
   countUserPushSubscriptions,
   getPublicVapidKey,
+  getVapidKeyMeta,
   LocalizedPushFactory,
   normalizePushLang,
   PushLang,
@@ -5210,7 +5211,15 @@ async function startServer() {
   });
 
   app.get('/api/push/vapid-public-key', (_req, res) => {
-    res.json({ publicKey: getPublicVapidKey(), configured: true });
+    const publicKey = getPublicVapidKey();
+    const meta = getVapidKeyMeta();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      publicKey,
+      configured: Boolean(publicKey),
+      source: meta.source,
+      checks: meta.checks,
+    });
   });
 
   app.get('/api/push/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {

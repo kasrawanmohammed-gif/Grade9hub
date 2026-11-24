@@ -13,6 +13,12 @@ export async function GET(): Promise<Response> {
     return jsonResponse({
       publicKey: valid ? cfg.publicKey : null,
       configured: valid,
+      source: 'env',
+      checks: {
+        hasPublicKey: Boolean(cfg.publicKey),
+        hasPrivateKey: Boolean(cfg.privateKey),
+        hasSubject: cfg.subjectFromEnv,
+      },
       ...(valid ? {} : { missing: cfg.missingVars }),
       ...(!valid && configError ? { configError } : {}),
     });

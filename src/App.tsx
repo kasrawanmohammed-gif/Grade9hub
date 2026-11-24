@@ -2153,6 +2153,7 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
+                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
@@ -2193,6 +2194,7 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
+                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
@@ -2210,6 +2212,7 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
+                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}

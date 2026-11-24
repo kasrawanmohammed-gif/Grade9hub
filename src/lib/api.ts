@@ -255,6 +255,7 @@ async function performFetch(url: string, options: RequestInit): Promise<Response
 
   return fetch(resolveApiUrl(url), {
     credentials: 'include',
+    ...(url === '/api/push/vapid-public-key' ? { cache: 'no-store' as RequestCache } : {}),
     ...options,
     headers,
   });

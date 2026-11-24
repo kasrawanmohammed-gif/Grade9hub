@@ -23,7 +23,11 @@ function cleanClientVapidKey(raw: unknown): string {
   ) {
     trimmed = trimmed.slice(1, -1).trim();
   }
-  return trimmed.replace(/\s+/g, '').replace(/=+$/, '');
+  return trimmed
+    .replace(/\s+/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
 function getBuildTimeVapidPublicKey(): string {
@@ -104,6 +108,7 @@ export function usePushNotifications({
   const [isStandalonePwa, setIsStandalonePwa] = useState(false);
   const [isIosBrowserTab, setIsIosBrowserTab] = useState(false);
   const [vapidMissing, setVapidMissing] = useState(false);
+  const [vapidMissingDetails, setVapidMissingDetails] = useState<string | null>(null);
   const [subscriptionCount, setSubscriptionCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,36 +143,36 @@ export function usePushNotifications({
   }> => {
     const buildTimeKey = getBuildTimeVapidPublicKey();
     try {
-      const res = await apiFetch<{
-        publicKey?: string | null;
-        configured?: boolean;
-        missing?: string[];
-        configError?: string;
-      }>('/api/push/vapid-public-key');
-      const serverKey = cleanClientVapidKey(res?.publicKey);
-      if (serverKey) {
-        return { publicKey: serverKey, serverExplicitlyMissing: false };
-      }
-      if (res && res.configured === false) {
+        const res = await apiFetch<{
+          publicKey?: string | null;
+          configured?: boolean;
+          missing?: string[];
+          configError?: string;
+        }>('/api/push/vapid-public-key', { cache: 'no-store' });
+        const serverKey = cleanClientVapidKey(res?.publicKey);
+        if (serverKey) {
+          return { publicKey: serverKey, serverExplicitlyMissing: false };
+        }
+        if (res && res.configured === false) {
+          return {
+            publicKey: '',
+            serverExplicitlyMissing: true,
+            missingVars: Array.isArray(res.missing) ? res.missing : undefined,
+            errorDetail: typeof res.configError === 'string' ? res.configError : undefined,
+          };
+        }
         return {
-          publicKey: '',
-          serverExplicitlyMissing: true,
-          missingVars: Array.isArray(res.missing) ? res.missing : undefined,
-          errorDetail: typeof res.configError === 'string' ? res.configError : undefined,
+          publicKey: buildTimeKey,
+          serverExplicitlyMissing: !buildTimeKey,
+        };
+      } catch (err) {
+        return {
+          publicKey: buildTimeKey,
+          serverExplicitlyMissing: false,
+          errorDetail: err instanceof Error ? err.message : undefined,
         };
       }
-      return {
-        publicKey: buildTimeKey,
-        serverExplicitlyMissing: !buildTimeKey,
-      };
-    } catch (err) {
-      return {
-        publicKey: buildTimeKey,
-        serverExplicitlyMissing: false,
-        errorDetail: err instanceof Error ? err.message : undefined,
-      };
-    }
-  }, []);
+    }, []);
 
   const refreshStatus = useCallback(() => {
     const iosDevice = detectIosDevice();
@@ -196,7 +201,20 @@ export function usePushNotifications({
           resolveVapidKey(),
         ]);
         const keyPresent = Boolean(vapidInfo.publicKey);
-        setVapidMissing(vapidInfo.serverExplicitlyMissing && !keyPresent);
+        const isMissing = vapidInfo.serverExplicitlyMissing && !keyPresent;
+        setVapidMissing(isMissing);
+        if (isMissing) {
+          const detailParts: string[] = [];
+          if (vapidInfo.missingVars && vapidInfo.missingVars.length > 0) {
+            detailParts.push(`Missing: ${vapidInfo.missingVars.join(', ')}`);
+          }
+          if (vapidInfo.errorDetail) {
+            detailParts.push(vapidInfo.errorDetail);
+          }
+          setVapidMissingDetails(detailParts.length > 0 ? detailParts.join(' · ') : null);
+        } else {
+          setVapidMissingDetails(null);
+        }
 
         if (!reg?.pushManager) return;
         let sub = await reg.pushManager.getSubscription().catch(() => null);
@@ -231,6 +249,7 @@ export function usePushNotifications({
     } else if (!isAuthenticated) {
       setHasPushSubscription(false);
       setVapidMissing(false);
+      setVapidMissingDetails(null);
       setSubscriptionCount(0);
       lastSyncSigRef.current = '';
     }
@@ -329,6 +348,14 @@ export function usePushNotifications({
         if (!publicKey) {
           setVapidMissing(vapidInfo.serverExplicitlyMissing);
           setHasPushSubscription(false);
+          const detailParts: string[] = [];
+          if (vapidInfo.missingVars && vapidInfo.missingVars.length > 0) {
+            detailParts.push(`Missing: ${vapidInfo.missingVars.join(', ')}`);
+          }
+          if (vapidInfo.errorDetail) {
+            detailParts.push(vapidInfo.errorDetail);
+          }
+          setVapidMissingDetails(detailParts.length > 0 ? detailParts.join(' · ') : null);
           if (!options?.silentError) {
             if (!vapidInfo.serverExplicitlyMissing && vapidInfo.errorDetail) {
               setError(`Push key endpoint error: ${vapidInfo.errorDetail}`);
@@ -346,6 +373,7 @@ export function usePushNotifications({
         }
 
         setVapidMissing(false);
+        setVapidMissingDetails(null);
         let existing = await registration.pushManager.getSubscription();
         if (existing && !subscriptionMatchesPublicKey(existing, publicKey)) {
           await existing.unsubscribe().catch(() => {});
@@ -443,6 +471,7 @@ export function usePushNotifications({
     isStandalonePwa,
     isIosBrowserTab,
     vapidMissing,
+    vapidMissingDetails,
     subscriptionCount,
     unsupportedReason,
     busy,

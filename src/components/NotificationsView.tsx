@@ -26,6 +26,7 @@ interface NotificationsViewProps {
   pushBusy: boolean;
   pushError: string | null;
   pushUnsupportedReason?: PushUnsupportedReason;
+  pushVapidMissingDetails?: string | null;
   pushTestBusy?: boolean;
   pushTestResult?: { ok: boolean; message: string } | null;
   onEnablePush: () => Promise<boolean>;
@@ -44,6 +45,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   pushBusy,
   pushError,
   pushUnsupportedReason = null,
+  pushVapidMissingDetails = null,
   pushTestBusy = false,
   pushTestResult = null,
   onEnablePush,
@@ -243,9 +245,14 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
       {pushUnsupportedReason === 'vapid_missing' && (
         <div
           role="status"
-          className="rounded-2xl border border-[#D9A62E]/45 bg-[#FBF4DF]/75 px-5 py-3.5 text-xs sm:text-sm text-[#57534E] leading-relaxed"
+          className="rounded-2xl border border-[#D9A62E]/45 bg-[#FBF4DF]/75 px-5 py-3.5 text-xs sm:text-sm text-[#57534E] leading-relaxed space-y-1"
         >
-          {t.notifications.vapidUnavailableDesc}
+          <p>{t.notifications.vapidUnavailableDesc}</p>
+          {pushVapidMissingDetails && (
+            <p className="text-[11px] font-mono text-[#6B1118]/90 break-words" dir="ltr">
+              {pushVapidMissingDetails}
+            </p>
+          )}
         </div>
       )}
 

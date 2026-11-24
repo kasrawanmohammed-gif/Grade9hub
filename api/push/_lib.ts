@@ -68,34 +68,61 @@ function cleanEnvValue(raw?: string): string {
 }
 
 function cleanVapidKey(raw?: string): string {
-  return cleanEnvValue(raw).replace(/\s+/g, '').replace(/=+$/, '');
+  return cleanEnvValue(raw)
+    .replace(/\s+/g, '')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
 }
 
-function normalizeVapidSubject(raw?: string): string {
+function pickFirstCleanedVapidKey(...candidates: Array<string | undefined>): string {
+  for (const candidate of candidates) {
+    const cleaned = cleanVapidKey(candidate);
+    if (cleaned) return cleaned;
+  }
+  return '';
+}
+
+function normalizeVapidSubject(raw?: string): { subject: string; fromEnv: boolean } {
   const cleaned = cleanEnvValue(raw);
-  if (!cleaned) return `mailto:${MAIN_ADMIN_EMAIL}`;
-  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) return cleaned;
-  if (/^https:\/\/.+/i.test(cleaned)) return cleaned;
-  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return `mailto:${cleaned}`;
-  return `mailto:${MAIN_ADMIN_EMAIL}`;
+  if (!cleaned) return { subject: `mailto:${MAIN_ADMIN_EMAIL}`, fromEnv: false };
+  if (/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(cleaned)) {
+    return { subject: `mailto:${cleaned.slice(7).trim()}`, fromEnv: true };
+  }
+  if (/^https:\/\/[^\s]+$/i.test(cleaned)) {
+    return { subject: cleaned, fromEnv: true };
+  }
+  if (/^http:\/\/[^\s]+$/i.test(cleaned) && !/^http:\/\/localhost(?::|\/|$)/i.test(cleaned)) {
+    return { subject: `https://${cleaned.slice(7)}`, fromEnv: true };
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) {
+    return { subject: `mailto:${cleaned}`, fromEnv: true };
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s]*)?$/i.test(cleaned)) {
+    return { subject: `https://${cleaned}`, fromEnv: true };
+  }
+  return { subject: `mailto:${MAIN_ADMIN_EMAIL}`, fromEnv: false };
 }
 
 export function getVapidConfig(): {
   publicKey: string;
   privateKey: string;
   subject: string;
+  subjectFromEnv: boolean;
   configured: boolean;
   missingVars: string[];
 } {
-  const publicKey = cleanVapidKey(
-    process.env.VAPID_PUBLIC_KEY ||
-      process.env.VITE_VAPID_PUBLIC_KEY ||
-      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
+  const publicKey = pickFirstCleanedVapidKey(
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VITE_VAPID_PUBLIC_KEY,
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
+    process.env.WEB_PUSH_PUBLIC_KEY
   );
-  const privateKey = cleanVapidKey(
-    process.env.VAPID_PRIVATE_KEY || process.env.WEB_PUSH_PRIVATE_KEY
+  const privateKey = pickFirstCleanedVapidKey(
+    process.env.VAPID_PRIVATE_KEY,
+    process.env.WEB_PUSH_PRIVATE_KEY
   );
-  const subject = normalizeVapidSubject(process.env.VAPID_SUBJECT);
+  const { subject, fromEnv: subjectFromEnv } = normalizeVapidSubject(process.env.VAPID_SUBJECT);
   const missingVars: string[] = [];
   if (!publicKey) missingVars.push('VAPID_PUBLIC_KEY');
   if (!privateKey) missingVars.push('VAPID_PRIVATE_KEY');
@@ -104,6 +131,7 @@ export function getVapidConfig(): {
     publicKey,
     privateKey,
     subject,
+    subjectFromEnv,
     configured: Boolean(publicKey && privateKey),
     missingVars,
   };
