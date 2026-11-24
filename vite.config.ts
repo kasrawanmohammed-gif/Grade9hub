@@ -20,8 +20,6 @@ export default defineConfig(() => {
           'pwa-192x192.png',
           'pwa-512x512.png',
           'pwa-maskable-512x512.png',
-          'assets/aistudio/letter-9-education-logo-book-concept-training-career-sign-university-academy-graduation-logo-template-design-vector_3d279672.jpg',
-          'assets/aistudio/1795193684825_08209d2b.jpg',
         ],
         manifest: {
           id: '/',
@@ -57,8 +55,7 @@ export default defineConfig(() => {
           ],
         },
         injectManifest: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,jpg,woff,woff2}'],
-          globIgnores: ['**/assets/aistudio/Screenshot_*', '**/assets/aistudio/image_*'],
+          globPatterns: ['**/*.{js,css,html,woff,woff2}'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         },
         devOptions: {

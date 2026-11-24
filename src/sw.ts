@@ -37,8 +37,22 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
 
 self.skipWaiting();
 clientsClaim();
-cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST || []);
+
+try {
+  cleanupOutdatedCaches();
+  const rawManifest = self.__WB_MANIFEST || [];
+  const dedupedByUrl = new Map<string, { url: string; revision: string | null }>();
+  for (const entry of Array.isArray(rawManifest) ? rawManifest : []) {
+    if (!entry || typeof entry.url !== 'string') continue;
+    const existing = dedupedByUrl.get(entry.url);
+    if (!existing || (!existing.revision && entry.revision)) {
+      dedupedByUrl.set(entry.url, entry);
+    }
+  }
+  precacheAndRoute(Array.from(dedupedByUrl.values()));
+} catch {
+  // Never let precache setup crash Service Worker evaluation or block PushManager
+}
 
 function broadcastToOpenClients(message: Record<string, unknown>): void {
   try {

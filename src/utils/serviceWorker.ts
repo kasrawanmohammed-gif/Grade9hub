@@ -48,7 +48,7 @@ export async function getOrRegisterServiceWorker(): Promise<ServiceWorkerRegistr
 
   if (!inFlightRegistration) {
     inFlightRegistration = navigator.serviceWorker
-      .register('/sw.js', { scope: '/' })
+      .register('/sw.js', { scope: '/', updateViaCache: 'none' })
       .catch(() => null)
       .finally(() => {
         inFlightRegistration = null;
@@ -103,7 +103,7 @@ export async function ensureServiceWorkerActive(
     }
 
     if (reg && !reg.active && !reg.waiting && !reg.installing && forceRegister) {
-      reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => reg);
+      reg = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => reg);
     }
 
     const remainingMs = Math.max(1500, deadline - Date.now());
@@ -164,7 +164,7 @@ export async function ensureServiceWorkerActive(
 
     // Last-chance: try registering /sw.js cleanly if still no active worker
     if (forceRegister) {
-      const freshReg = await navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => null);
+      const freshReg = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => null);
       if (freshReg?.waiting) {
         try {
           freshReg.waiting.postMessage({ type: 'SKIP_WAITING' });
