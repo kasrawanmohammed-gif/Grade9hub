@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import type { HeroSlide } from '../config/heroSlides';
 import { AppSettings, User } from '../types';
+import { computeStudentFairMetrics } from '../utils/studentScoring';
 import { sanitizeHeroSlidesList } from './heroSlidesStore';
 import {
   applyFirebaseAuthPersistence,
@@ -33,6 +34,31 @@ export const MAIN_ADMIN_EMAIL = 'mohamdm791@gmail.com';
 const VALID_ID_REGEX = /^[a-zA-Z0-9_-]{1,128}$/;
 const PEER_ONLINE_TTL_MS = 90_000;
 
+const cloudSyncErrors = new Map<string, string>();
+
+function recordCloudError(scope: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err || 'Unknown cloud sync error');
+  cloudSyncErrors.set(scope, msg);
+  console.error(`[Grade9Hub Cloud:${scope}]`, err);
+}
+
+function clearCloudError(scope: string): void {
+  cloudSyncErrors.delete(scope);
+}
+
+export function getLastCloudSyncDiagnostics(): {
+  hasError: boolean;
+  source: string;
+  errors: string[];
+} {
+  const errors = Array.from(cloudSyncErrors.entries()).map(([k, v]) => `${k}: ${v}`);
+  return {
+    hasError: errors.length > 0,
+    source: 'firestore',
+    errors,
+  };
+}
+
 export interface CloudUserProfile {
   uid: string;
   name: string;
@@ -46,8 +72,15 @@ export interface CloudUserProfile {
   notificationsEnabled: boolean;
   notifPromptStatus: '' | 'allowed' | 'denied';
   totalPoints: number;
+  quizPoints: number;
+  activityPoints: number;
   quizzesCompleted: number;
   correctAnswers: number;
+  questionsAnswered: number;
+  avgScorePercent: number;
+  bestScorePercent: number;
+  fairScore: number;
+  activityScore: number;
   isRestricted?: boolean;
   restrictionReason?: string;
   lastLoginAt?: string;
@@ -108,8 +141,15 @@ export interface CloudRegisteredAccount {
   isRestricted: boolean;
   restrictionReason: string;
   totalPoints: number;
+  quizPoints: number;
+  activityPoints: number;
   quizzesCompleted: number;
   correctAnswers: number;
+  questionsAnswered: number;
+  avgScorePercent: number;
+  bestScorePercent: number;
+  fairScore: number;
+  activityScore: number;
   lastLoginAt: string;
   lastActiveAt: string;
   createdAtIso: string;
@@ -136,6 +176,13 @@ function clampNonNegInt(raw: unknown, maxVal: number): number {
   const n = Math.round(Number(raw) || 0);
   if (n < 0) return 0;
   return n > maxVal ? maxVal : n;
+}
+
+function clampPercent(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const clamped = n > 100 ? 100 : n;
+  return Math.round(clamped * 10) / 10;
 }
 
 function stableNumericId(seed: string): number {
@@ -317,37 +364,20 @@ export async function pullCloudUserProfile(uid: string): Promise<{
   }
   const userPath = `users/${uid}`;
   let profile: CloudUserProfile | null = null;
+  let rawUserDocData: Record<string, unknown> | null = null;
   try {
     const snap = await getDoc(doc(db, 'users', uid));
     if (snap.exists()) {
-      const d = snap.data();
-      profile = {
-        uid: String(d.uid || uid),
-        name: clampStr(d.name || 'Grade 9 User', 120),
-        email: clampStr(d.email || '', 180).toLowerCase(),
-        role: d.role === 'teacher' ? 'teacher' : 'student',
-        isAdmin: Boolean(d.isAdmin),
-        grade: clampStr(d.grade || '', 40),
-        bio: clampStr(d.bio || '', 500),
-        birthday: clampStr(d.birthday || '', 20),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        notificationsEnabled: d.notificationsEnabled !== false,
-        notifPromptStatus: sanitizeNotifStatus(d.notifPromptStatus),
-        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-        isRestricted: Boolean(d.isRestricted),
-        restrictionReason: clampStr(d.restrictionReason || '', 300),
-        lastLoginAt: clampStr(d.lastLoginAt || '', 64),
-        lastActiveAt: clampStr(d.lastActiveAt || '', 64),
-      };
+      rawUserDocData = snap.data() as Record<string, unknown>;
+      clearCloudError('users_profile');
     }
   } catch (err) {
+    recordCloudError('users_profile', err);
     handleFirestoreError(err, OperationType.GET, userPath);
   }
 
   const attempts: CloudQuizAttemptInput[] = [];
-  if (profile) {
+  if (rawUserDocData) {
     const attemptsPath = `users/${uid}/quiz_attempts`;
     try {
       const q = query(
@@ -365,13 +395,76 @@ export async function pullCloudUserProfile(uid: string): Promise<{
           chapterNumber: ch >= 1 && ch <= 11 ? ch : null,
           totalQuestions: clampNonNegInt(d.totalQuestions, 500),
           correctCount: clampNonNegInt(d.correctCount, 500),
-          scorePercent: Math.max(0, Math.min(100, Number(d.scorePercent || 0))),
+          scorePercent: clampPercent(d.scorePercent),
           pointsAwarded: clampNonNegInt(d.pointsAwarded, 1000),
         });
       });
     } catch (err) {
+      recordCloudError('quiz_attempts', err);
       handleFirestoreError(err, OperationType.LIST, attemptsPath);
     }
+
+    const d = rawUserDocData;
+    const attemptQuestionsSum = attempts.reduce((sum, a) => sum + a.totalQuestions, 0);
+    const attemptCorrectSum = attempts.reduce((sum, a) => sum + a.correctCount, 0);
+    const attemptAvg =
+      attempts.length > 0
+        ? Math.round((attempts.reduce((sum, a) => sum + a.scorePercent, 0) / attempts.length) * 10) / 10
+        : 0;
+    const attemptBest =
+      attempts.length > 0 ? Math.max(...attempts.map((a) => a.scorePercent)) : 0;
+
+    const totalPoints = clampNonNegInt(d.totalPoints, 1000000);
+    const quizPoints =
+      d.quizPoints !== undefined ? clampNonNegInt(d.quizPoints, 1000000) : totalPoints;
+    const activityPoints = clampNonNegInt(d.activityPoints, 1000000);
+    const quizzesCompleted = Math.max(clampNonNegInt(d.quizzesCompleted, 100000), attempts.length);
+    const correctAnswers = Math.max(clampNonNegInt(d.correctAnswers, 1000000), attemptCorrectSum);
+    const questionsAnswered = Math.max(
+      clampNonNegInt(d.questionsAnswered, 1000000),
+      attemptQuestionsSum,
+      correctAnswers
+    );
+    const computed = computeStudentFairMetrics({
+      correctAnswers,
+      questionsAnswered,
+      quizzesCompleted,
+      avgScorePercent: d.avgScorePercent !== undefined ? clampPercent(d.avgScorePercent) : attemptAvg,
+      bestScorePercent:
+        d.bestScorePercent !== undefined ? clampPercent(d.bestScorePercent) : attemptBest,
+      activityPoints,
+    });
+
+    profile = {
+      uid: String(d.uid || uid),
+      name: clampStr(d.name || 'Grade 9 User', 120),
+      email: clampStr(d.email || '', 180).toLowerCase(),
+      role: d.role === 'teacher' ? 'teacher' : 'student',
+      isAdmin: Boolean(d.isAdmin),
+      grade: clampStr(d.grade || '', 40),
+      bio: clampStr(d.bio || '', 500),
+      birthday: clampStr(d.birthday || '', 20),
+      avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+      notificationsEnabled: d.notificationsEnabled !== false,
+      notifPromptStatus: sanitizeNotifStatus(d.notifPromptStatus),
+      totalPoints: Math.max(totalPoints, quizPoints + activityPoints),
+      quizPoints,
+      activityPoints,
+      quizzesCompleted: computed.quizzesCompleted,
+      correctAnswers: computed.correctAnswers,
+      questionsAnswered: computed.questionsAnswered,
+      avgScorePercent: computed.avgScorePercent,
+      bestScorePercent: computed.bestScorePercent,
+      fairScore: d.fairScore !== undefined ? clampPercent(d.fairScore) : computed.fairScore,
+      activityScore:
+        d.activityScore !== undefined
+          ? clampNonNegInt(d.activityScore, 10000000)
+          : computed.activityScore,
+      isRestricted: Boolean(d.isRestricted),
+      restrictionReason: clampStr(d.restrictionReason || '', 300),
+      lastLoginAt: clampStr(d.lastLoginAt || '', 64),
+      lastActiveAt: clampStr(d.lastActiveAt || '', 64),
+    };
   }
 
   return { profile, attempts };
@@ -488,14 +581,114 @@ export async function pullAllPeerPresence(): Promise<CloudPeerPresence[]> {
       });
     });
     return list;
-  } catch {
+  } catch (err) {
+    recordCloudError('peer_presence', err);
     return [];
   }
 }
 
+export function subscribeAllPeerPresence(
+  onChange: (peers: CloudPeerPresence[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  let disposed = false;
+  let unsubSnap: (() => void) | null = null;
+
+  const stopSnap = () => {
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+      unsubSnap = null;
+    }
+  };
+
+  const attach = async () => {
+    stopSnap();
+    await auth.authStateReady().catch(() => {});
+    if (disposed) return;
+    const fbUser = auth.currentUser;
+    if (!isTrustedCloudAuthUser(fbUser)) return;
+    try {
+      const q = query(
+        collection(db, 'peer_presence'),
+        where('role', 'in', ['student', 'teacher'])
+      );
+      unsubSnap = onSnapshot(
+        q,
+        (snaps) => {
+          if (disposed) return;
+          clearCloudError('peer_presence');
+          const now = Date.now();
+          const list: CloudPeerPresence[] = [];
+          snaps.forEach((docSnap) => {
+            const d = docSnap.data();
+            const updatedIso =
+              toIsoFromTimestampOrString(d.updatedAt) || clampStr(d.lastActiveAtIso || '', 64);
+            const updatedMs = updatedIso ? Date.parse(updatedIso) : 0;
+            const isFresh =
+              Number.isFinite(updatedMs) && updatedMs > 0 && now - updatedMs <= PEER_ONLINE_TTL_MS;
+            const uid = clampStr(d.uid || docSnap.id, 128);
+            if (!uid) return;
+            list.push({
+              uid,
+              numericId: Number(d.numericId) || stableNumericId(uid),
+              name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+              role: d.role === 'teacher' ? 'teacher' : 'student',
+              isAdmin: Boolean(d.isAdmin),
+              grade: clampStr(d.grade || '', 40),
+              avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+              bio: clampStr(d.bio || '', 500),
+              online: Boolean(d.online) && isFresh,
+              currentSection:
+                Boolean(d.online) && isFresh ? clampStr(d.currentSection || 'home', 40) : '',
+              isRestricted: Boolean(d.isRestricted),
+              lastActiveAtIso: clampStr(d.lastActiveAtIso || updatedIso, 64),
+            });
+          });
+          onChange(list);
+        },
+        (err) => {
+          recordCloudError('peer_presence_live', err);
+          onError?.(err);
+        }
+      );
+    } catch (err) {
+      recordCloudError('peer_presence_live', err);
+      onError?.(err);
+    }
+  };
+
+  void attach();
+  const unsubAuth = onAuthStateChanged(auth, () => {
+    void attach();
+  });
+
+  return () => {
+    disposed = true;
+    stopSnap();
+    unsubAuth();
+  };
+}
+
+export interface CloudSyncStatsInput {
+  totalPoints?: number;
+  quizPoints?: number;
+  activityPoints?: number;
+  quizzesCompleted?: number;
+  correctAnswers?: number;
+  questionsAnswered?: number;
+  avgScorePercent?: number;
+  bestScorePercent?: number;
+  fairScore?: number;
+  activityScore?: number;
+}
+
 export async function syncCurrentUserToFirestore(
   appUser: User,
-  stats?: { totalPoints?: number; quizzesCompleted?: number; correctAnswers?: number }
+  stats?: CloudSyncStatsInput
 ): Promise<void> {
   await auth.authStateReady().catch(() => {});
   const fbUser = auth.currentUser;
@@ -522,8 +715,13 @@ export async function syncCurrentUserToFirestore(
   const userRef = doc(db, 'users', fbUser.uid);
 
   let existingPoints = 0;
+  let existingQuizPoints = 0;
+  let existingActivityPoints = 0;
   let existingQuizzes = 0;
   let existingCorrect = 0;
+  let existingAnswered = 0;
+  let existingAvg = 0;
+  let existingBest = 0;
   let docExists = false;
 
   try {
@@ -532,8 +730,13 @@ export async function syncCurrentUserToFirestore(
       docExists = true;
       const d = snap.data();
       existingPoints = clampNonNegInt(d.totalPoints, 1000000);
+      existingQuizPoints = clampNonNegInt(d.quizPoints, 1000000);
+      existingActivityPoints = clampNonNegInt(d.activityPoints, 1000000);
       existingQuizzes = clampNonNegInt(d.quizzesCompleted, 100000);
       existingCorrect = clampNonNegInt(d.correctAnswers, 1000000);
+      existingAnswered = Math.max(clampNonNegInt(d.questionsAnswered, 1000000), existingCorrect);
+      existingAvg = clampPercent(d.avgScorePercent);
+      existingBest = clampPercent(d.bestScorePercent);
     } else if (!isMainAdmin) {
       const revoked = await isCurrentUserCloudRevoked(fbUser.email, fbUser.uid).catch(() => false);
       if (revoked) {
@@ -541,59 +744,87 @@ export async function syncCurrentUserToFirestore(
       }
     }
   } catch (err) {
+    recordCloudError('sync_user_read', err);
     handleFirestoreError(err, OperationType.GET, userPath);
   }
 
-  const nextPoints = Math.max(existingPoints, clampNonNegInt(stats?.totalPoints, 1000000));
-  const nextQuizzes = Math.max(existingQuizzes, clampNonNegInt(stats?.quizzesCompleted, 100000));
-  const nextCorrect = Math.max(existingCorrect, clampNonNegInt(stats?.correctAnswers, 1000000));
+  const incomingPoints = clampNonNegInt(stats?.totalPoints, 1000000);
+  const incomingQuizPts = clampNonNegInt(stats?.quizPoints, 1000000);
+  const incomingActPts = clampNonNegInt(stats?.activityPoints, 1000000);
+  const incomingQuizzes = clampNonNegInt(stats?.quizzesCompleted, 100000);
+  const incomingCorrect = clampNonNegInt(stats?.correctAnswers, 1000000);
+  const incomingAnswered = Math.max(clampNonNegInt(stats?.questionsAnswered, 1000000), incomingCorrect);
+
+  const nextActPts = Math.max(existingActivityPoints, incomingActPts);
+  let nextQuizPts = Math.max(existingQuizPoints, incomingQuizPts);
+  const nextPoints = Math.max(existingPoints, incomingPoints, nextQuizPts + nextActPts);
+  if (nextQuizPts === 0 && nextPoints > nextActPts) {
+    nextQuizPts = Math.max(0, nextPoints - nextActPts);
+  }
+  const nextQuizzes = Math.max(existingQuizzes, incomingQuizzes);
+  const nextCorrect = Math.max(existingCorrect, incomingCorrect);
+  const nextAnswered = Math.max(existingAnswered, incomingAnswered, nextCorrect);
+
+  const hasFresherLocalStats =
+    incomingQuizzes > existingQuizzes ||
+    incomingAnswered > existingAnswered ||
+    (incomingQuizzes === existingQuizzes && incomingAnswered === existingAnswered && stats?.avgScorePercent !== undefined);
+  const resolvedAvg =
+    hasFresherLocalStats && stats?.avgScorePercent !== undefined
+      ? clampPercent(stats.avgScorePercent)
+      : existingAvg || clampPercent(stats?.avgScorePercent);
+  const resolvedBest = Math.max(existingBest, clampPercent(stats?.bestScorePercent), resolvedAvg);
+
+  const fairMetrics = computeStudentFairMetrics({
+    correctAnswers: nextCorrect,
+    questionsAnswered: nextAnswered,
+    quizzesCompleted: nextQuizzes,
+    avgScorePercent: resolvedAvg,
+    bestScorePercent: resolvedBest,
+    activityPoints: nextActPts,
+  });
 
   try {
+    const sharedUserMetrics = {
+      name: safeValidName,
+      grade: safeGrade,
+      bio: safeBio,
+      birthday: safeBirthday,
+      avatarUrl: safeAvatar,
+      notificationsEnabled: safeNotifEnabled,
+      notifPromptStatus: safeNotifPrompt,
+      totalPoints: nextPoints,
+      quizPoints: nextQuizPts,
+      activityPoints: nextActPts,
+      quizzesCompleted: fairMetrics.quizzesCompleted,
+      correctAnswers: fairMetrics.correctAnswers,
+      questionsAnswered: fairMetrics.questionsAnswered,
+      avgScorePercent: fairMetrics.avgScorePercent,
+      bestScorePercent: fairMetrics.bestScorePercent,
+      fairScore: fairMetrics.fairScore,
+      activityScore: fairMetrics.activityScore,
+      lastLoginAt: clampStr(appUser.lastLoginAt || nowIso, 64),
+      lastActiveAt: nowIso,
+      updatedAt: serverTimestamp(),
+    };
+
     if (!docExists) {
       await setDoc(userRef, {
         uid: fbUser.uid,
-        name: safeValidName,
         email: fbUser.email.trim(),
         role: isMainAdmin ? 'teacher' : 'student',
         isAdmin: isMainAdmin,
-        grade: safeGrade,
-        bio: safeBio,
-        birthday: safeBirthday,
-        avatarUrl: safeAvatar,
-        notificationsEnabled: safeNotifEnabled,
-        notifPromptStatus: safeNotifPrompt,
-        totalPoints: nextPoints,
-        quizzesCompleted: nextQuizzes,
-        correctAnswers: nextCorrect,
         isRestricted: false,
         restrictionReason: '',
-        lastLoginAt: clampStr(appUser.lastLoginAt || nowIso, 64),
-        lastActiveAt: nowIso,
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        ...sharedUserMetrics,
       });
     } else {
-      await setDoc(
-        userRef,
-        {
-          name: safeValidName,
-          grade: safeGrade,
-          bio: safeBio,
-          birthday: safeBirthday,
-          avatarUrl: safeAvatar,
-          notificationsEnabled: safeNotifEnabled,
-          notifPromptStatus: safeNotifPrompt,
-          totalPoints: nextPoints,
-          quizzesCompleted: nextQuizzes,
-          correctAnswers: nextCorrect,
-          lastLoginAt: clampStr(appUser.lastLoginAt || nowIso, 64),
-          lastActiveAt: nowIso,
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await setDoc(userRef, sharedUserMetrics, { merge: true });
     }
+    clearCloudError('sync_user_write');
   } catch (err) {
+    recordCloudError('sync_user_write', err);
     handleFirestoreError(err, docExists ? OperationType.UPDATE : OperationType.CREATE, userPath);
   }
 
@@ -602,44 +833,47 @@ export async function syncCurrentUserToFirestore(
     const lbRef = doc(db, 'leaderboard_entries', fbUser.uid);
     try {
       const lbSnap = await getDoc(lbRef);
+      const lbMetrics = {
+        name: safeValidName,
+        grade: safeGrade,
+        avatarUrl: safeAvatar,
+        totalPoints: nextPoints,
+        quizPoints: nextQuizPts,
+        activityPoints: nextActPts,
+        quizzesCompleted: fairMetrics.quizzesCompleted,
+        correctAnswers: fairMetrics.correctAnswers,
+        questionsAnswered: fairMetrics.questionsAnswered,
+        avgScorePercent: fairMetrics.avgScorePercent,
+        bestScorePercent: fairMetrics.bestScorePercent,
+        fairScore: fairMetrics.fairScore,
+        activityScore: fairMetrics.activityScore,
+        lastActiveAt: nowIso,
+        updatedAt: serverTimestamp(),
+      };
       if (!lbSnap.exists()) {
         await setDoc(lbRef, {
           uid: fbUser.uid,
-          name: safeValidName,
-          grade: safeGrade,
-          avatarUrl: safeAvatar,
           role: 'student',
-          totalPoints: nextPoints,
-          quizzesCompleted: nextQuizzes,
-          correctAnswers: nextCorrect,
-          updatedAt: serverTimestamp(),
+          ...lbMetrics,
         });
       } else {
-        await setDoc(
-          lbRef,
-          {
-            name: safeValidName,
-            grade: safeGrade,
-            avatarUrl: safeAvatar,
-            totalPoints: nextPoints,
-            quizzesCompleted: nextQuizzes,
-            correctAnswers: nextCorrect,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await setDoc(lbRef, lbMetrics, { merge: true });
       }
+      clearCloudError('sync_leaderboard_write');
     } catch (err) {
+      recordCloudError('sync_leaderboard_write', err);
       handleFirestoreError(err, OperationType.WRITE, lbPath);
     }
   }
 
-  await syncCloudPeerPresence(appUser, true, 'home').catch(() => {});
+  await syncCloudPeerPresence(appUser, true, 'home').catch((err) => {
+    recordCloudError('peer_presence_write', err);
+  });
 }
 
 export async function recordQuizAttemptToCloud(
   attempt: CloudQuizAttemptInput,
-  updatedStats?: { totalPoints?: number; quizzesCompleted?: number; correctAnswers?: number },
+  updatedStats?: CloudSyncStatsInput,
   appUser?: User | null
 ): Promise<void> {
   const fbUser = auth.currentUser;
@@ -657,11 +891,12 @@ export async function recordQuizAttemptToCloud(
           : 0,
       totalQuestions: clampNonNegInt(attempt.totalQuestions, 500),
       correctCount: clampNonNegInt(attempt.correctCount, 500),
-      scorePercent: Math.max(0, Math.min(100, Number(attempt.scorePercent || 0))),
+      scorePercent: clampPercent(attempt.scorePercent),
       pointsAwarded: clampNonNegInt(attempt.pointsAwarded, 1000),
       createdAt: serverTimestamp(),
     });
   } catch (err) {
+    recordCloudError('quiz_attempt_write', err);
     handleFirestoreError(err, OperationType.CREATE, path);
   }
 
@@ -710,6 +945,144 @@ export async function pullAllSchoolAccountsAsAdmin(): Promise<SchoolAccountMirro
   return results;
 }
 
+function mapUserDocToCloudRegisteredAccount(
+  docId: string,
+  d: Record<string, unknown>
+): CloudRegisteredAccount | null {
+  const email = clampStr(d.email, 180).toLowerCase();
+  if (!email) return null;
+  const isMain = email === MAIN_ADMIN_EMAIL;
+  const totalPoints = clampNonNegInt(d.totalPoints, 1000000);
+  const quizPoints =
+    d.quizPoints !== undefined ? clampNonNegInt(d.quizPoints, 1000000) : totalPoints;
+  const activityPoints = clampNonNegInt(d.activityPoints, 1000000);
+  const quizzesCompleted = clampNonNegInt(d.quizzesCompleted, 100000);
+  const correctAnswers = clampNonNegInt(d.correctAnswers, 1000000);
+  const questionsAnswered = Math.max(clampNonNegInt(d.questionsAnswered, 1000000), correctAnswers);
+  const computed = computeStudentFairMetrics({
+    correctAnswers,
+    questionsAnswered,
+    quizzesCompleted,
+    avgScorePercent: clampPercent(d.avgScorePercent),
+    bestScorePercent: clampPercent(d.bestScorePercent),
+    activityPoints,
+  });
+
+  return {
+    uid: clampStr(d.uid || docId, 128),
+    name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+    email,
+    role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
+    isAdmin: isMain || Boolean(d.isAdmin),
+    grade: clampStr(d.grade || '', 40),
+    bio: clampStr(d.bio || '', 500),
+    birthday: clampStr(d.birthday || '', 20),
+    avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+    isRestricted: !isMain && Boolean(d.isRestricted),
+    restrictionReason: clampStr(d.restrictionReason || '', 300),
+    totalPoints: Math.max(totalPoints, quizPoints + activityPoints),
+    quizPoints,
+    activityPoints,
+    quizzesCompleted: computed.quizzesCompleted,
+    correctAnswers: computed.correctAnswers,
+    questionsAnswered: computed.questionsAnswered,
+    avgScorePercent: computed.avgScorePercent,
+    bestScorePercent: computed.bestScorePercent,
+    fairScore: d.fairScore !== undefined ? clampPercent(d.fairScore) : computed.fairScore,
+    activityScore:
+      d.activityScore !== undefined
+        ? clampNonNegInt(d.activityScore, 10000000)
+        : computed.activityScore,
+    lastLoginAt: clampStr(d.lastLoginAt || '', 64),
+    lastActiveAt:
+      clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
+    createdAtIso: toIsoFromTimestampOrString(d.createdAt) || new Date().toISOString(),
+  };
+}
+
+let lastLeaderboardBackfillAt = 0;
+
+export async function backfillMissingLeaderboardEntriesAsAdmin(
+  accounts: CloudRegisteredAccount[],
+  force = false
+): Promise<number> {
+  if (!(await isCurrentUserCloudAdmin())) return 0;
+  const now = Date.now();
+  if (!force && now - lastLeaderboardBackfillAt < 20_000) {
+    return 0;
+  }
+  lastLeaderboardBackfillAt = now;
+
+  let existingByUid = new Map<string, Record<string, unknown>>();
+  try {
+    const q = query(collection(db, 'leaderboard_entries'), where('role', '==', 'student'));
+    const snaps = await getDocs(q);
+    snaps.forEach((s) => existingByUid.set(s.id, s.data() as Record<string, unknown>));
+  } catch (err) {
+    recordCloudError('admin_leaderboard_read', err);
+    return 0;
+  }
+
+  let updated = 0;
+  for (const acct of accounts) {
+    if (acct.role !== 'student' || acct.isAdmin) continue;
+    const uid = clampStr(acct.uid || '', 128);
+    if (!uid || !VALID_ID_REGEX.test(uid)) continue;
+
+    const existing = existingByUid.get(uid);
+    const existingPoints = clampNonNegInt(existing?.totalPoints, 1000000);
+    const existingQuizzes = clampNonNegInt(existing?.quizzesCompleted, 100000);
+    const existingAnswered = clampNonNegInt(existing?.questionsAnswered, 1000000);
+    const needsCreate = !existing;
+    const needsSync =
+      needsCreate ||
+      acct.totalPoints > existingPoints ||
+      acct.quizzesCompleted > existingQuizzes ||
+      acct.questionsAnswered > existingAnswered ||
+      (existing?.fairScore === undefined && acct.fairScore > 0) ||
+      (existing?.questionsAnswered === undefined && acct.questionsAnswered > 0);
+
+    if (!needsSync) continue;
+
+    const safeName = clampStr(acct.name || 'Grade 9 Student', 120) || 'Grade 9 Student';
+    const validName = safeName.length >= 2 ? safeName : 'Grade 9 Student';
+    const metrics = {
+      name: validName,
+      grade: clampStr(acct.grade || '', 40),
+      avatarUrl: sanitizeAvatarForFirestore(acct.avatarUrl),
+      totalPoints: Math.max(existingPoints, acct.totalPoints),
+      quizPoints: Math.max(clampNonNegInt(existing?.quizPoints, 1000000), acct.quizPoints),
+      activityPoints: Math.max(clampNonNegInt(existing?.activityPoints, 1000000), acct.activityPoints),
+      quizzesCompleted: Math.max(existingQuizzes, acct.quizzesCompleted),
+      correctAnswers: Math.max(clampNonNegInt(existing?.correctAnswers, 1000000), acct.correctAnswers),
+      questionsAnswered: Math.max(existingAnswered, acct.questionsAnswered, acct.correctAnswers),
+      avgScorePercent: acct.avgScorePercent || clampPercent(existing?.avgScorePercent),
+      bestScorePercent: Math.max(acct.bestScorePercent, clampPercent(existing?.bestScorePercent)),
+      fairScore: acct.fairScore || clampPercent(existing?.fairScore),
+      activityScore: Math.max(clampNonNegInt(existing?.activityScore, 10000000), acct.activityScore),
+      lastActiveAt: clampStr(acct.lastActiveAt || new Date().toISOString(), 64),
+      updatedAt: serverTimestamp(),
+    };
+
+    try {
+      const lbRef = doc(db, 'leaderboard_entries', uid);
+      if (needsCreate) {
+        await setDoc(lbRef, {
+          uid,
+          role: 'student',
+          ...metrics,
+        });
+      } else {
+        await setDoc(lbRef, metrics, { merge: true });
+      }
+      updated += 1;
+    } catch (err) {
+      recordCloudError('admin_leaderboard_backfill', err);
+    }
+  }
+  return updated;
+}
+
 export async function fetchCloudRegisteredUsersAsAdmin(): Promise<CloudRegisteredAccount[]> {
   if (!(await isCurrentUserCloudAdmin())) {
     return [];
@@ -724,33 +1097,16 @@ export async function fetchCloudRegisteredUsersAsAdmin(): Promise<CloudRegistere
     );
     const snaps = await getDocs(q);
     snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      const email = clampStr(d.email, 180).toLowerCase();
-      if (!email) return;
-      const isMain = email === MAIN_ADMIN_EMAIL;
-      byEmail.set(email, {
-        uid: clampStr(d.uid || docSnap.id, 128),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        email,
-        role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
-        isAdmin: isMain || Boolean(d.isAdmin),
-        grade: clampStr(d.grade || '', 40),
-        bio: clampStr(d.bio || '', 500),
-        birthday: clampStr(d.birthday || '', 20),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        isRestricted: !isMain && Boolean(d.isRestricted),
-        restrictionReason: clampStr(d.restrictionReason || '', 300),
-        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-        lastLoginAt: clampStr(d.lastLoginAt || '', 64),
-        lastActiveAt:
-          clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
-        createdAtIso: toIsoFromTimestampOrString(d.createdAt) || new Date().toISOString(),
-      });
+      const mapped = mapUserDocToCloudRegisteredAccount(
+        docSnap.id,
+        docSnap.data() as Record<string, unknown>
+      );
+      if (!mapped) return;
+      byEmail.set(mapped.email, mapped);
     });
-  } catch {
-    // Non-fatal /users read; continue checking school_accounts
+    clearCloudError('admin_users');
+  } catch (err) {
+    recordCloudError('admin_users', err);
   }
 
   try {
@@ -788,18 +1144,30 @@ export async function fetchCloudRegisteredUsersAsAdmin(): Promise<CloudRegistere
         isRestricted: false,
         restrictionReason: '',
         totalPoints: 0,
+        quizPoints: 0,
+        activityPoints: 0,
         quizzesCompleted: 0,
         correctAnswers: 0,
+        questionsAnswered: 0,
+        avgScorePercent: 0,
+        bestScorePercent: 0,
+        fairScore: 0,
+        activityScore: 0,
         lastLoginAt: '',
         lastActiveAt: toIsoFromTimestampOrString(d.updatedAt),
         createdAtIso: clampStr(d.createdAtIso || '', 64) || new Date().toISOString(),
       });
     });
-  } catch {
-    // Non-fatal /school_accounts read
+    clearCloudError('admin_school_accounts');
+  } catch (err) {
+    recordCloudError('admin_school_accounts', err);
   }
 
-  return Array.from(byEmail.values());
+  const accountsList = Array.from(byEmail.values());
+  void backfillMissingLeaderboardEntriesAsAdmin(accountsList).catch((err) =>
+    recordCloudError('admin_leaderboard_backfill', err)
+  );
+  return accountsList;
 }
 
 export function subscribeCloudRegisteredUsersAsAdmin(
@@ -829,7 +1197,11 @@ export function subscribeCloudRegisteredUsersAsAdmin(
         byEmail.set(a.email, { ...a });
       }
     }
-    onChange(Array.from(byEmail.values()));
+    const merged = Array.from(byEmail.values());
+    void backfillMissingLeaderboardEntriesAsAdmin(merged).catch((err) =>
+      recordCloudError('admin_leaderboard_backfill', err)
+    );
+    onChange(merged);
   };
 
   const stopSnap = () => {
@@ -864,40 +1236,24 @@ export function subscribeCloudRegisteredUsersAsAdmin(
       unsubUsers = onSnapshot(
         qUsers,
         (snaps) => {
+          clearCloudError('admin_users_live');
           const list: CloudRegisteredAccount[] = [];
           snaps.forEach((docSnap) => {
-            const d = docSnap.data();
-            const email = clampStr(d.email, 180).toLowerCase();
-            if (!email) return;
-            const isMain = email === MAIN_ADMIN_EMAIL;
-            list.push({
-              uid: clampStr(d.uid || docSnap.id, 128),
-              name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-              email,
-              role: isMain || d.role === 'teacher' ? 'teacher' : 'student',
-              isAdmin: isMain || Boolean(d.isAdmin),
-              grade: clampStr(d.grade || '', 40),
-              bio: clampStr(d.bio || '', 500),
-              birthday: clampStr(d.birthday || '', 20),
-              avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-              isRestricted: !isMain && Boolean(d.isRestricted),
-              restrictionReason: clampStr(d.restrictionReason || '', 300),
-              totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-              quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-              correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-              lastLoginAt: clampStr(d.lastLoginAt || '', 64),
-              lastActiveAt:
-                clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
-              createdAtIso: toIsoFromTimestampOrString(d.createdAt) || new Date().toISOString(),
-            });
+            const mapped = mapUserDocToCloudRegisteredAccount(
+              docSnap.id,
+              docSnap.data() as Record<string, unknown>
+            );
+            if (mapped) list.push(mapped);
           });
           usersDocs = list;
           emitMerged();
         },
-        () => {}
+        (err) => {
+          recordCloudError('admin_users_live', err);
+        }
       );
-    } catch {
-      // ignore non-fatal /users snapshot failure
+    } catch (err) {
+      recordCloudError('admin_users_live', err);
     }
 
     try {
@@ -908,6 +1264,7 @@ export function subscribeCloudRegisteredUsersAsAdmin(
       unsubAccounts = onSnapshot(
         qAccounts,
         (snaps) => {
+          clearCloudError('admin_school_accounts_live');
           const list: CloudRegisteredAccount[] = [];
           snaps.forEach((docSnap) => {
             const d = docSnap.data();
@@ -927,8 +1284,15 @@ export function subscribeCloudRegisteredUsersAsAdmin(
               isRestricted: false,
               restrictionReason: '',
               totalPoints: 0,
+              quizPoints: 0,
+              activityPoints: 0,
               quizzesCompleted: 0,
               correctAnswers: 0,
+              questionsAnswered: 0,
+              avgScorePercent: 0,
+              bestScorePercent: 0,
+              fairScore: 0,
+              activityScore: 0,
               lastLoginAt: '',
               lastActiveAt: toIsoFromTimestampOrString(d.updatedAt),
               createdAtIso: clampStr(d.createdAtIso || '', 64) || new Date().toISOString(),
@@ -937,10 +1301,12 @@ export function subscribeCloudRegisteredUsersAsAdmin(
           accountDocs = list;
           emitMerged();
         },
-        () => {}
+        (err) => {
+          recordCloudError('admin_school_accounts_live', err);
+        }
       );
-    } catch {
-      // ignore non-fatal /school_accounts snapshot failure
+    } catch (err) {
+      recordCloudError('admin_school_accounts_live', err);
     }
   };
 
@@ -1204,8 +1570,59 @@ export interface CloudLeaderboardRow {
   grade: string;
   avatarUrl: string;
   totalPoints: number;
+  quizPoints: number;
+  activityPoints: number;
   quizzesCompleted: number;
   correctAnswers: number;
+  questionsAnswered: number;
+  avgScorePercent: number;
+  bestScorePercent: number;
+  fairScore: number;
+  activityScore: number;
+  lastActiveAt: string;
+}
+
+function mapDocToCloudLeaderboardRow(
+  docId: string,
+  d: Record<string, unknown>
+): CloudLeaderboardRow {
+  const totalPoints = clampNonNegInt(d.totalPoints, 1000000);
+  const quizPoints =
+    d.quizPoints !== undefined ? clampNonNegInt(d.quizPoints, 1000000) : totalPoints;
+  const activityPoints = clampNonNegInt(d.activityPoints, 1000000);
+  const quizzesCompleted = clampNonNegInt(d.quizzesCompleted, 100000);
+  const correctAnswers = clampNonNegInt(d.correctAnswers, 1000000);
+  const questionsAnswered = Math.max(clampNonNegInt(d.questionsAnswered, 1000000), correctAnswers);
+  const computed = computeStudentFairMetrics({
+    correctAnswers,
+    questionsAnswered,
+    quizzesCompleted,
+    avgScorePercent: clampPercent(d.avgScorePercent),
+    bestScorePercent: clampPercent(d.bestScorePercent),
+    activityPoints,
+  });
+
+  return {
+    uid: String(d.uid || docId),
+    name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
+    grade: clampStr(d.grade || '', 40),
+    avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
+    totalPoints: Math.max(totalPoints, quizPoints + activityPoints),
+    quizPoints,
+    activityPoints,
+    quizzesCompleted: computed.quizzesCompleted,
+    correctAnswers: computed.correctAnswers,
+    questionsAnswered: computed.questionsAnswered,
+    avgScorePercent: computed.avgScorePercent,
+    bestScorePercent: computed.bestScorePercent,
+    fairScore: d.fairScore !== undefined ? clampPercent(d.fairScore) : computed.fairScore,
+    activityScore:
+      d.activityScore !== undefined
+        ? clampNonNegInt(d.activityScore, 10000000)
+        : computed.activityScore,
+    lastActiveAt:
+      clampStr(d.lastActiveAt || '', 64) || toIsoFromTimestampOrString(d.updatedAt),
+  };
 }
 
 export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]> {
@@ -1220,23 +1637,83 @@ export async function fetchFirestoreLeaderboard(): Promise<CloudLeaderboardRow[]
       where('role', '==', 'student')
     );
     const snaps = await getDocs(q);
+    clearCloudError('leaderboard_entries');
     const rows: CloudLeaderboardRow[] = [];
     snaps.forEach((docSnap) => {
-      const d = docSnap.data();
-      rows.push({
-        uid: String(d.uid || docSnap.id),
-        name: clampStr(d.name || 'Grade 9 Student', 120) || 'Grade 9 Student',
-        grade: clampStr(d.grade || '', 40),
-        avatarUrl: sanitizeAvatarForFirestore(d.avatarUrl),
-        totalPoints: clampNonNegInt(d.totalPoints, 1000000),
-        quizzesCompleted: clampNonNegInt(d.quizzesCompleted, 100000),
-        correctAnswers: clampNonNegInt(d.correctAnswers, 1000000),
-      });
+      rows.push(
+        mapDocToCloudLeaderboardRow(docSnap.id, docSnap.data() as Record<string, unknown>)
+      );
     });
     return rows;
-  } catch {
+  } catch (err) {
+    recordCloudError('leaderboard_entries', err);
     return [];
   }
+}
+
+export function subscribeFirestoreLeaderboard(
+  onChange: (rows: CloudLeaderboardRow[]) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  let disposed = false;
+  let unsubSnap: (() => void) | null = null;
+
+  const stopSnap = () => {
+    if (unsubSnap) {
+      try {
+        unsubSnap();
+      } catch {
+        // ignore unsubscribe error
+      }
+      unsubSnap = null;
+    }
+  };
+
+  const attach = async () => {
+    stopSnap();
+    await auth.authStateReady().catch(() => {});
+    if (disposed) return;
+    const fbUser = auth.currentUser;
+    if (!isTrustedCloudAuthUser(fbUser)) return;
+    try {
+      const q = query(
+        collection(db, 'leaderboard_entries'),
+        where('role', '==', 'student')
+      );
+      unsubSnap = onSnapshot(
+        q,
+        (snaps) => {
+          if (disposed) return;
+          clearCloudError('leaderboard_entries_live');
+          const rows: CloudLeaderboardRow[] = [];
+          snaps.forEach((docSnap) => {
+            rows.push(
+              mapDocToCloudLeaderboardRow(docSnap.id, docSnap.data() as Record<string, unknown>)
+            );
+          });
+          onChange(rows);
+        },
+        (err) => {
+          recordCloudError('leaderboard_entries_live', err);
+          onError?.(err);
+        }
+      );
+    } catch (err) {
+      recordCloudError('leaderboard_entries_live', err);
+      onError?.(err);
+    }
+  };
+
+  void attach();
+  const unsubAuth = onAuthStateChanged(auth, () => {
+    void attach();
+  });
+
+  return () => {
+    disposed = true;
+    stopSnap();
+    unsubAuth();
+  };
 }
 
 export async function fetchCloudAppSettings(): Promise<AppSettings | null> {

@@ -66,8 +66,15 @@ service cloud.firestore {
           'notificationsEnabled',
           'notifPromptStatus',
           'totalPoints',
+          'quizPoints',
+          'activityPoints',
           'quizzesCompleted',
           'correctAnswers',
+          'questionsAnswered',
+          'avgScorePercent',
+          'bestScorePercent',
+          'fairScore',
+          'activityScore',
           'isRestricted',
           'restrictionReason',
           'lastLoginAt',
@@ -87,8 +94,15 @@ service cloud.firestore {
         (!data.keys().hasAny(['notificationsEnabled']) || data.notificationsEnabled is bool) &&
         (!data.keys().hasAny(['notifPromptStatus']) || (data.notifPromptStatus is string && data.notifPromptStatus in ['', 'allowed', 'denied'])) &&
         (!data.keys().hasAny(['totalPoints']) || (data.totalPoints is number && data.totalPoints >= 0 && data.totalPoints <= 1000000)) &&
+        (!data.keys().hasAny(['quizPoints']) || (data.quizPoints is number && data.quizPoints >= 0 && data.quizPoints <= 1000000)) &&
+        (!data.keys().hasAny(['activityPoints']) || (data.activityPoints is number && data.activityPoints >= 0 && data.activityPoints <= 1000000)) &&
         (!data.keys().hasAny(['quizzesCompleted']) || (data.quizzesCompleted is number && data.quizzesCompleted >= 0 && data.quizzesCompleted <= 100000)) &&
         (!data.keys().hasAny(['correctAnswers']) || (data.correctAnswers is number && data.correctAnswers >= 0 && data.correctAnswers <= 1000000)) &&
+        (!data.keys().hasAny(['questionsAnswered']) || (data.questionsAnswered is number && data.questionsAnswered >= 0 && data.questionsAnswered <= 1000000)) &&
+        (!data.keys().hasAny(['avgScorePercent']) || (data.avgScorePercent is number && data.avgScorePercent >= 0 && data.avgScorePercent <= 100)) &&
+        (!data.keys().hasAny(['bestScorePercent']) || (data.bestScorePercent is number && data.bestScorePercent >= 0 && data.bestScorePercent <= 100)) &&
+        (!data.keys().hasAny(['fairScore']) || (data.fairScore is number && data.fairScore >= 0 && data.fairScore <= 100)) &&
+        (!data.keys().hasAny(['activityScore']) || (data.activityScore is number && data.activityScore >= 0 && data.activityScore <= 10000000)) &&
         (!data.keys().hasAny(['isRestricted']) || data.isRestricted is bool) &&
         (!data.keys().hasAny(['restrictionReason']) || (data.restrictionReason is string && data.restrictionReason.size() <= 300)) &&
         (!data.keys().hasAny(['lastLoginAt']) || (data.lastLoginAt is string && data.lastLoginAt.size() <= 64)) &&
@@ -145,8 +159,16 @@ service cloud.firestore {
           'avatarUrl',
           'role',
           'totalPoints',
+          'quizPoints',
+          'activityPoints',
           'quizzesCompleted',
           'correctAnswers',
+          'questionsAnswered',
+          'avgScorePercent',
+          'bestScorePercent',
+          'fairScore',
+          'activityScore',
+          'lastActiveAt',
           'updatedAt'
         ]) &&
         data.uid is string && data.uid == userId && isValidId(data.uid) &&
@@ -155,8 +177,16 @@ service cloud.firestore {
         (!data.keys().hasAny(['avatarUrl']) || (data.avatarUrl is string && data.avatarUrl.size() <= 200000)) &&
         data.role == 'student' &&
         data.totalPoints is number && data.totalPoints >= 0 && data.totalPoints <= 1000000 &&
+        (!data.keys().hasAny(['quizPoints']) || (data.quizPoints is number && data.quizPoints >= 0 && data.quizPoints <= 1000000)) &&
+        (!data.keys().hasAny(['activityPoints']) || (data.activityPoints is number && data.activityPoints >= 0 && data.activityPoints <= 1000000)) &&
         data.quizzesCompleted is number && data.quizzesCompleted >= 0 && data.quizzesCompleted <= 100000 &&
         data.correctAnswers is number && data.correctAnswers >= 0 && data.correctAnswers <= 1000000 &&
+        (!data.keys().hasAny(['questionsAnswered']) || (data.questionsAnswered is number && data.questionsAnswered >= 0 && data.questionsAnswered <= 1000000)) &&
+        (!data.keys().hasAny(['avgScorePercent']) || (data.avgScorePercent is number && data.avgScorePercent >= 0 && data.avgScorePercent <= 100)) &&
+        (!data.keys().hasAny(['bestScorePercent']) || (data.bestScorePercent is number && data.bestScorePercent >= 0 && data.bestScorePercent <= 100)) &&
+        (!data.keys().hasAny(['fairScore']) || (data.fairScore is number && data.fairScore >= 0 && data.fairScore <= 100)) &&
+        (!data.keys().hasAny(['activityScore']) || (data.activityScore is number && data.activityScore >= 0 && data.activityScore <= 10000000)) &&
+        (!data.keys().hasAny(['lastActiveAt']) || (data.lastActiveAt is string && data.lastActiveAt.size() <= 64)) &&
         data.updatedAt is timestamp;
     }
 
@@ -490,8 +520,15 @@ service cloud.firestore {
               'notificationsEnabled',
               'notifPromptStatus',
               'totalPoints',
+              'quizPoints',
+              'activityPoints',
               'quizzesCompleted',
               'correctAnswers',
+              'questionsAnswered',
+              'avgScorePercent',
+              'bestScorePercent',
+              'fairScore',
+              'activityScore',
               'lastLoginAt',
               'lastActiveAt',
               'updatedAt'
@@ -542,8 +579,16 @@ service cloud.firestore {
           'grade',
           'avatarUrl',
           'totalPoints',
+          'quizPoints',
+          'activityPoints',
           'quizzesCompleted',
           'correctAnswers',
+          'questionsAnswered',
+          'avgScorePercent',
+          'bestScorePercent',
+          'fairScore',
+          'activityScore',
+          'lastActiveAt',
           'updatedAt'
         ]);
 

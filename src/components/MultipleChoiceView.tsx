@@ -298,9 +298,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
         }),
       });
       setCheckedResults((prev) => ({ ...prev, [questionId]: result }));
-      if (result.pointsAwarded && result.pointsAwarded > 0) {
-        window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
-      }
+      window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
       if (settings.soundFeedback) {
         playAnswerSound(result.isCorrect);
       }
@@ -391,9 +389,7 @@ export const MultipleChoiceView: React.FC<MultipleChoiceViewProps> = ({
         }),
       });
       setSubmission(data);
-      if (data.pointsAwarded && data.pointsAwarded > 0) {
-        window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
-      }
+      window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
     } catch (err) {
       const isNetworkOrOffline =
         (typeof navigator !== 'undefined' && !navigator.onLine) ||

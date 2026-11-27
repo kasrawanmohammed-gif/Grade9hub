@@ -2,7 +2,7 @@
 
 ## 1. Data Invariants
 1. **Default-Deny Safety Net**: Every path not explicitly matched is denied (`allow read, write: if false;`).
-2. **Email Verification Gate**: All authenticated read/write operations require `request.auth != null && request.auth.token.email_verified == true`.
+2. **Email Verification Gate**: All protected user mutations and PII reads require `request.auth != null && request.auth.token.email_verified == true`.
 3. **Strict PII Isolation**: `/users/{userId}` (containing `email`, `birthday`, `isAdmin`) and `/school_accounts/{accountKey}` (containing `email`, `passwordHash`) are NEVER readable or listable by other students. Public leaderboard reads happen exclusively on `/leaderboard_entries/{userId}` where `resource.data.role == 'student'` and zero PII fields exist.
 4. **No Self-Assigned Privilege Escalation**: A non-admin user creating or updating `/users/{userId}` MUST have `role == 'student'` and `isAdmin == false`. Only verified `mohamdm791@gmail.com` or an existing `/admins/{uid}` entry can hold `role == 'teacher'` or `isAdmin == true` or write to `/admins` or `/school_accounts`.
 5. **Master Gate & Immutability**: Subcollection `/users/{userId}/quiz_attempts/{attemptId}` checks parent `/users/{userId}` ownership (`get(...)`), prevents updates/deletes by non-admins, and enforces server timestamps (`request.time`) and immutable ownership (`uid`, `userId`, `createdAt`).

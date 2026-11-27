@@ -38,6 +38,12 @@ export interface AdminUserRecord {
   questionsAnswered?: number;
   correctAnswers?: number;
   avgScorePercent?: number;
+  bestScorePercent?: number;
+  totalPoints?: number;
+  quizPoints?: number;
+  activityPoints?: number;
+  fairScore?: number;
+  activityScore?: number;
   aiTutorTurns?: number;
   source?: 'local' | 'cloud';
   created_at: string;
@@ -198,6 +204,8 @@ export interface AdminStudentPerformance {
   teacherMessagesCount: number;
   aiTutorTurns: number;
   performanceScore: number;
+  fairScore?: number;
+  totalPoints?: number;
   activityScore: number;
 }
 
@@ -209,6 +217,11 @@ export interface AdminDashboardSnapshot {
   mostActiveStudent: AdminStudentPerformance | null;
   students: AdminStudentPerformance[];
   generatedAt: string;
+  diagnostics?: {
+    hasError: boolean;
+    source: string;
+    errors: string[];
+  };
 }
 
 export interface AdminStudentDetailResponse {
@@ -495,6 +508,11 @@ export interface LeaderboardEntry {
   correctAnswers: number;
   questionsAnswered: number;
   accuracyPercent: number;
+  avgScorePercent?: number;
+  bestScorePercent?: number;
+  fairScore?: number;
+  activityScore?: number;
+  lastActiveAt?: string;
   badge: CompetitionMedal;
   isCurrentUser: boolean;
 }
@@ -516,7 +534,12 @@ export interface CompetitionMyStats {
   activityPoints: number;
   quizzesCompleted: number;
   correctAnswers: number;
+  questionsAnswered?: number;
   accuracyPercent: number;
+  avgScorePercent?: number;
+  bestScorePercent?: number;
+  fairScore?: number;
+  activityScore?: number;
   badge: CompetitionMedal;
   totalStudents: number;
 }
@@ -532,10 +555,17 @@ export interface CompetitionRules {
 export interface CompetitionLeaderboardResponse {
   leaderboard: LeaderboardEntry[];
   topThree: LeaderboardEntry[];
+  topStudent?: LeaderboardEntry | null;
+  mostActiveStudent?: LeaderboardEntry | null;
   myStats: CompetitionMyStats;
   recentEvents: CompetitionPointEvent[];
   rules: CompetitionRules;
   generatedAt: string;
+  diagnostics?: {
+    hasError: boolean;
+    source: string;
+    errors: string[];
+  };
 }
 
 export interface QueuedPointEvent {

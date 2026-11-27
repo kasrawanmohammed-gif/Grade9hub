@@ -688,6 +688,9 @@ export default function App() {
     };
     const handleCompUpdated = () => {
       setLeaderboardVersion((v) => v + 1);
+      if (isPrivileged) {
+        void fetchAdminDashboard();
+      }
     };
 
     syncNow();
@@ -699,7 +702,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.removeEventListener(COMPETITION_UPDATED_EVENT, handleCompUpdated);
     };
-  }, [user?.id]);
+  }, [user?.id, isPrivileged, fetchAdminDashboard]);
 
   // Silently keep encrypted Admin Recovery Vaults fresh in IndexedDB across Remember Me sessions
   useEffect(() => {
@@ -737,7 +740,18 @@ export default function App() {
         try {
           if (user.role === 'student' && !user.isAdmin) {
             const comp = await apiFetch<{
-              myStats?: { totalPoints?: number; quizzesCompleted?: number; correctAnswers?: number };
+              myStats?: {
+                totalPoints?: number;
+                quizPoints?: number;
+                activityPoints?: number;
+                quizzesCompleted?: number;
+                correctAnswers?: number;
+                questionsAnswered?: number;
+                avgScorePercent?: number;
+                bestScorePercent?: number;
+                fairScore?: number;
+                activityScore?: number;
+              };
             }>('/api/competition/leaderboard').catch(() => null);
             await syncCurrentUserToFirestore(user, comp?.myStats);
           } else {
@@ -1529,6 +1543,9 @@ export default function App() {
   const navigateTo = (tab: TabId) => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
+    if (tab === 'competition') {
+      setLeaderboardVersion((v) => v + 1);
+    }
   };
 
   const openAdminSearch = () => {
@@ -2153,7 +2170,6 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
-                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
@@ -2194,7 +2210,6 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
-                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}
@@ -2212,7 +2227,6 @@ export default function App() {
                   pushBusy={push.busy}
                   pushError={push.error}
                   pushUnsupportedReason={push.unsupportedReason}
-                  pushVapidMissingDetails={push.vapidMissingDetails}
                   pushTestBusy={push.testBusy}
                   pushTestResult={push.testResult}
                   onEnablePush={handleEnablePushFromApp}

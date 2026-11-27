@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   Award,
   CheckCircle2,
   CloudUpload,
+  Flame,
   History,
   RefreshCw,
   Search,
@@ -12,6 +14,10 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import {
+  subscribeAllPeerPresence,
+  subscribeFirestoreLeaderboard,
+} from '../lib/cloudAccounts';
 import {
   COMPETITION_UPDATED_EVENT,
   flushCompetitionQueue,
@@ -29,6 +35,12 @@ import {
   TabId,
   User,
 } from '../types';
+import {
+  compareStudentsByActivity,
+  compareStudentsByFairRank,
+  compareStudentsByTotalPoints,
+  computeStudentFairMetrics,
+} from '../utils/studentScoring';
 import type { LiveCommunityEvent } from './CommunityView';
 import { UserAvatar } from './UserAvatar';
 import { formatUtcDate } from '../utils/dateFormat';
@@ -39,6 +51,8 @@ interface CompetitionViewProps {
   liveEvent?: LiveCommunityEvent | null;
   onNavigate: (tab: TabId) => void;
 }
+
+type LeaderboardSortMode = 'fair' | 'points' | 'activity';
 
 const DEFAULT_RULES = {
   correctAnswer: 10,
@@ -78,7 +92,12 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
   const [syncing, setSyncing] = useState(false);
   const [usingCachedOffline, setUsingCachedOffline] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [cloudError, setCloudError] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<LeaderboardSortMode>('fair');
   const [search, setSearch] = useState('');
+
+  const cloudRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshPending = useCallback(async () => {
     const summary = await getQueuedPointsSummary(user.id);
@@ -95,6 +114,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
         setData(cached);
         setUsingCachedOffline(true);
       }
+      setLoadError(null);
       setLoading(false);
       return;
     }
@@ -102,10 +122,13 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     try {
       const res = await apiFetch<CompetitionLeaderboardResponse>('/api/competition/leaderboard');
       setData(res);
-      setLivePresenceMap({});
+      setLoadError(null);
       setUsingCachedOffline(false);
       await saveCachedLeaderboard(user.id, res);
-    } catch {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load competition leaderboard.';
+      setLoadError(msg);
+      console.error('[CompetitionView] loadLeaderboard error:', err);
       const cached = await getCachedLeaderboard(user.id);
       if (cached) {
         setData(cached);
@@ -125,6 +148,7 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       if (result.snapshot) {
         setData(result.snapshot);
         setUsingCachedOffline(false);
+        setLoadError(null);
       } else {
         await loadLeaderboard();
       }
@@ -132,10 +156,15 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       if (result.syncedCount > 0) {
         setSyncNotice(
           formatMsg(t.competition.syncedSuccessMsg, {
+            count: result.syncedCount,
             pts: result.awardedPoints,
           })
         );
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Sync failed.';
+      setLoadError(msg);
+      console.error('[CompetitionView] handleManualSync error:', err);
     } finally {
       setSyncing(false);
     }
@@ -155,11 +184,14 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
           if (result.syncedCount > 0) {
             setSyncNotice(
               formatMsg(t.competition.syncedSuccessMsg, {
+                count: result.syncedCount,
                 pts: result.awardedPoints,
               })
             );
           }
           await loadLeaderboard();
+        } catch (err) {
+          setLoadError(err instanceof Error ? err.message : 'Reconnect sync error.');
         } finally {
           setSyncing(false);
         }
@@ -183,6 +215,55 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
     };
   }, [loadLeaderboard, refreshPending, t.competition.syncedSuccessMsg, user.id]);
 
+  // Live Firestore leaderboard + peer presence subscriptions so both Admin and Students see updates in real time
+  useEffect(() => {
+    let firstLeaderboardSnapshot = true;
+    const unsubLb = subscribeFirestoreLeaderboard(
+      () => {
+        setCloudError(null);
+        if (firstLeaderboardSnapshot) {
+          firstLeaderboardSnapshot = false;
+          return;
+        }
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+        if (cloudRefreshTimerRef.current) {
+          clearTimeout(cloudRefreshTimerRef.current);
+        }
+        cloudRefreshTimerRef.current = setTimeout(() => {
+          void loadLeaderboard();
+        }, 250);
+      },
+      (err) => {
+        const msg = err instanceof Error ? err.message : 'Firestore leaderboard subscription failed.';
+        setCloudError(msg);
+      }
+    );
+
+    const unsubPresence = subscribeAllPeerPresence(
+      (peers) => {
+        setLivePresenceMap((prev) => {
+          const next = { ...prev };
+          for (const p of peers) {
+            next[p.numericId] = Boolean(p.online);
+          }
+          return next;
+        });
+      },
+      (err) => {
+        console.error('[CompetitionView] presence subscription error:', err);
+      }
+    );
+
+    return () => {
+      unsubLb();
+      unsubPresence();
+      if (cloudRefreshTimerRef.current) {
+        clearTimeout(cloudRefreshTimerRef.current);
+        cloudRefreshTimerRef.current = null;
+      }
+    };
+  }, [loadLeaderboard]);
+
   useEffect(() => {
     if (!liveEvent || liveEvent.type !== 'community:presence' || !liveEvent.payload) return;
     const p = liveEvent.payload as { userId?: number; online?: boolean };
@@ -198,28 +279,62 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
 
   const rules = data?.rules || DEFAULT_RULES;
 
-  // Overlay any unsynced local offline points so student sees immediate feedback
+  // Normalize all entries cleanly with fair metrics + overlay any unsynced local offline points + apply active sortMode
   const displayedLeaderboard = useMemo<LeaderboardEntry[]>(() => {
     const base = data?.leaderboard || [];
-    if (pending.totalPendingPoints <= 0 || isPrivileged) {
-      return base;
-    }
-
     let foundMe = false;
-    const withPending = base.map((entry) => {
-      if (entry.userId === user.id || entry.isCurrentUser) {
-        foundMe = true;
-        return {
-          ...entry,
-          totalPoints: entry.totalPoints + pending.totalPendingPoints,
-        };
-      }
-      return entry;
+
+    const normalized: LeaderboardEntry[] = base.map((entry) => {
+      const isMe = entry.userId === user.id || entry.isCurrentUser;
+      if (isMe) foundMe = true;
+      const pendingPts = isMe && !isPrivileged ? pending.totalPendingPoints : 0;
+
+      const fair = computeStudentFairMetrics({
+        correctAnswers: entry.correctAnswers,
+        questionsAnswered: entry.questionsAnswered,
+        quizzesCompleted: entry.quizzesCompleted,
+        avgScorePercent: entry.avgScorePercent ?? entry.accuracyPercent,
+        bestScorePercent: entry.bestScorePercent ?? entry.accuracyPercent,
+        activityPoints: entry.activityPoints,
+      });
+
+      const resolvedFairScore =
+        entry.fairScore !== undefined && entry.fairScore > 0 ? entry.fairScore : fair.fairScore;
+      const resolvedActivityScore =
+        entry.activityScore !== undefined && entry.activityScore > 0
+          ? entry.activityScore + pendingPts
+          : fair.activityScore + pendingPts;
+
+      return {
+        ...entry,
+        questionsAnswered: fair.questionsAnswered,
+        correctAnswers: fair.correctAnswers,
+        accuracyPercent: fair.accuracyPercent,
+        avgScorePercent: entry.avgScorePercent ?? fair.avgScorePercent,
+        bestScorePercent: entry.bestScorePercent ?? fair.bestScorePercent,
+        fairScore: resolvedFairScore,
+        activityScore: resolvedActivityScore,
+        totalPoints: (entry.totalPoints || 0) + pendingPts,
+        isCurrentUser: isMe,
+      };
     });
 
-    if (!foundMe) {
-      withPending.push({
-        rank: withPending.length + 1,
+    if (!foundMe && !isPrivileged) {
+      const baseCorrect = data?.myStats?.correctAnswers ?? 0;
+      const baseAnswered = data?.myStats?.questionsAnswered ?? baseCorrect;
+      const baseQuizzes = data?.myStats?.quizzesCompleted ?? 0;
+      const baseActPts = data?.myStats?.activityPoints ?? 0;
+      const fair = computeStudentFairMetrics({
+        correctAnswers: baseCorrect,
+        questionsAnswered: baseAnswered,
+        quizzesCompleted: baseQuizzes,
+        avgScorePercent: data?.myStats?.avgScorePercent ?? data?.myStats?.accuracyPercent ?? 0,
+        bestScorePercent: data?.myStats?.bestScorePercent ?? data?.myStats?.accuracyPercent ?? 0,
+        activityPoints: baseActPts,
+      });
+
+      normalized.push({
+        rank: normalized.length + 1,
         userId: user.id,
         name: user.name,
         grade: user.grade || '',
@@ -227,28 +342,145 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
         online: typeof navigator !== 'undefined' ? navigator.onLine : true,
         totalPoints: (data?.myStats?.totalPoints ?? 0) + pending.totalPendingPoints,
         quizPoints: data?.myStats?.quizPoints ?? 0,
-        activityPoints: data?.myStats?.activityPoints ?? 0,
-        quizzesCompleted: data?.myStats?.quizzesCompleted ?? 0,
-        correctAnswers: data?.myStats?.correctAnswers ?? 0,
-        questionsAnswered: data?.myStats?.correctAnswers ?? 0,
-        accuracyPercent: data?.myStats?.accuracyPercent ?? 0,
+        activityPoints: baseActPts,
+        quizzesCompleted: fair.quizzesCompleted,
+        correctAnswers: fair.correctAnswers,
+        questionsAnswered: fair.questionsAnswered,
+        accuracyPercent: fair.accuracyPercent,
+        avgScorePercent: fair.avgScorePercent,
+        bestScorePercent: fair.bestScorePercent,
+        fairScore: data?.myStats?.fairScore ?? fair.fairScore,
+        activityScore: (data?.myStats?.activityScore ?? fair.activityScore) + pending.totalPendingPoints,
         badge: null,
         isCurrentUser: true,
       });
     }
 
-    withPending.sort((a, b) => {
-      if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-      if (b.accuracyPercent !== a.accuracyPercent) return b.accuracyPercent - a.accuracyPercent;
-      return a.name.localeCompare(b.name);
-    });
+    const comparator =
+      sortMode === 'points'
+        ? compareStudentsByTotalPoints
+        : sortMode === 'activity'
+        ? compareStudentsByActivity
+        : compareStudentsByFairRank;
 
-    return withPending.map((entry, idx) => ({
+    normalized.sort((a, b) =>
+      comparator(
+        {
+          name: a.name,
+          online: isEntryOnline(a),
+          fairScore: a.fairScore ?? 0,
+          accuracyPercent: a.accuracyPercent,
+          avgScorePercent: a.avgScorePercent ?? a.accuracyPercent,
+          totalPoints: a.totalPoints,
+          quizzesCompleted: a.quizzesCompleted,
+          correctAnswers: a.correctAnswers,
+          questionsAnswered: a.questionsAnswered,
+          activityScore: a.activityScore ?? 0,
+        },
+        {
+          name: b.name,
+          online: isEntryOnline(b),
+          fairScore: b.fairScore ?? 0,
+          accuracyPercent: b.accuracyPercent,
+          avgScorePercent: b.avgScorePercent ?? b.accuracyPercent,
+          totalPoints: b.totalPoints,
+          quizzesCompleted: b.quizzesCompleted,
+          correctAnswers: b.correctAnswers,
+          questionsAnswered: b.questionsAnswered,
+          activityScore: b.activityScore ?? 0,
+        }
+      )
+    );
+
+    return normalized.map((entry, idx) => ({
       ...entry,
       rank: idx + 1,
       badge: idx === 0 ? 'gold' : idx === 1 ? 'silver' : idx === 2 ? 'bronze' : null,
     }));
-  }, [data?.leaderboard, data?.myStats, isPrivileged, pending.totalPendingPoints, user.avatar_url, user.grade, user.id, user.name]);
+  }, [
+    data?.leaderboard,
+    data?.myStats,
+    isEntryOnline,
+    isPrivileged,
+    pending.totalPendingPoints,
+    sortMode,
+    user.avatar_url,
+    user.grade,
+    user.id,
+    user.name,
+  ]);
+
+  const topFairLeader = useMemo(() => {
+    const candidates = displayedLeaderboard.filter(
+      (e) => e.questionsAnswered > 0 || e.quizzesCompleted > 0 || e.totalPoints > 0
+    );
+    if (candidates.length === 0) return data?.topStudent || null;
+    const sorted = [...candidates].sort((a, b) =>
+      compareStudentsByFairRank(
+        {
+          name: a.name,
+          online: isEntryOnline(a),
+          fairScore: a.fairScore ?? 0,
+          accuracyPercent: a.accuracyPercent,
+          avgScorePercent: a.avgScorePercent ?? a.accuracyPercent,
+          totalPoints: a.totalPoints,
+          quizzesCompleted: a.quizzesCompleted,
+          correctAnswers: a.correctAnswers,
+          questionsAnswered: a.questionsAnswered,
+          activityScore: a.activityScore ?? 0,
+        },
+        {
+          name: b.name,
+          online: isEntryOnline(b),
+          fairScore: b.fairScore ?? 0,
+          accuracyPercent: b.accuracyPercent,
+          avgScorePercent: b.avgScorePercent ?? b.accuracyPercent,
+          totalPoints: b.totalPoints,
+          quizzesCompleted: b.quizzesCompleted,
+          correctAnswers: b.correctAnswers,
+          questionsAnswered: b.questionsAnswered,
+          activityScore: b.activityScore ?? 0,
+        }
+      )
+    );
+    return sorted[0] || null;
+  }, [data?.topStudent, displayedLeaderboard, isEntryOnline]);
+
+  const mostActiveClassmate = useMemo(() => {
+    const candidates = displayedLeaderboard.filter(
+      (e) => (e.activityScore ?? 0) > 0 || isEntryOnline(e)
+    );
+    if (candidates.length === 0) return data?.mostActiveStudent || null;
+    const sorted = [...candidates].sort((a, b) =>
+      compareStudentsByActivity(
+        {
+          name: a.name,
+          online: isEntryOnline(a),
+          fairScore: a.fairScore ?? 0,
+          accuracyPercent: a.accuracyPercent,
+          avgScorePercent: a.avgScorePercent ?? a.accuracyPercent,
+          totalPoints: a.totalPoints,
+          quizzesCompleted: a.quizzesCompleted,
+          correctAnswers: a.correctAnswers,
+          questionsAnswered: a.questionsAnswered,
+          activityScore: a.activityScore ?? 0,
+        },
+        {
+          name: b.name,
+          online: isEntryOnline(b),
+          fairScore: b.fairScore ?? 0,
+          accuracyPercent: b.accuracyPercent,
+          avgScorePercent: b.avgScorePercent ?? b.accuracyPercent,
+          totalPoints: b.totalPoints,
+          quizzesCompleted: b.quizzesCompleted,
+          correctAnswers: b.correctAnswers,
+          questionsAnswered: b.questionsAnswered,
+          activityScore: b.activityScore ?? 0,
+        }
+      )
+    );
+    return sorted[0] || null;
+  }, [data?.mostActiveStudent, displayedLeaderboard, isEntryOnline]);
 
   const topThree = useMemo(() => displayedLeaderboard.slice(0, 3), [displayedLeaderboard]);
 
@@ -259,14 +491,21 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
 
   const effectiveMyStats = useMemo(() => {
     const base = data?.myStats;
-    const totalPoints = (myRow?.totalPoints ?? base?.totalPoints ?? 0) + (!myRow && !isPrivileged ? pending.totalPendingPoints : 0);
+    const totalPoints =
+      myRow?.totalPoints ??
+      (base?.totalPoints ?? 0) + (!myRow && !isPrivileged ? pending.totalPendingPoints : 0);
     return {
       rank: myRow?.rank ?? base?.rank ?? null,
       totalPoints,
-      quizPoints: base?.quizPoints ?? 0,
-      activityPoints: base?.activityPoints ?? 0,
-      quizzesCompleted: base?.quizzesCompleted ?? 0,
-      accuracyPercent: base?.accuracyPercent ?? 0,
+      quizPoints: myRow?.quizPoints ?? base?.quizPoints ?? 0,
+      activityPoints: myRow?.activityPoints ?? base?.activityPoints ?? 0,
+      quizzesCompleted: myRow?.quizzesCompleted ?? base?.quizzesCompleted ?? 0,
+      correctAnswers: myRow?.correctAnswers ?? base?.correctAnswers ?? 0,
+      questionsAnswered: myRow?.questionsAnswered ?? base?.questionsAnswered ?? 0,
+      accuracyPercent: myRow?.accuracyPercent ?? base?.accuracyPercent ?? 0,
+      avgScorePercent: myRow?.avgScorePercent ?? base?.avgScorePercent ?? 0,
+      fairScore: myRow?.fairScore ?? base?.fairScore ?? 0,
+      activityScore: myRow?.activityScore ?? base?.activityScore ?? 0,
       badge: myRow?.badge ?? base?.badge ?? null,
       totalStudents: displayedLeaderboard.length || base?.totalStudents || 0,
     };
@@ -281,6 +520,16 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
         (s.grade && s.grade.toLowerCase().includes(q))
     );
   }, [displayedLeaderboard, search]);
+
+  const diagnosticMessages = useMemo(() => {
+    const msgs: string[] = [];
+    if (loadError) msgs.push(loadError);
+    if (cloudError) msgs.push(cloudError);
+    if (data?.diagnostics?.hasError && data.diagnostics.errors.length > 0) {
+      msgs.push(...data.diagnostics.errors);
+    }
+    return Array.from(new Set(msgs.filter(Boolean)));
+  }, [cloudError, data?.diagnostics, loadError]);
 
   const recentEvents = data?.recentEvents || [];
 
@@ -353,6 +602,17 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
           </div>
         </div>
 
+        {/* Diagnostic Sync Error Banner (Never Silent) */}
+        {diagnosticMessages.length > 0 && (
+          <div className="rounded-xl border border-[#DC2626]/35 bg-[#FEF2F2] px-4 py-3 flex items-start gap-2.5 text-xs sm:text-sm text-[#991B1B]">
+            <AlertTriangle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">{t.competition.syncErrorNotice}</p>
+              <p className="mt-0.5 break-words">{diagnosticMessages.join(' · ')}</p>
+            </div>
+          </div>
+        )}
+
         {/* Pending Offline Points Banner */}
         {pending.count > 0 && (
           <div className="rounded-xl border border-[#D9A62E]/40 bg-[#FAF8F5] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -423,32 +683,32 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
               </div>
 
               <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4">
-                <p className="text-xs text-[#57534E]">{t.competition.totalPointsLabel}</p>
+                <p className="text-xs text-[#57534E]">{t.competition.fairScoreLabel}</p>
                 <p className="mt-1.5 text-2xl font-bold text-[#6B1118] tabular-nums">
-                  {effectiveMyStats.totalPoints}{' '}
-                  <span className="text-sm font-semibold">{t.competition.ptsUnit}</span>
+                  {effectiveMyStats.fairScore}%
                 </p>
                 <p className="mt-1 text-xs text-[#57534E] tabular-nums">
-                  {pending.totalPendingPoints > 0
-                    ? `+${pending.totalPendingPoints} ${t.competition.syncReadyBadge}`
-                    : t.competition.onlineLiveBadge}
+                  {t.competition.accuracyLabel}: {effectiveMyStats.accuracyPercent}% ·{' '}
+                  {effectiveMyStats.correctAnswers}/{effectiveMyStats.questionsAnswered}
                 </p>
               </div>
 
               <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4">
-                <p className="text-xs text-[#57534E]">{t.competition.quizPointsLabel}</p>
+                <p className="text-xs text-[#57534E]">{t.competition.totalPointsLabel}</p>
                 <p className="mt-1.5 text-2xl font-bold text-[#1C1917] tabular-nums">
-                  {effectiveMyStats.quizPoints}
+                  {effectiveMyStats.totalPoints}{' '}
+                  <span className="text-sm font-semibold">{t.competition.ptsUnit}</span>
                 </p>
                 <p className="mt-1 text-xs text-[#57534E] tabular-nums">
+                  {t.competition.quizPointsLabel}: {effectiveMyStats.quizPoints} ·{' '}
                   {t.competition.activityPointsLabel}: {effectiveMyStats.activityPoints}
                 </p>
               </div>
 
               <div className="rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-4">
-                <p className="text-xs text-[#57534E]">{t.competition.accuracyLabel}</p>
+                <p className="text-xs text-[#57534E]">{t.competition.activityCol}</p>
                 <p className="mt-1.5 text-2xl font-bold text-[#1C1917] tabular-nums">
-                  {effectiveMyStats.accuracyPercent}%
+                  {effectiveMyStats.activityScore}
                 </p>
                 <p className="mt-1 text-xs text-[#57534E] tabular-nums">
                   {effectiveMyStats.quizzesCompleted} {t.competition.quizzesLabel}
@@ -458,6 +718,89 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
           </div>
         )}
       </section>
+
+      {/* Shared Highlight Cards: Top Fair Leader & Most Active Classmate (Visible to Both Admin & Students) */}
+      {(topFairLeader || mostActiveClassmate) && (
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {topFairLeader && (
+            <div className="rounded-2xl bg-white border border-[#E6DFD5] p-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    name={topFairLeader.name}
+                    avatarUrl={topFairLeader.avatar_url}
+                    sizeClass="w-12 h-12"
+                    textClass="text-sm"
+                    borderClass="border-2 border-[#D9A62E]"
+                  />
+                  {isEntryOnline(topFairLeader) && (
+                    <span className="absolute bottom-0 end-0 w-3 h-3 rounded-full bg-[#059669] ring-2 ring-white dark:ring-[#1E1A1A]" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#D9A62E]">
+                    <Trophy className="w-3.5 h-3.5" />
+                    <span>{t.competition.topLeaderTitle}</span>
+                  </div>
+                  <p className="text-base font-bold text-[#1C1917] truncate mt-0.5">
+                    {topFairLeader.name}
+                    {topFairLeader.userId === user.id ? ` (${t.competition.youBadge})` : ''}
+                  </p>
+                  <p className="text-xs text-[#57534E] tabular-nums truncate">
+                    {topFairLeader.correctAnswers}/{topFairLeader.questionsAnswered} ·{' '}
+                    {topFairLeader.accuracyPercent}% {t.competition.accuracyLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="text-end shrink-0 tabular-nums">
+                <p className="text-xl font-bold text-[#6B1118]">{topFairLeader.fairScore ?? 0}%</p>
+                <p className="text-xs text-[#57534E]">
+                  {topFairLeader.totalPoints} {t.competition.ptsUnit}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {mostActiveClassmate && (
+            <div className="rounded-2xl bg-white border border-[#E6DFD5] p-5 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="relative shrink-0">
+                  <UserAvatar
+                    name={mostActiveClassmate.name}
+                    avatarUrl={mostActiveClassmate.avatar_url}
+                    sizeClass="w-12 h-12"
+                    textClass="text-sm"
+                    borderClass="border-2 border-[#6B1118]"
+                  />
+                  {isEntryOnline(mostActiveClassmate) && (
+                    <span className="absolute bottom-0 end-0 w-3 h-3 rounded-full bg-[#059669] ring-2 ring-white dark:ring-[#1E1A1A]" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#6B1118]">
+                    <Flame className="w-3.5 h-3.5" />
+                    <span>{t.competition.mostActiveClassmateTitle}</span>
+                  </div>
+                  <p className="text-base font-bold text-[#1C1917] truncate mt-0.5">
+                    {mostActiveClassmate.name}
+                    {mostActiveClassmate.userId === user.id ? ` (${t.competition.youBadge})` : ''}
+                  </p>
+                  <p className="text-xs text-[#57534E] tabular-nums truncate">
+                    {mostActiveClassmate.questionsAnswered} {t.competition.answeredCol} ·{' '}
+                    {mostActiveClassmate.quizzesCompleted} {t.competition.quizzesLabel}
+                  </p>
+                </div>
+              </div>
+              <div className="text-end shrink-0 tabular-nums">
+                <p className="text-xl font-bold text-[#6B1118]">
+                  {mostActiveClassmate.activityScore ?? 0}
+                </p>
+                <p className="text-xs text-[#57534E]">{t.competition.activityCol}</p>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Top 3 Champions Podium */}
       <section className="rounded-2xl bg-white border border-[#E6DFD5] p-6 sm:p-7 space-y-5">
@@ -558,8 +901,11 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                       isFirst ? 'text-[#E5B742]' : 'text-[#6B1118]'
                     }`}
                   >
-                    {entry.totalPoints}{' '}
-                    <span className="text-xs font-semibold">{t.competition.ptsUnit}</span>
+                    {sortMode === 'points'
+                      ? `${entry.totalPoints} ${t.competition.ptsUnit}`
+                      : sortMode === 'activity'
+                      ? `${entry.activityScore ?? 0} ${t.competition.activityCol}`
+                      : `${entry.fairScore ?? 0}%`}
                   </p>
 
                   <p
@@ -567,7 +913,8 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                       isFirst ? 'text-[#FBF4DF]/85' : 'text-[#57534E]'
                     }`}
                   >
-                    {entry.quizzesCompleted} {t.competition.quizzesLabel} · {entry.accuracyPercent}%
+                    {entry.correctAnswers}/{entry.questionsAnswered} ({entry.accuracyPercent}%) ·{' '}
+                    {entry.totalPoints} {t.competition.ptsUnit}
                   </p>
                 </div>
               );
@@ -579,22 +926,52 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
       {/* Full Student Rankings Table */}
       <section className="rounded-2xl bg-white border border-[#E6DFD5] p-6 sm:p-7 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-xl font-bold text-[#1C1917]">
-            {t.competition.allStudentsTitle}{' '}
-            <span className="text-sm font-medium text-[#57534E] tabular-nums">
-              ({filteredStudents.length})
-            </span>
-          </h3>
+          <div>
+            <h3 className="text-xl font-bold text-[#1C1917]">
+              {t.competition.allStudentsTitle}{' '}
+              <span className="text-sm font-medium text-[#57534E] tabular-nums">
+                ({filteredStudents.length})
+              </span>
+            </h3>
+            <p className="text-xs text-[#57534E] mt-1 max-w-2xl">
+              {t.competition.fairScoringNote}
+            </p>
+          </div>
 
-          <div className="relative w-full sm:w-72">
-            <Search className="w-4 h-4 text-[#57534E] absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t.competition.searchPlaceholder}
-              className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] ps-9 pe-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118]"
-            />
+          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
+            <div className="inline-flex rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] p-1">
+              {(
+                [
+                  { id: 'fair', label: t.competition.sortByFairLabel },
+                  { id: 'points', label: t.competition.sortByPointsLabel },
+                  { id: 'activity', label: t.competition.sortByActivityLabel },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setSortMode(opt.id)}
+                  className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    sortMode === opt.id
+                      ? 'bg-[#6B1118] text-white'
+                      : 'text-[#57534E] hover:text-[#1C1917]'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-4 h-4 text-[#57534E] absolute start-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t.competition.searchPlaceholder}
+                className="w-full rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] ps-9 pe-3.5 py-2 text-sm text-[#1C1917] focus:outline-none focus:border-[#6B1118]"
+              />
+            </div>
           </div>
         </div>
 
@@ -609,11 +986,18 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                 <tr className="border-b border-[#E6DFD5] text-xs font-semibold text-[#57534E]">
                   <th className="py-3 px-3 text-start w-16">{t.competition.rankCol}</th>
                   <th className="py-3 px-3 text-start">{t.competition.studentCol}</th>
-                  <th className="py-3 px-3 text-end hidden sm:table-cell">
+                  <th className="py-3 px-3 text-end">{t.competition.fairScoreCol}</th>
+                  <th className="py-3 px-3 text-end hidden md:table-cell">
                     {t.competition.quizzesCol}
                   </th>
                   <th className="py-3 px-3 text-end hidden sm:table-cell">
+                    {t.competition.answeredCol}
+                  </th>
+                  <th className="py-3 px-3 text-end hidden sm:table-cell">
                     {t.competition.accuracyCol}
+                  </th>
+                  <th className="py-3 px-3 text-end hidden lg:table-cell">
+                    {t.competition.activityCol}
                   </th>
                   <th className="py-3 px-3 text-end">{t.competition.pointsCol}</th>
                 </tr>
@@ -669,20 +1053,29 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                               {entry.grade || t.home.studentPortal}
                               <span className="sm:hidden tabular-nums">
                                 {' '}
-                                · {entry.quizzesCompleted} {t.competition.quizzesLabel} ·{' '}
-                                {entry.accuracyPercent}%
+                                · {entry.correctAnswers}/{entry.questionsAnswered} ({entry.accuracyPercent}%) ·{' '}
+                                {entry.quizzesCompleted} {t.competition.quizzesLabel}
                               </span>
                             </p>
                           </div>
                         </div>
                       </td>
-                      <td className="py-3.5 px-3 text-sm text-end text-[#57534E] tabular-nums hidden sm:table-cell">
+                      <td className="py-3.5 px-3 text-sm font-bold text-end text-[#6B1118] tabular-nums whitespace-nowrap">
+                        {entry.fairScore ?? 0}%
+                      </td>
+                      <td className="py-3.5 px-3 text-sm text-end text-[#57534E] tabular-nums hidden md:table-cell">
                         {entry.quizzesCompleted}
                       </td>
                       <td className="py-3.5 px-3 text-sm text-end text-[#57534E] tabular-nums hidden sm:table-cell">
+                        {entry.correctAnswers}/{entry.questionsAnswered}
+                      </td>
+                      <td className="py-3.5 px-3 text-sm text-end text-[#059669] font-semibold tabular-nums hidden sm:table-cell">
                         {entry.accuracyPercent}%
                       </td>
-                      <td className="py-3.5 px-3 text-sm font-bold text-end text-[#6B1118] tabular-nums whitespace-nowrap">
+                      <td className="py-3.5 px-3 text-sm text-end text-[#57534E] tabular-nums hidden lg:table-cell">
+                        {entry.activityScore ?? 0}
+                      </td>
+                      <td className="py-3.5 px-3 text-sm font-bold text-end text-[#1C1917] tabular-nums whitespace-nowrap">
                         {entry.totalPoints} {t.competition.ptsUnit}
                       </td>
                     </tr>
@@ -706,31 +1099,31 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
 
           <ul className="space-y-2.5 text-sm text-[#1C1917]">
             <li className="flex items-center justify-between gap-3 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5">
-              <span>{t.competition.ruleCorrectAnswer}</span>
+              <span>{formatMsg(t.competition.ruleCorrectAnswer, { pts: rules.correctAnswer })}</span>
               <span className="font-bold text-[#6B1118] tabular-nums shrink-0">
                 +{rules.correctAnswer} {t.competition.ptsUnit}
               </span>
             </li>
             <li className="flex items-center justify-between gap-3 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5">
-              <span>{t.competition.ruleQuizCompleted}</span>
+              <span>{formatMsg(t.competition.ruleQuizCompleted, { pts: rules.quizCompleted })}</span>
               <span className="font-bold text-[#6B1118] tabular-nums shrink-0">
                 +{rules.quizCompleted} {t.competition.ptsUnit}
               </span>
             </li>
             <li className="flex items-center justify-between gap-3 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5">
-              <span>{t.competition.ruleHighScore}</span>
+              <span>{formatMsg(t.competition.ruleHighScore, { pts: rules.highScore80Bonus })}</span>
               <span className="font-bold text-[#6B1118] tabular-nums shrink-0">
                 +{rules.highScore80Bonus} {t.competition.ptsUnit}
               </span>
             </li>
             <li className="flex items-center justify-between gap-3 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5">
-              <span>{t.competition.rulePerfectScore}</span>
+              <span>{formatMsg(t.competition.rulePerfectScore, { pts: rules.perfectScoreBonus })}</span>
               <span className="font-bold text-[#6B1118] tabular-nums shrink-0">
                 +{rules.perfectScoreBonus} {t.competition.ptsUnit}
               </span>
             </li>
             <li className="flex items-center justify-between gap-3 rounded-xl border border-[#E6DFD5] bg-[#FAF8F5] px-3.5 py-2.5">
-              <span>{t.competition.ruleCurriculumActivity}</span>
+              <span>{formatMsg(t.competition.ruleCurriculumActivity, { pts: rules.curriculumActivity })}</span>
               <span className="font-bold text-[#6B1118] tabular-nums shrink-0">
                 +{rules.curriculumActivity} {t.competition.ptsUnit}
               </span>
@@ -766,7 +1159,8 @@ export const CompetitionView: React.FC<CompetitionViewProps> = ({
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-[#1C1917] truncate">
-                        {getEventTypeLabel(ev.eventType)} · {t.competition.syncReadyBadge}
+                        {getEventTypeLabel(ev.eventType)} ·{' '}
+                        {formatMsg(t.competition.syncReadyBadge, { count: 1, pts: ev.points })}
                       </p>
                       <p className="text-xs text-[#57534E] truncate">{ev.details}</p>
                     </div>

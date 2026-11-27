@@ -67,6 +67,14 @@
           "type": "number",
           "description": "Total student competition points."
         },
+        "quizPoints": {
+          "type": "number",
+          "description": "Points earned from quiz answers and quiz completions."
+        },
+        "activityPoints": {
+          "type": "number",
+          "description": "Points earned from curriculum activities."
+        },
         "quizzesCompleted": {
           "type": "number",
           "description": "Total completed quizzes count."
@@ -74,6 +82,26 @@
         "correctAnswers": {
           "type": "number",
           "description": "Total correct answers count."
+        },
+        "questionsAnswered": {
+          "type": "number",
+          "description": "Total questions answered count."
+        },
+        "avgScorePercent": {
+          "type": "number",
+          "description": "Average quiz score percentage (0-100)."
+        },
+        "bestScorePercent": {
+          "type": "number",
+          "description": "Best quiz score percentage (0-100)."
+        },
+        "fairScore": {
+          "type": "number",
+          "description": "Fair normalized performance score (0-100) across variable quiz lengths."
+        },
+        "activityScore": {
+          "type": "number",
+          "description": "Unified student engagement and activity score."
         },
         "isRestricted": {
           "type": "boolean",
@@ -189,6 +217,14 @@
           "type": "number",
           "description": "Total student competition points."
         },
+        "quizPoints": {
+          "type": "number",
+          "description": "Points earned from quizzes and correct answers."
+        },
+        "activityPoints": {
+          "type": "number",
+          "description": "Points earned from curriculum activities."
+        },
         "quizzesCompleted": {
           "type": "number",
           "description": "Completed quizzes count."
@@ -196,6 +232,31 @@
         "correctAnswers": {
           "type": "number",
           "description": "Correct answers count."
+        },
+        "questionsAnswered": {
+          "type": "number",
+          "description": "Total questions answered count."
+        },
+        "avgScorePercent": {
+          "type": "number",
+          "description": "Average quiz score percentage (0-100)."
+        },
+        "bestScorePercent": {
+          "type": "number",
+          "description": "Best quiz score percentage (0-100)."
+        },
+        "fairScore": {
+          "type": "number",
+          "description": "Fair normalized performance score (0-100)."
+        },
+        "activityScore": {
+          "type": "number",
+          "description": "Unified engagement and activity score."
+        },
+        "lastActiveAt": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "ISO string of latest student activity."
         },
         "updatedAt": {
           "type": "string",

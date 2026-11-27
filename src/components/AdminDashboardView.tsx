@@ -149,9 +149,13 @@ function mergeRegisteredAccountsWithCloud(
       restrictionReason: c.restrictionReason || '',
       created_at: c.createdAtIso || '',
       quizzesCompleted: c.quizzesCompleted || 0,
-      questionsAnswered: c.quizzesCompleted ? c.correctAnswers : 0,
+      questionsAnswered: c.questionsAnswered || 0,
       correctAnswers: c.correctAnswers || 0,
-      avgScorePercent: 0,
+      avgScorePercent: c.avgScorePercent || 0,
+      bestScorePercent: c.bestScorePercent || 0,
+      fairScore: c.fairScore || 0,
+      activityScore: c.activityScore || 0,
+      totalPoints: c.totalPoints || 0,
       aiTutorTurns: 0,
     });
   }
@@ -1467,6 +1471,17 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
         )}
       </section>
 
+      {/* Diagnostic Sync Warning Banner */}
+      {snapshot?.diagnostics?.hasError && snapshot.diagnostics.errors.length > 0 && (
+        <div className="rounded-xl border border-[#DC2626]/35 bg-[#FEF2F2] px-4 py-3 flex items-start gap-2.5 text-xs sm:text-sm text-[#991B1B]">
+          <AlertTriangle className="w-4 h-4 text-[#DC2626] shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">{t.admin.syncErrorNotice}</p>
+            <p className="mt-0.5 break-words">{snapshot.diagnostics.errors.join(' · ')}</p>
+          </div>
+        </div>
+      )}
+
       {/* 2. Highlighted Dashboard Sections: Active Students, Top Performing Student, Most Active Student */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Section A: Currently Active Students */}
@@ -1573,9 +1588,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
                   <div className="grid grid-cols-2 gap-2.5 text-xs">
                     <div className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] p-3">
-                      <p className="text-[#57534E]">{t.admin.avgScore}</p>
+                      <p className="text-[#57534E]">{t.admin.fairScoreLabel}</p>
                       <p className="mt-0.5 text-lg font-bold text-[#6B1118] tabular-nums">
-                        {topStudent.avgScorePercent}%
+                        {topStudent.fairScore ?? topStudent.performanceScore}%
                       </p>
                     </div>
                     <div className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] p-3">
@@ -1593,7 +1608,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     <div className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] p-3">
                       <p className="text-[#57534E]">{t.admin.quizzesCompleted}</p>
                       <p className="mt-0.5 text-base font-bold text-[#1C1917] tabular-nums">
-                        {topStudent.quizzesCompleted}
+                        {topStudent.quizzesCompleted} ({t.admin.avgScore}: {topStudent.avgScorePercent}%)
                       </p>
                     </div>
                   </div>
@@ -1757,8 +1772,12 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
 
                 <div className="flex flex-wrap items-center gap-4 sm:gap-5 text-xs tabular-nums">
                   <div>
-                    <p className="text-[#57534E]">{t.admin.avgScore}</p>
-                    <p className="font-bold text-[#6B1118]">{st.avgScorePercent}%</p>
+                    <p className="text-[#57534E]">{t.admin.fairScoreLabel}</p>
+                    <p className="font-bold text-[#6B1118]">{st.fairScore ?? st.performanceScore}%</p>
+                  </div>
+                  <div>
+                    <p className="text-[#57534E]">{t.admin.accuracyLabel}</p>
+                    <p className="font-bold text-[#059669]">{st.accuracyPercent}%</p>
                   </div>
                   <div>
                     <p className="text-[#57534E]">{t.admin.questionsAnswered}</p>
@@ -3286,9 +3305,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     </p>
                   </div>
                   <div className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] p-3">
-                    <p className="text-[#57534E]">{t.admin.performanceScore}</p>
+                    <p className="text-[#57534E]">{t.admin.fairScoreLabel}</p>
                     <p className="mt-1 text-lg font-bold text-[#D9A62E] tabular-nums">
-                      {studentDetail.student.performanceScore}
+                      {studentDetail.student.fairScore ?? studentDetail.student.performanceScore}%
                     </p>
                   </div>
                   <div className="rounded-xl bg-[#FAF8F5] border border-[#E6DFD5] p-3">

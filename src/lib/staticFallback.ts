@@ -47,6 +47,7 @@ import {
   fetchCloudHeroBanners,
   fetchCloudRegisteredUsersAsAdmin,
   fetchFirestoreLeaderboard,
+  getLastCloudSyncDiagnostics,
   isCurrentUserCloudRevoked,
   MAIN_ADMIN_EMAIL,
   pullAllPeerPresence,
@@ -61,6 +62,11 @@ import {
   updateCloudUserAsAdmin,
 } from './cloudAccounts';
 import { decryptAdminVaultWithPassword } from './recoveryVault';
+import {
+  compareStudentsByActivity,
+  compareStudentsByFairRank,
+  computeStudentFairMetrics,
+} from '../utils/studentScoring';
 
 const SESSION_TOKEN_KEY = 'grade9hub_session_token';
 const CACHED_USER_KEY = 'grade9hub_cached_user';
@@ -172,6 +178,8 @@ interface StoredStaticStats {
   quizzesCompleted: number;
   correctAnswers: number;
   questionsAnswered: number;
+  avgScorePercent?: number;
+  bestScorePercent?: number;
   answeredQuestionIds: number[];
   attempts: Array<{
     id: number;
@@ -393,6 +401,70 @@ function saveUserStats(userId: number, stats: StoredStaticStats): void {
     events: stats.events.slice(0, 80),
   };
   writeLocalJson(STATIC_STATS_KEY, all);
+}
+
+function computeStoredQuizAverages(stats: StoredStaticStats): {
+  avgScorePercent: number;
+  bestScorePercent: number;
+} {
+  if (stats.attempts.length > 0) {
+    const sum = stats.attempts.reduce((acc, a) => acc + Number(a.score_percent || 0), 0);
+    const avg = Math.round((sum / stats.attempts.length) * 10) / 10;
+    const best = Math.round(Math.max(...stats.attempts.map((a) => Number(a.score_percent || 0))) * 10) / 10;
+    return {
+      avgScorePercent: Math.max(avg, Number(stats.avgScorePercent || 0) ? avg : 0),
+      bestScorePercent: Math.max(best, Number(stats.bestScorePercent || 0)),
+    };
+  }
+  const fallbackAcc =
+    stats.questionsAnswered > 0
+      ? Math.round((Math.min(stats.correctAnswers, stats.questionsAnswered) / stats.questionsAnswered) * 1000) / 10
+      : 0;
+  return {
+    avgScorePercent: stats.avgScorePercent !== undefined ? Number(stats.avgScorePercent) : fallbackAcc,
+    bestScorePercent:
+      stats.bestScorePercent !== undefined
+        ? Number(stats.bestScorePercent)
+        : Math.max(Number(stats.avgScorePercent || 0), fallbackAcc),
+  };
+}
+
+function buildCloudSyncPayload(stats: StoredStaticStats) {
+  const avgs = computeStoredQuizAverages(stats);
+  const fair = computeStudentFairMetrics({
+    correctAnswers: stats.correctAnswers,
+    questionsAnswered: stats.questionsAnswered,
+    quizzesCompleted: stats.quizzesCompleted,
+    avgScorePercent: avgs.avgScorePercent,
+    bestScorePercent: avgs.bestScorePercent,
+    activityPoints: stats.activityPoints,
+  });
+  return {
+    totalPoints: stats.totalPoints,
+    quizPoints: stats.quizPoints,
+    activityPoints: stats.activityPoints,
+    quizzesCompleted: fair.quizzesCompleted,
+    correctAnswers: fair.correctAnswers,
+    questionsAnswered: fair.questionsAnswered,
+    avgScorePercent: fair.avgScorePercent,
+    bestScorePercent: fair.bestScorePercent,
+    fairScore: fair.fairScore,
+    activityScore: fair.activityScore,
+  };
+}
+
+async function runCloudSyncWithTimeout(task: () => Promise<void>, timeoutMs = 3500): Promise<void> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+  try {
+    await Promise.race([
+      task().catch((err) => {
+        console.error('[Grade9Hub StaticSync] Cloud sync failed:', err);
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
+  } catch {
+    // non-fatal sync race error
+  }
 }
 
 function normalizeLang(raw: string | null | undefined): SupportedLang {
@@ -675,17 +747,30 @@ function saveStaticCommunityStore(store: StaticCommunityStore): void {
 async function buildMergedAccountsRegistry(): Promise<{
   users: Array<AdminUserRecord & { cloudUid?: string }>;
   peers: CommunityPeer[];
+  diagnostics: { hasError: boolean; source: string; errors: string[] };
 }> {
   const cached = getCachedUserLocal();
   const localProfiles = readLocalJson<Record<string, User>>(STATIC_PROFILES_KEY, {});
   const allStats = readLocalJson<Record<string, StoredStaticStats>>(STATIC_STATS_KEY, {});
   const localPresence = readLocalJson<Record<string, StaticPresenceEntry>>(STATIC_PRESENCE_KEY, {});
   const isPrivileged = Boolean(cached && (cached.role === 'teacher' || cached.isAdmin));
+  const localErrors: string[] = [];
 
   const [cloudUsers, cloudPeers, cloudLeaderboard] = await Promise.all([
-    isPrivileged ? fetchCloudRegisteredUsersAsAdmin().catch(() => []) : Promise.resolve([]),
-    pullAllPeerPresence().catch(() => []),
-    fetchFirestoreLeaderboard().catch(() => []),
+    isPrivileged
+      ? fetchCloudRegisteredUsersAsAdmin().catch((err) => {
+          localErrors.push(`admin_users: ${err instanceof Error ? err.message : String(err)}`);
+          return [];
+        })
+      : Promise.resolve([]),
+    pullAllPeerPresence().catch((err) => {
+      localErrors.push(`peer_presence: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }),
+    fetchFirestoreLeaderboard().catch((err) => {
+      localErrors.push(`leaderboard_entries: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }),
   ]);
 
   const byId = new Map<number, AdminUserRecord & { cloudUid?: string }>();
@@ -713,6 +798,12 @@ async function buildMergedAccountsRegistry(): Promise<{
     questionsAnswered?: number;
     correctAnswers?: number;
     avgScorePercent?: number;
+    bestScorePercent?: number;
+    totalPoints?: number;
+    quizPoints?: number;
+    activityPoints?: number;
+    fairScore?: number;
+    activityScore?: number;
     source?: 'local' | 'cloud';
     created_at?: string;
   }) => {
@@ -752,6 +843,7 @@ async function buildMergedAccountsRegistry(): Promise<{
     const locPresOnline =
       Boolean(locPres && locPres.online && Date.now() - locPres.updatedAt <= PRESENCE_TTL_MS);
 
+    const localAvgs = stats ? computeStoredQuizAverages(stats) : { avgScorePercent: 0, bestScorePercent: 0 };
     const quizzes = Math.max(
       Number(entry.quizzesCompleted || 0),
       Number(prev?.quizzesCompleted || 0),
@@ -768,14 +860,59 @@ async function buildMergedAccountsRegistry(): Promise<{
       Number(stats?.questionsAnswered || 0),
       correct
     );
-    const avgScore =
-      answered > 0
-        ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10
-        : Number(entry.avgScorePercent || prev?.avgScorePercent || 0);
+    const activityPoints = Math.max(
+      Number(entry.activityPoints || 0),
+      Number(prev?.activityPoints || 0),
+      Number(stats?.activityPoints || 0)
+    );
+    const quizPoints = Math.max(
+      Number(entry.quizPoints || 0),
+      Number(prev?.quizPoints || 0),
+      Number(stats?.quizPoints || 0)
+    );
+    const totalPoints = Math.max(
+      Number(entry.totalPoints || 0),
+      Number(prev?.totalPoints || 0),
+      Number(stats?.totalPoints || 0),
+      quizPoints + activityPoints
+    );
+
+    const candidateAvg =
+      stats && stats.attempts.length > 0 && Number(stats.quizzesCompleted || 0) >= Math.max(Number(entry.quizzesCompleted || 0), Number(prev?.quizzesCompleted || 0))
+        ? localAvgs.avgScorePercent
+        : Number(entry.avgScorePercent || 0) ||
+          Number(prev?.avgScorePercent || 0) ||
+          localAvgs.avgScorePercent;
+
+    const candidateBest = Math.max(
+      Number(entry.bestScorePercent || 0),
+      Number(prev?.bestScorePercent || 0),
+      localAvgs.bestScorePercent,
+      candidateAvg
+    );
+
+    const fair = computeStudentFairMetrics({
+      correctAnswers: correct,
+      questionsAnswered: answered,
+      quizzesCompleted: quizzes,
+      avgScorePercent: candidateAvg,
+      bestScorePercent: candidateBest,
+      activityPoints,
+      aiTutorTurns: prev?.aiTutorTurns || 0,
+    });
 
     const isMain = normEmail === MAIN_ADMIN_EMAIL;
     const isMe = Boolean(cached && (cached.id === id || (normEmail && cached.email.toLowerCase() === normEmail)));
     const resolvedOnline = Boolean(entry.online || prev?.online || locPresOnline || isMe);
+
+    const latestActive = [
+      entry.lastActiveAt,
+      prev?.lastActiveAt,
+      locPres ? new Date(locPres.updatedAt).toISOString() : '',
+    ]
+      .filter((v): v is string => Boolean(v && v.trim()))
+      .sort()
+      .pop() || '';
 
     byId.set(id, {
       id,
@@ -797,14 +934,17 @@ async function buildMergedAccountsRegistry(): Promise<{
         ? ''
         : entry.restrictionReason ?? prev?.restrictionReason ?? '',
       lastLoginAt: entry.lastLoginAt || prev?.lastLoginAt || '',
-      lastActiveAt:
-        entry.lastActiveAt ||
-        prev?.lastActiveAt ||
-        (locPres ? new Date(locPres.updatedAt).toISOString() : ''),
-      quizzesCompleted: quizzes,
-      questionsAnswered: answered,
-      correctAnswers: correct,
-      avgScorePercent: avgScore,
+      lastActiveAt: latestActive,
+      quizzesCompleted: fair.quizzesCompleted,
+      questionsAnswered: fair.questionsAnswered,
+      correctAnswers: fair.correctAnswers,
+      avgScorePercent: fair.avgScorePercent,
+      bestScorePercent: fair.bestScorePercent,
+      totalPoints,
+      quizPoints,
+      activityPoints,
+      fairScore: fair.fairScore,
+      activityScore: Math.max(Number(entry.activityScore || 0), Number(prev?.activityScore || 0), fair.activityScore),
       aiTutorTurns: prev?.aiTutorTurns || 0,
       source: entry.source || prev?.source || 'local',
       created_at: entry.created_at || prev?.created_at || new Date().toISOString(),
@@ -828,8 +968,15 @@ async function buildMergedAccountsRegistry(): Promise<{
       lastLoginAt: cu.lastLoginAt,
       lastActiveAt: cu.lastActiveAt,
       quizzesCompleted: cu.quizzesCompleted,
-      questionsAnswered: cu.correctAnswers,
+      questionsAnswered: cu.questionsAnswered,
       correctAnswers: cu.correctAnswers,
+      avgScorePercent: cu.avgScorePercent,
+      bestScorePercent: cu.bestScorePercent,
+      totalPoints: cu.totalPoints,
+      quizPoints: cu.quizPoints,
+      activityPoints: cu.activityPoints,
+      fairScore: cu.fairScore,
+      activityScore: cu.activityScore,
       source: 'cloud',
       created_at: cu.createdAtIso,
     });
@@ -865,13 +1012,21 @@ async function buildMergedAccountsRegistry(): Promise<{
       cloudUid: lb.uid,
       name: existing?.name || lb.name,
       email: existing?.email || '',
-      role: 'student',
-      isAdmin: false,
+      role: existing?.role || 'student',
+      isAdmin: existing?.isAdmin ?? false,
       grade: existing?.grade || lb.grade,
       avatar_url: existing?.avatar_url || lb.avatarUrl,
+      totalPoints: lb.totalPoints,
+      quizPoints: lb.quizPoints,
+      activityPoints: lb.activityPoints,
       quizzesCompleted: lb.quizzesCompleted,
       correctAnswers: lb.correctAnswers,
-      questionsAnswered: lb.correctAnswers,
+      questionsAnswered: lb.questionsAnswered,
+      avgScorePercent: lb.avgScorePercent,
+      bestScorePercent: lb.bestScorePercent,
+      fairScore: lb.fairScore,
+      activityScore: lb.activityScore,
+      lastActiveAt: lb.lastActiveAt,
       source: 'cloud',
     });
   }
@@ -943,7 +1098,18 @@ async function buildMergedAccountsRegistry(): Promise<{
     isRestricted: Boolean(u.isRestricted),
   }));
 
-  return { users, peers };
+  const cloudDiag = getLastCloudSyncDiagnostics();
+  const combinedErrors = Array.from(new Set([...localErrors, ...cloudDiag.errors]));
+
+  return {
+    users,
+    peers,
+    diagnostics: {
+      hasError: combinedErrors.length > 0,
+      source: 'cloud-registry',
+      errors: combinedErrors,
+    },
+  };
 }
 
 function computeMedal(rank: number): CompetitionMedal {
@@ -956,111 +1122,174 @@ function computeMedal(rank: number): CompetitionMedal {
 async function buildLeaderboardResponse(): Promise<CompetitionLeaderboardResponse> {
   const currentUser = getCachedUserLocal();
   const myStats = currentUser ? getUserStats(currentUser.id) : getUserStats(0);
-  const cloudRows = await fetchFirestoreLeaderboard().catch(() => []);
-
-  const entries: LeaderboardEntry[] = [];
-  const seenNames = new Set<string>();
+  const myAvgs = computeStoredQuizAverages(myStats);
   const currentFbUid = auth.currentUser?.uid || '';
 
-  for (const row of cloudRows) {
-    const isMe = Boolean(
-      (currentFbUid && row.uid === currentFbUid) ||
-        (currentUser && row.name.trim().toLowerCase() === currentUser.name.trim().toLowerCase())
-    );
-    const totalPoints = isMe ? Math.max(row.totalPoints, myStats.totalPoints) : row.totalPoints;
-    const quizzesCompleted = isMe
-      ? Math.max(row.quizzesCompleted, myStats.quizzesCompleted)
-      : row.quizzesCompleted;
-    const correctAnswers = isMe
-      ? Math.max(row.correctAnswers, myStats.correctAnswers)
-      : row.correctAnswers;
-    const questionsAnswered = isMe
-      ? Math.max(correctAnswers, myStats.questionsAnswered)
-      : correctAnswers;
-    const accuracyPercent =
-      questionsAnswered > 0 ? Math.round((correctAnswers / questionsAnswered) * 100) : 0;
+  const { users, diagnostics } = await buildMergedAccountsRegistry();
+  const studentAccounts = users.filter((u) => u.role === 'student' && !u.isAdmin);
 
-    seenNames.add(row.uid);
-    entries.push({
-      rank: 0,
-      userId: stableNumericId(row.uid),
-      name: row.name,
-      grade: row.grade || 'Grade 9',
-      avatar_url: row.avatarUrl,
-      online: isMe,
-      totalPoints,
-      quizPoints: totalPoints,
-      activityPoints: 0,
-      quizzesCompleted,
+  const entries: LeaderboardEntry[] = studentAccounts.map((u) => {
+    const isMe = Boolean(
+      (currentUser &&
+        (u.id === currentUser.id ||
+          (u.email && currentUser.email && u.email.toLowerCase() === currentUser.email.toLowerCase()))) ||
+        (currentFbUid && u.cloudUid === currentFbUid)
+    );
+
+    const quizPoints = isMe ? Math.max(Number(u.quizPoints || 0), myStats.quizPoints) : Number(u.quizPoints || 0);
+    const activityPoints = isMe
+      ? Math.max(Number(u.activityPoints || 0), myStats.activityPoints)
+      : Number(u.activityPoints || 0);
+    const totalPoints = isMe
+      ? Math.max(Number(u.totalPoints || 0), myStats.totalPoints, quizPoints + activityPoints)
+      : Math.max(Number(u.totalPoints || 0), quizPoints + activityPoints);
+    const quizzesCompleted = isMe
+      ? Math.max(Number(u.quizzesCompleted || 0), myStats.quizzesCompleted)
+      : Number(u.quizzesCompleted || 0);
+    const correctAnswers = isMe
+      ? Math.max(Number(u.correctAnswers || 0), myStats.correctAnswers)
+      : Number(u.correctAnswers || 0);
+    const questionsAnswered = isMe
+      ? Math.max(Number(u.questionsAnswered || 0), myStats.questionsAnswered, correctAnswers)
+      : Math.max(Number(u.questionsAnswered || 0), correctAnswers);
+
+    const metrics = computeStudentFairMetrics({
       correctAnswers,
       questionsAnswered,
-      accuracyPercent,
+      quizzesCompleted,
+      avgScorePercent: isMe && myStats.attempts.length > 0 ? myAvgs.avgScorePercent : Number(u.avgScorePercent || 0),
+      bestScorePercent: isMe
+        ? Math.max(Number(u.bestScorePercent || 0), myAvgs.bestScorePercent)
+        : Number(u.bestScorePercent || 0),
+      activityPoints,
+      aiTutorTurns: Number(u.aiTutorTurns || 0),
+    });
+
+    return {
+      rank: 0,
+      userId: u.id,
+      name: u.name,
+      grade: u.grade || 'Grade 9',
+      avatar_url: u.avatar_url || '',
+      online: Boolean(u.online || isMe),
+      totalPoints,
+      quizPoints,
+      activityPoints,
+      quizzesCompleted: metrics.quizzesCompleted,
+      correctAnswers: metrics.correctAnswers,
+      questionsAnswered: metrics.questionsAnswered,
+      accuracyPercent: metrics.accuracyPercent,
+      avgScorePercent: metrics.avgScorePercent,
+      bestScorePercent: metrics.bestScorePercent,
+      fairScore: metrics.fairScore,
+      activityScore: Math.max(Number(u.activityScore || 0), metrics.activityScore),
+      lastActiveAt: u.lastActiveAt || '',
       badge: null,
       isCurrentUser: isMe,
-    });
-  }
-
-  if (currentUser && currentUser.role === 'student' && !currentUser.isAdmin) {
-    const alreadyPresent = entries.some((e) => e.isCurrentUser);
-    if (!alreadyPresent) {
-      const accuracyPercent =
-        myStats.questionsAnswered > 0
-          ? Math.round((myStats.correctAnswers / myStats.questionsAnswered) * 100)
-          : 0;
-      entries.push({
-        rank: 0,
-        userId: currentUser.id,
-        name: currentUser.name,
-        grade: currentUser.grade || 'Grade 9',
-        avatar_url: currentUser.avatar_url || '',
-        online: true,
-        totalPoints: myStats.totalPoints,
-        quizPoints: myStats.quizPoints,
-        activityPoints: myStats.activityPoints,
-        quizzesCompleted: myStats.quizzesCompleted,
-        correctAnswers: myStats.correctAnswers,
-        questionsAnswered: myStats.questionsAnswered,
-        accuracyPercent,
-        badge: null,
-        isCurrentUser: true,
-      });
-    }
-  }
-
-  entries.sort((a, b) => {
-    if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-    if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
-    return a.name.localeCompare(b.name);
+    };
   });
+
+  entries.sort((a, b) =>
+    compareStudentsByFairRank(
+      {
+        name: a.name,
+        online: a.online,
+        fairScore: a.fairScore ?? a.accuracyPercent,
+        accuracyPercent: a.accuracyPercent,
+        avgScorePercent: a.avgScorePercent,
+        totalPoints: a.totalPoints,
+        quizzesCompleted: a.quizzesCompleted,
+        correctAnswers: a.correctAnswers,
+        questionsAnswered: a.questionsAnswered,
+        activityScore: a.activityScore ?? 0,
+      },
+      {
+        name: b.name,
+        online: b.online,
+        fairScore: b.fairScore ?? b.accuracyPercent,
+        accuracyPercent: b.accuracyPercent,
+        avgScorePercent: b.avgScorePercent,
+        totalPoints: b.totalPoints,
+        quizzesCompleted: b.quizzesCompleted,
+        correctAnswers: b.correctAnswers,
+        questionsAnswered: b.questionsAnswered,
+        activityScore: b.activityScore ?? 0,
+      }
+    )
+  );
 
   entries.forEach((entry, idx) => {
     entry.rank = idx + 1;
     entry.badge = computeMedal(entry.rank);
   });
 
+  const topStudent =
+    entries.find(
+      (e) => e.questionsAnswered > 0 || e.quizzesCompleted > 0 || e.totalPoints > 0
+    ) || null;
+
+  const mostActiveStudent =
+    [...entries]
+      .filter((e) => (e.activityScore ?? 0) > 0 || e.online)
+      .sort((a, b) =>
+        compareStudentsByActivity(
+          {
+            name: a.name,
+            online: a.online,
+            fairScore: a.fairScore ?? 0,
+            accuracyPercent: a.accuracyPercent,
+            quizzesCompleted: a.quizzesCompleted,
+            correctAnswers: a.correctAnswers,
+            questionsAnswered: a.questionsAnswered,
+            activityScore: a.activityScore ?? 0,
+          },
+          {
+            name: b.name,
+            online: b.online,
+            fairScore: b.fairScore ?? 0,
+            accuracyPercent: b.accuracyPercent,
+            quizzesCompleted: b.quizzesCompleted,
+            correctAnswers: b.correctAnswers,
+            questionsAnswered: b.questionsAnswered,
+            activityScore: b.activityScore ?? 0,
+          }
+        )
+      )[0] || null;
+
   const meEntry = entries.find((e) => e.isCurrentUser);
-  const myAccuracy =
-    myStats.questionsAnswered > 0
-      ? Math.round((myStats.correctAnswers / myStats.questionsAnswered) * 100)
-      : 0;
+  const myMetrics = computeStudentFairMetrics({
+    correctAnswers: myStats.correctAnswers,
+    questionsAnswered: myStats.questionsAnswered,
+    quizzesCompleted: myStats.quizzesCompleted,
+    avgScorePercent: myAvgs.avgScorePercent,
+    bestScorePercent: myAvgs.bestScorePercent,
+    activityPoints: myStats.activityPoints,
+  });
 
   return {
     leaderboard: entries,
     topThree: entries.slice(0, 3),
+    topStudent,
+    mostActiveStudent,
     myStats: {
       rank: meEntry ? meEntry.rank : null,
       totalPoints: meEntry ? meEntry.totalPoints : myStats.totalPoints,
-      quizPoints: myStats.quizPoints,
-      activityPoints: myStats.activityPoints,
+      quizPoints: meEntry ? meEntry.quizPoints : myStats.quizPoints,
+      activityPoints: meEntry ? meEntry.activityPoints : myStats.activityPoints,
       quizzesCompleted: meEntry ? meEntry.quizzesCompleted : myStats.quizzesCompleted,
       correctAnswers: meEntry ? meEntry.correctAnswers : myStats.correctAnswers,
-      accuracyPercent: myAccuracy,
+      questionsAnswered: meEntry ? meEntry.questionsAnswered : myStats.questionsAnswered,
+      accuracyPercent: meEntry ? meEntry.accuracyPercent : myMetrics.accuracyPercent,
+      avgScorePercent: meEntry ? meEntry.avgScorePercent : myMetrics.avgScorePercent,
+      fairScore: meEntry ? meEntry.fairScore : myMetrics.fairScore,
+      activityScore: meEntry ? meEntry.activityScore : myMetrics.activityScore,
       badge: meEntry ? meEntry.badge : null,
-      totalStudents: Math.max(entries.length, 1),
+      totalStudents: entries.length,
     },
     recentEvents: myStats.events.slice(0, 25),
     rules: COMPETITION_RULES,
     generatedAt: new Date().toISOString(),
+    diagnostics,
   };
 }
 
@@ -1163,17 +1392,63 @@ export async function handleStaticApiFallback(
     saveSessionAndCachedUser(appUser, nextToken, rememberMe);
 
     const stats = getUserStats(appUser.id);
-    if (cloudProfile?.totalPoints && cloudProfile.totalPoints > stats.totalPoints) {
-      stats.totalPoints = cloudProfile.totalPoints;
-      stats.quizPoints = cloudProfile.totalPoints;
-      stats.quizzesCompleted = Math.max(
-        stats.quizzesCompleted,
-        Number(cloudProfile.quizzesCompleted || 0)
-      );
-      stats.correctAnswers = Math.max(
-        stats.correctAnswers,
-        Number(cloudProfile.correctAnswers || 0)
-      );
+    let statsChanged = false;
+    if (cloudProfile) {
+      const cloudPts = Number(cloudProfile.totalPoints || 0);
+      const cloudQuizPts = Number(cloudProfile.quizPoints ?? cloudPts);
+      const cloudActPts = Number(cloudProfile.activityPoints || 0);
+      const cloudQuizzes = Number(cloudProfile.quizzesCompleted || 0);
+      const cloudCorrect = Number(cloudProfile.correctAnswers || 0);
+      const cloudAnswered = Math.max(Number(cloudProfile.questionsAnswered || 0), cloudCorrect);
+
+      if (
+        cloudPts > stats.totalPoints ||
+        cloudQuizzes > stats.quizzesCompleted ||
+        cloudAnswered > stats.questionsAnswered
+      ) {
+        stats.totalPoints = Math.max(stats.totalPoints, cloudPts);
+        stats.quizPoints = Math.max(stats.quizPoints, cloudQuizPts);
+        stats.activityPoints = Math.max(stats.activityPoints, cloudActPts);
+        stats.quizzesCompleted = Math.max(stats.quizzesCompleted, cloudQuizzes);
+        stats.correctAnswers = Math.max(stats.correctAnswers, cloudCorrect);
+        stats.questionsAnswered = Math.max(stats.questionsAnswered, cloudAnswered);
+        if (cloudProfile.avgScorePercent !== undefined) {
+          stats.avgScorePercent = Number(cloudProfile.avgScorePercent || 0);
+        }
+        if (cloudProfile.bestScorePercent !== undefined) {
+          stats.bestScorePercent = Math.max(
+            Number(stats.bestScorePercent || 0),
+            Number(cloudProfile.bestScorePercent || 0)
+          );
+        }
+        statsChanged = true;
+      }
+    }
+    const cloudAttempts = Array.isArray(body.cloudAttempts)
+      ? (body.cloudAttempts as Array<{
+          mode?: string;
+          chapterNumber?: number | null;
+          totalQuestions?: number;
+          correctCount?: number;
+          scorePercent?: number;
+        }>)
+      : [];
+    if (cloudAttempts.length > 0 && stats.attempts.length === 0) {
+      stats.attempts = cloudAttempts.slice(0, 60).map((a, idx) => ({
+        id: Date.now() + idx,
+        mode: a.mode === 'all_chapters' || a.mode === 'general' ? a.mode : 'chapter',
+        chapter_number:
+          a.chapterNumber && a.chapterNumber >= 1 && a.chapterNumber <= 11
+            ? Number(a.chapterNumber)
+            : null,
+        total_questions: Number(a.totalQuestions || 0),
+        correct_count: Number(a.correctCount || 0),
+        score_percent: Number(a.scorePercent || 0),
+        created_at: new Date().toISOString(),
+      }));
+      statsChanged = true;
+    }
+    if (statsChanged) {
       saveUserStats(appUser.id, stats);
     }
 
@@ -1436,11 +1711,9 @@ export async function handleStaticApiFallback(
           });
         }
         saveUserStats(currentUser.id, stats);
-        void syncCurrentUserToFirestore(currentUser, {
-          totalPoints: stats.totalPoints,
-          quizzesCompleted: stats.quizzesCompleted,
-          correctAnswers: stats.correctAnswers,
-        }).catch(() => {});
+        await runCloudSyncWithTimeout(() =>
+          syncCurrentUserToFirestore(currentUser, buildCloudSyncPayload(stats))
+        );
       }
       totalPoints = stats.totalPoints;
     }
@@ -1502,7 +1775,7 @@ export async function handleStaticApiFallback(
 
     const totalQuestions = targetQuestions.length;
     const scorePercent =
-      totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
+      totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 1000) / 10 : 0;
 
     const currentUser = getCachedUserLocal();
     let pointsAwarded = 0;
@@ -1511,15 +1784,27 @@ export async function handleStaticApiFallback(
     if (!skipSave && currentUser) {
       const stats = getUserStats(currentUser.id);
       if (currentUser.role === 'student' && !currentUser.isAdmin) {
+        // Reconcile any answered questions submitted at once that were not already counted via check-answer
+        let extraCorrectPts = 0;
+        for (const r of results) {
+          if (r.selectedOption && !stats.answeredQuestionIds.includes(r.questionId)) {
+            stats.answeredQuestionIds.push(r.questionId);
+            stats.questionsAnswered += 1;
+            if (r.isCorrect) {
+              stats.correctAnswers += 1;
+              extraCorrectPts += COMPETITION_RULES.correctAnswer;
+            }
+          }
+        }
         pointsAwarded = COMPETITION_RULES.quizCompleted;
-        if (scorePercent === 100) {
+        if (scorePercent >= 100) {
           pointsAwarded += COMPETITION_RULES.perfectScoreBonus;
         } else if (scorePercent >= 80) {
           pointsAwarded += COMPETITION_RULES.highScore80Bonus;
         }
         stats.quizzesCompleted += 1;
-        stats.quizPoints += pointsAwarded;
-        stats.totalPoints += pointsAwarded;
+        stats.quizPoints += pointsAwarded + extraCorrectPts;
+        stats.totalPoints += pointsAwarded + extraCorrectPts;
         stats.events.unshift({
           id: Date.now(),
           event_key: `quiz-${mode}-${chapterNumber ?? 'all'}-${Date.now()}`,
@@ -1539,25 +1824,26 @@ export async function handleStaticApiFallback(
         score_percent: scorePercent,
         created_at: new Date().toISOString(),
       });
+      const avgs = computeStoredQuizAverages(stats);
+      stats.avgScorePercent = avgs.avgScorePercent;
+      stats.bestScorePercent = avgs.bestScorePercent;
       saveUserStats(currentUser.id, stats);
       totalPoints = stats.totalPoints;
 
-      void recordQuizAttemptToCloud(
-        {
-          mode,
-          chapterNumber,
-          totalQuestions,
-          correctCount,
-          scorePercent,
-          pointsAwarded,
-        },
-        {
-          totalPoints: stats.totalPoints,
-          quizzesCompleted: stats.quizzesCompleted,
-          correctAnswers: stats.correctAnswers,
-        },
-        currentUser
-      ).catch(() => {});
+      await runCloudSyncWithTimeout(() =>
+        recordQuizAttemptToCloud(
+          {
+            mode,
+            chapterNumber,
+            totalQuestions,
+            correctCount,
+            scorePercent,
+            pointsAwarded,
+          },
+          buildCloudSyncPayload(stats),
+          currentUser
+        )
+      );
     }
 
     const res: QuizSubmissionResponse = {
@@ -1688,14 +1974,97 @@ export async function handleStaticApiFallback(
   if (pathname === '/api/competition/sync' && method === 'POST') {
     const currentUser = getCachedUserLocal();
     const events = Array.isArray(body.events)
-      ? (body.events as Array<{ eventKey?: string; points?: number; chapterNumber?: number | null; details?: string }>)
+      ? (body.events as Array<{
+          eventKey?: string;
+          eventType?: string;
+          points?: number;
+          chapterNumber?: number | null;
+          questionId?: number;
+          selectedOption?: string;
+          mode?: 'all_chapters' | 'chapter' | 'general';
+          answers?: Record<string, string>;
+          details?: string;
+        }>)
       : [];
     let awardedPoints = 0;
     if (currentUser && currentUser.role === 'student' && !currentUser.isAdmin) {
       const stats = getUserStats(currentUser.id);
       for (const ev of events) {
         if (!ev?.eventKey) continue;
-        if (!stats.events.some((existing) => existing.event_key === ev.eventKey)) {
+        if (stats.events.some((existing) => existing.event_key === ev.eventKey)) continue;
+
+        if (ev.eventType === 'correct_answer') {
+          const qId = Number(ev.questionId || 0);
+          const qObj = snapshot.questions.find((item) => item.id === qId);
+          const sel = String(ev.selectedOption || '').trim().toUpperCase();
+          const verifiedCorrect = qObj ? qObj.correct_option === sel : true;
+          if (qObj && !stats.answeredQuestionIds.includes(qObj.id)) {
+            stats.answeredQuestionIds.push(qObj.id);
+            stats.questionsAnswered += 1;
+            if (verifiedCorrect) stats.correctAnswers += 1;
+          }
+          if (verifiedCorrect) {
+            const pts = COMPETITION_RULES.correctAnswer;
+            awardedPoints += pts;
+            stats.quizPoints += pts;
+            stats.totalPoints += pts;
+            stats.events.unshift({
+              id: Date.now(),
+              event_key: ev.eventKey,
+              event_type: 'correct_answer',
+              points: pts,
+              chapter_number: ev.chapterNumber ?? qObj?.chapter_number ?? null,
+              details: ev.details || 'Offline correct answer',
+              created_at: new Date().toISOString(),
+            });
+          }
+        } else if (ev.eventType === 'quiz_completed') {
+          let pts = Math.max(0, Math.round(Number(ev.points || COMPETITION_RULES.quizCompleted)));
+          if (ev.mode && ev.answers && typeof ev.answers === 'object') {
+            const qs = snapshot.questions.filter((item) => {
+              if (ev.mode === 'general') return item.scope === 'general';
+              if (ev.mode === 'chapter' && ev.chapterNumber) {
+                return item.scope === 'chapter' && item.chapter_number === Number(ev.chapterNumber);
+              }
+              return item.scope === 'chapter';
+            });
+            if (qs.length > 0) {
+              let correctCount = 0;
+              for (const item of qs) {
+                const sel = String(ev.answers[String(item.id)] || '').toUpperCase();
+                if (sel === item.correct_option) correctCount += 1;
+              }
+              const pct = Math.round((correctCount / qs.length) * 1000) / 10;
+              pts =
+                COMPETITION_RULES.quizCompleted +
+                (pct >= 100 ? COMPETITION_RULES.perfectScoreBonus : pct >= 80 ? COMPETITION_RULES.highScore80Bonus : 0);
+              stats.quizzesCompleted += 1;
+              stats.attempts.unshift({
+                id: Date.now(),
+                mode: ev.mode,
+                chapter_number: ev.chapterNumber ?? null,
+                total_questions: qs.length,
+                correct_count: correctCount,
+                score_percent: pct,
+                created_at: new Date().toISOString(),
+              });
+            }
+          } else {
+            stats.quizzesCompleted += 1;
+          }
+          awardedPoints += pts;
+          stats.quizPoints += pts;
+          stats.totalPoints += pts;
+          stats.events.unshift({
+            id: Date.now(),
+            event_key: ev.eventKey,
+            event_type: 'quiz_completed',
+            points: pts,
+            chapter_number: ev.chapterNumber ?? null,
+            details: ev.details || 'Offline completed quiz',
+            created_at: new Date().toISOString(),
+          });
+        } else {
           const pts = Math.max(0, Math.round(Number(ev.points || 0)));
           awardedPoints += pts;
           stats.activityPoints += pts;
@@ -1711,12 +2080,13 @@ export async function handleStaticApiFallback(
           });
         }
       }
+      const avgs = computeStoredQuizAverages(stats);
+      stats.avgScorePercent = avgs.avgScorePercent;
+      stats.bestScorePercent = avgs.bestScorePercent;
       saveUserStats(currentUser.id, stats);
-      void syncCurrentUserToFirestore(currentUser, {
-        totalPoints: stats.totalPoints,
-        quizzesCompleted: stats.quizzesCompleted,
-        correctAnswers: stats.correctAnswers,
-      }).catch(() => {});
+      await runCloudSyncWithTimeout(() =>
+        syncCurrentUserToFirestore(currentUser, buildCloudSyncPayload(stats))
+      );
     }
     const lb = await buildLeaderboardResponse();
     return {
@@ -2193,17 +2563,8 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
         (rawKey.startsWith("'") && rawKey.endsWith("'")))
         ? rawKey.slice(1, -1).trim()
         : rawKey;
-    const buildTimeKey = unwrapped
-      .replace(/\s+/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-    return {
-      publicKey: buildTimeKey || null,
-      configured: Boolean(buildTimeKey),
-      source: 'client-env',
-      ...(buildTimeKey ? {} : { missing: ['VITE_VAPID_PUBLIC_KEY'] }),
-    };
+    const buildTimeKey = unwrapped.replace(/\s+/g, '').replace(/=+$/, '');
+    return { publicKey: buildTimeKey || null, configured: Boolean(buildTimeKey) };
   }
   if (pathname === '/api/push/status') {
     return { configured: false, subscriptionCount: 0, currentEndpointRegistered: false };
@@ -2985,20 +3346,18 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
     if (!isPrivilegedCachedUser()) {
       throw new StaticFallbackHttpError('Administrator privileges required.', 403);
     }
-    const { users } = await buildMergedAccountsRegistry();
+    const { users, diagnostics } = await buildMergedAccountsRegistry();
     const studentUsers = users.filter((u) => u.role === 'student' && !u.isAdmin);
     const students: AdminStudentPerformance[] = studentUsers.map((u) => {
-      const quizzes = Number(u.quizzesCompleted || 0);
-      const answered = Number(u.questionsAnswered || 0);
-      const correct = Number(u.correctAnswers || 0);
-      const accuracy =
-        answered > 0 ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10 : 0;
-      const avgScore = Number(u.avgScorePercent || accuracy);
-      const performanceScore =
-        answered > 0 || quizzes > 0
-          ? Math.round((avgScore * 0.55 + accuracy * 0.3 + Math.min(correct, 100) * 0.15) * 10) / 10
-          : 0;
-      const activityScore = quizzes * 10 + answered * 2 + Number(u.aiTutorTurns || 0) * 2;
+      const metrics = computeStudentFairMetrics({
+        correctAnswers: Number(u.correctAnswers || 0),
+        questionsAnswered: Number(u.questionsAnswered || 0),
+        quizzesCompleted: Number(u.quizzesCompleted || 0),
+        avgScorePercent: Number(u.avgScorePercent || 0),
+        bestScorePercent: Number(u.bestScorePercent || 0),
+        activityPoints: Number(u.activityPoints || 0),
+        aiTutorTurns: Number(u.aiTutorTurns || 0),
+      });
       return {
         id: u.id,
         name: u.name,
@@ -3011,33 +3370,116 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
         lastLoginAt: u.lastLoginAt || '',
         isRestricted: Boolean(u.isRestricted),
         restrictionReason: u.restrictionReason || '',
-        quizzesCompleted: quizzes,
-        questionsAnswered: answered,
-        correctAnswers: correct,
-        accuracyPercent: accuracy,
-        avgScorePercent: avgScore,
-        bestScorePercent: avgScore,
+        quizzesCompleted: metrics.quizzesCompleted,
+        questionsAnswered: metrics.questionsAnswered,
+        correctAnswers: metrics.correctAnswers,
+        accuracyPercent: metrics.accuracyPercent,
+        avgScorePercent: metrics.avgScorePercent,
+        bestScorePercent: metrics.bestScorePercent,
         teacherMessagesCount: 0,
         aiTutorTurns: Number(u.aiTutorTurns || 0),
-        performanceScore,
-        activityScore,
+        performanceScore: metrics.fairScore,
+        fairScore: metrics.fairScore,
+        totalPoints: Number(u.totalPoints || 0),
+        activityScore: Math.max(Number(u.activityScore || 0), metrics.activityScore),
       };
     });
     const activeStudents = students.filter((s) => s.online);
     const topSorted = [...students]
-      .filter((s) => s.questionsAnswered > 0 || s.quizzesCompleted > 0)
-      .sort((a, b) => b.performanceScore - a.performanceScore || b.correctAnswers - a.correctAnswers);
+      .filter((s) => s.questionsAnswered > 0 || s.quizzesCompleted > 0 || (s.totalPoints ?? 0) > 0)
+      .sort((a, b) =>
+        compareStudentsByFairRank(
+          {
+            name: a.name,
+            online: a.online,
+            fairScore: a.fairScore ?? a.performanceScore,
+            accuracyPercent: a.accuracyPercent,
+            avgScorePercent: a.avgScorePercent,
+            totalPoints: a.totalPoints,
+            quizzesCompleted: a.quizzesCompleted,
+            correctAnswers: a.correctAnswers,
+            questionsAnswered: a.questionsAnswered,
+            activityScore: a.activityScore,
+          },
+          {
+            name: b.name,
+            online: b.online,
+            fairScore: b.fairScore ?? b.performanceScore,
+            accuracyPercent: b.accuracyPercent,
+            avgScorePercent: b.avgScorePercent,
+            totalPoints: b.totalPoints,
+            quizzesCompleted: b.quizzesCompleted,
+            correctAnswers: b.correctAnswers,
+            questionsAnswered: b.questionsAnswered,
+            activityScore: b.activityScore,
+          }
+        )
+      );
     const activeSorted = [...students]
-      .filter((s) => s.activityScore > 0)
-      .sort((a, b) => b.activityScore - a.activityScore);
+      .filter((s) => s.activityScore > 0 || s.online)
+      .sort((a, b) =>
+        compareStudentsByActivity(
+          {
+            name: a.name,
+            online: a.online,
+            fairScore: a.fairScore ?? a.performanceScore,
+            accuracyPercent: a.accuracyPercent,
+            quizzesCompleted: a.quizzesCompleted,
+            correctAnswers: a.correctAnswers,
+            questionsAnswered: a.questionsAnswered,
+            activityScore: a.activityScore,
+          },
+          {
+            name: b.name,
+            online: b.online,
+            fairScore: b.fairScore ?? b.performanceScore,
+            accuracyPercent: b.accuracyPercent,
+            quizzesCompleted: b.quizzesCompleted,
+            correctAnswers: b.correctAnswers,
+            questionsAnswered: b.questionsAnswered,
+            activityScore: b.activityScore,
+          }
+        )
+      );
+    const sortedAllStudents = [...students].sort(
+      (a, b) =>
+        Number(b.online) - Number(a.online) ||
+        compareStudentsByFairRank(
+          {
+            name: a.name,
+            online: a.online,
+            fairScore: a.fairScore ?? a.performanceScore,
+            accuracyPercent: a.accuracyPercent,
+            avgScorePercent: a.avgScorePercent,
+            totalPoints: a.totalPoints,
+            quizzesCompleted: a.quizzesCompleted,
+            correctAnswers: a.correctAnswers,
+            questionsAnswered: a.questionsAnswered,
+            activityScore: a.activityScore,
+          },
+          {
+            name: b.name,
+            online: b.online,
+            fairScore: b.fairScore ?? b.performanceScore,
+            accuracyPercent: b.accuracyPercent,
+            avgScorePercent: b.avgScorePercent,
+            totalPoints: b.totalPoints,
+            quizzesCompleted: b.quizzesCompleted,
+            correctAnswers: b.correctAnswers,
+            questionsAnswered: b.questionsAnswered,
+            activityScore: b.activityScore,
+          }
+        )
+    );
     return {
       totalStudents: students.length,
       activeCount: activeStudents.length,
       activeStudents,
       topStudent: topSorted[0] || null,
       mostActiveStudent: activeSorted[0] || null,
-      students,
+      students: sortedAllStudents,
       generatedAt: new Date().toISOString(),
+      diagnostics,
     };
   }
 
@@ -3051,11 +3493,17 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
     const u = users.find((row) => row.id === targetId);
     if (!u) throw new StaticFallbackHttpError('Student not found.', 404);
     const stats = getUserStats(u.id);
+    const avgs = computeStoredQuizAverages(stats);
     const chapterMap = getChapterTitleMap(normalizeLang(search.get('lang')));
-    const quizzes = Math.max(Number(u.quizzesCompleted || 0), stats.quizzesCompleted);
-    const answered = Math.max(Number(u.questionsAnswered || 0), stats.questionsAnswered);
-    const correct = Math.max(Number(u.correctAnswers || 0), stats.correctAnswers);
-    const accuracy = answered > 0 ? Math.round((Math.min(correct, answered) / answered) * 1000) / 10 : 0;
+    const metrics = computeStudentFairMetrics({
+      correctAnswers: Math.max(Number(u.correctAnswers || 0), stats.correctAnswers),
+      questionsAnswered: Math.max(Number(u.questionsAnswered || 0), stats.questionsAnswered),
+      quizzesCompleted: Math.max(Number(u.quizzesCompleted || 0), stats.quizzesCompleted),
+      avgScorePercent: stats.attempts.length > 0 ? avgs.avgScorePercent : Number(u.avgScorePercent || 0),
+      bestScorePercent: Math.max(Number(u.bestScorePercent || 0), avgs.bestScorePercent),
+      activityPoints: Math.max(Number(u.activityPoints || 0), stats.activityPoints),
+      aiTutorTurns: Number(u.aiTutorTurns || 0),
+    });
     return {
       student: {
         id: u.id,
@@ -3069,16 +3517,18 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
         lastLoginAt: u.lastLoginAt || '',
         isRestricted: Boolean(u.isRestricted),
         restrictionReason: u.restrictionReason || '',
-        quizzesCompleted: quizzes,
-        questionsAnswered: answered,
-        correctAnswers: correct,
-        accuracyPercent: accuracy,
-        avgScorePercent: Number(u.avgScorePercent || accuracy),
-        bestScorePercent: Number(u.avgScorePercent || accuracy),
+        quizzesCompleted: metrics.quizzesCompleted,
+        questionsAnswered: metrics.questionsAnswered,
+        correctAnswers: metrics.correctAnswers,
+        accuracyPercent: metrics.accuracyPercent,
+        avgScorePercent: metrics.avgScorePercent,
+        bestScorePercent: metrics.bestScorePercent,
         teacherMessagesCount: 0,
         aiTutorTurns: Number(u.aiTutorTurns || 0),
-        performanceScore: accuracy,
-        activityScore: quizzes * 10 + answered * 2,
+        performanceScore: metrics.fairScore,
+        fairScore: metrics.fairScore,
+        totalPoints: Math.max(Number(u.totalPoints || 0), stats.totalPoints),
+        activityScore: Math.max(Number(u.activityScore || 0), metrics.activityScore),
       },
       attempts: stats.attempts.slice(0, 25).map((a) => ({
         id: a.id,
@@ -3105,26 +3555,38 @@ async function triggerVercelPushSend(payload: Record<string, unknown>): Promise<
       .filter((u) => u.role === 'student' && !u.isAdmin)
       .filter((u) => !q || `${u.name} ${u.email} ${u.grade}`.toLowerCase().includes(q))
       .slice(0, 20)
-      .map((u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        grade: u.grade,
-        avatar_url: u.avatar_url || '',
-        online: Boolean(u.online),
-        currentSection: u.currentSection || '',
-        lastActiveAt: u.lastActiveAt || '',
-        quizzesCompleted: Number(u.quizzesCompleted || 0),
-        questionsAnswered: Number(u.questionsAnswered || 0),
-        correctAnswers: Number(u.correctAnswers || 0),
-        accuracyPercent: Number(u.avgScorePercent || 0),
-        avgScorePercent: Number(u.avgScorePercent || 0),
-        bestScorePercent: Number(u.avgScorePercent || 0),
-        teacherMessagesCount: 0,
-        aiTutorTurns: 0,
-        performanceScore: 0,
-        activityScore: 0,
-      }));
+      .map((u) => {
+        const metrics = computeStudentFairMetrics({
+          correctAnswers: Number(u.correctAnswers || 0),
+          questionsAnswered: Number(u.questionsAnswered || 0),
+          quizzesCompleted: Number(u.quizzesCompleted || 0),
+          avgScorePercent: Number(u.avgScorePercent || 0),
+          bestScorePercent: Number(u.bestScorePercent || 0),
+          activityPoints: Number(u.activityPoints || 0),
+        });
+        return {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          grade: u.grade,
+          avatar_url: u.avatar_url || '',
+          online: Boolean(u.online),
+          currentSection: u.currentSection || '',
+          lastActiveAt: u.lastActiveAt || '',
+          quizzesCompleted: metrics.quizzesCompleted,
+          questionsAnswered: metrics.questionsAnswered,
+          correctAnswers: metrics.correctAnswers,
+          accuracyPercent: metrics.accuracyPercent,
+          avgScorePercent: metrics.avgScorePercent,
+          bestScorePercent: metrics.bestScorePercent,
+          teacherMessagesCount: 0,
+          aiTutorTurns: 0,
+          performanceScore: metrics.fairScore,
+          fairScore: metrics.fairScore,
+          totalPoints: Number(u.totalPoints || 0),
+          activityScore: Math.max(Number(u.activityScore || 0), metrics.activityScore),
+        };
+      });
     const chapters = snapshot.chapters
       .map((c) => localizeChapter(c, lang, 0))
       .filter((c) => !q || `${c.title} ${c.description}`.toLowerCase().includes(q));

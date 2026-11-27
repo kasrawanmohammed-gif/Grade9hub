@@ -15,6 +15,8 @@ import {
   Trophy,
 } from 'lucide-react';
 import { ApiError, apiFetch, isStaticBackendActive } from '../lib/api';
+import { mergeCloudStudentsIntoLeaderboard } from '../lib/competitionCloudMerge';
+import { formatFairScore } from '../lib/competitionScoring';
 import {
   COMPETITION_UPDATED_EVENT,
   getCachedLeaderboard,
@@ -303,7 +305,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
       }
 
       try {
-        const data = await apiFetch<CompetitionLeaderboardResponse>('/api/competition/leaderboard');
+        const raw = await apiFetch<CompetitionLeaderboardResponse>('/api/competition/leaderboard');
+        const data = await mergeCloudStudentsIntoLeaderboard(raw, user).catch(() => raw);
         if (!cancelled) {
           setLeaderboard(data);
           void saveCachedLeaderboard(user.id, data);
@@ -321,7 +324,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       cancelled = true;
       window.removeEventListener(COMPETITION_UPDATED_EVENT, handleCompEvent);
     };
-  }, [user.id, leaderboardVersion]);
+  }, [user, leaderboardVersion]);
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -543,8 +546,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </strong>{' '}
                 ·{' '}
                 <strong>
-                  {leaderboard.myStats.totalPoints + pendingPoints} {t.home.ptsUnit}
-                </strong>
+                  {formatFairScore(leaderboard.myStats.fairScore)} {t.competition.fairScoreLabel}
+                </strong>{' '}
+                · {leaderboard.myStats.accuracyPercent}% ({leaderboard.myStats.totalPoints + pendingPoints} {t.home.ptsUnit})
                 {pendingPoints > 0 && (
                   <span className="text-[#D9A62E] font-semibold">
                     {' '}
@@ -597,15 +601,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     <div className="min-w-0">
                       <p className="text-sm font-bold text-[#1C1917] truncate">{entry.name}</p>
                       <p className="text-xs text-[#57534E] truncate tabular-nums">
-                        {entry.grade || t.home.studentPortal} · {entry.accuracyPercent}%
+                        {entry.accuracyPercent}% ({entry.correctAnswers}/{entry.questionsAnswered}) ·{' '}
+                        {entry.activityPoints} {t.competition.activityPointsLabel} ·{' '}
+                        {entry.totalPoints} {t.home.ptsUnit}
                       </p>
                     </div>
                   </div>
                   <div className="text-end shrink-0">
                     <p className="text-base font-bold text-[#6B1118] tabular-nums">
-                      {entry.totalPoints}
+                      {formatFairScore(entry.fairScore)}
                     </p>
-                    <p className="text-[11px] text-[#57534E]">{t.home.ptsUnit}</p>
+                    <p className="text-[11px] text-[#57534E]">{t.competition.fairScoreLabel}</p>
                   </div>
                 </button>
               );

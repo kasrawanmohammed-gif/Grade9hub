@@ -59,7 +59,6 @@ import { sendVerificationCodeEmail, isSmtpConfigured } from './server/email.ts';
 import {
   countUserPushSubscriptions,
   getPublicVapidKey,
-  getVapidKeyMeta,
   LocalizedPushFactory,
   normalizePushLang,
   PushLang,
@@ -77,6 +76,11 @@ import { registerCommunityRoutes, logStudentActivity } from './server/communityR
 import { normalizeScientificUnits } from './server/unitSanitizer.ts';
 import { seedTextbooksIfNeeded } from './server/seedTextbooks.ts';
 import { verifyFirebaseIdToken } from './server/firebaseVerify.ts';
+import {
+  computeStudentFairMetrics,
+  compareStudentsByFairRank,
+  compareStudentsByActivity,
+} from './src/utils/studentScoring.ts';
 
 function normalizeLang(raw: unknown): SupportedLang {
   if (raw === 'ku' || raw === 'ar') return raw;
@@ -909,6 +913,8 @@ interface StudentStatsRow {
   teacher_messages_count: number;
   latest_quiz_at: string | null;
   latest_message_at: string | null;
+  total_points: number;
+  activity_points: number;
 }
 
 function buildStudentPerformanceList() {
@@ -925,7 +931,9 @@ function buildStudentPerformanceList() {
               COALESCE(sqa.live_answered_count, 0) AS live_answered_count,
               COALESCE(sqa.live_correct_count, 0) AS live_correct_count,
               COALESCE(tm.teacher_messages_count, 0) AS teacher_messages_count,
-              tm.latest_message_at AS latest_message_at
+              tm.latest_message_at AS latest_message_at,
+              COALESCE(cp.total_points, 0) AS total_points,
+              COALESCE(cp.activity_points, 0) AS activity_points
        FROM users u
        LEFT JOIN (
          SELECT user_id,
@@ -953,6 +961,13 @@ function buildStudentPerformanceList() {
          WHERE sender_role = 'student'
          GROUP BY sender_id
        ) tm ON tm.sender_id = u.id
+       LEFT JOIN (
+         SELECT user_id,
+                COALESCE(SUM(points), 0) AS total_points,
+                COALESCE(SUM(CASE WHEN event_type = 'curriculum_activity' THEN points ELSE 0 END), 0) AS activity_points
+         FROM competition_point_events
+         GROUP BY user_id
+       ) cp ON cp.user_id = u.id
        WHERE u.role = 'student' AND u.is_admin = 0`
     )
     .all() as StudentStatsRow[];
@@ -960,31 +975,16 @@ function buildStudentPerformanceList() {
   return rows.map((r) => {
     const questionsAnswered = Math.max(r.live_answered_count, r.quiz_questions_total);
     const correctAnswers = Math.max(r.live_correct_count, r.quiz_correct_total);
-    const accuracyPercent =
-      questionsAnswered > 0
-        ? Math.round((Math.min(correctAnswers, questionsAnswered) / questionsAnswered) * 1000) / 10
-        : r.avg_score_percent;
-
-    const avgScorePercent = r.quizzes_completed > 0 ? r.avg_score_percent : accuracyPercent;
-    const bestScorePercent = r.quizzes_completed > 0 ? r.best_score_percent : accuracyPercent;
-
-    // Performance index weighting quiz scores, answer accuracy, and correct answer volume
-    const performanceScore =
-      questionsAnswered > 0 || r.quizzes_completed > 0
-        ? Math.round(
-            (avgScorePercent * 0.55 +
-              accuracyPercent * 0.3 +
-              Math.min(correctAnswers, 100) * 0.15) *
-              10
-          ) / 10
-        : 0;
-
-    // Activity score reflecting quizzes completed, questions answered, teacher questions, and AI study turns
-    const activityScore =
-      r.quizzes_completed * 10 +
-      questionsAnswered * 2 +
-      r.teacher_messages_count * 3 +
-      r.ai_tutor_turns * 2;
+    const fair = computeStudentFairMetrics({
+      correctAnswers,
+      questionsAnswered,
+      quizzesCompleted: r.quizzes_completed,
+      avgScorePercent: r.avg_score_percent,
+      bestScorePercent: r.best_score_percent,
+      activityPoints: r.activity_points,
+      teacherMessagesCount: r.teacher_messages_count,
+      aiTutorTurns: r.ai_tutor_turns,
+    });
 
     const online = isUserOnline(r.id);
     const currentSection = online ? userActiveSection.get(r.id) || 'home' : '';
@@ -1006,16 +1006,18 @@ function buildStudentPerformanceList() {
       lastLoginAt: r.last_login_at || '',
       isRestricted: Boolean(r.is_restricted),
       restrictionReason: r.restriction_reason || '',
-      quizzesCompleted: r.quizzes_completed,
-      questionsAnswered,
-      correctAnswers,
-      accuracyPercent,
-      avgScorePercent,
-      bestScorePercent,
+      quizzesCompleted: fair.quizzesCompleted,
+      questionsAnswered: fair.questionsAnswered,
+      correctAnswers: fair.correctAnswers,
+      accuracyPercent: fair.accuracyPercent,
+      avgScorePercent: fair.avgScorePercent,
+      bestScorePercent: fair.bestScorePercent,
       teacherMessagesCount: r.teacher_messages_count,
       aiTutorTurns: r.ai_tutor_turns,
-      performanceScore,
-      activityScore,
+      performanceScore: fair.fairScore,
+      fairScore: fair.fairScore,
+      activityScore: fair.activityScore,
+      totalPoints: Number(r.total_points || 0),
     };
   });
 }
@@ -1028,33 +1030,20 @@ function computeAdminDashboardSnapshot() {
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const topCandidates = students.filter(
-    (s) => s.questionsAnswered > 0 || s.quizzesCompleted > 0
+    (s) => s.questionsAnswered > 0 || s.quizzesCompleted > 0 || (s.totalPoints ?? 0) > 0
   );
-  topCandidates.sort(
-    (a, b) =>
-      b.performanceScore - a.performanceScore ||
-      b.avgScorePercent - a.avgScorePercent ||
-      b.correctAnswers - a.correctAnswers ||
-      b.quizzesCompleted - a.quizzesCompleted
-  );
+  topCandidates.sort(compareStudentsByFairRank);
   const topStudent = topCandidates[0] || null;
 
-  const activeCandidates = students.filter((s) => s.activityScore > 0);
-  activeCandidates.sort(
-    (a, b) =>
-      b.activityScore - a.activityScore ||
-      b.questionsAnswered - a.questionsAnswered ||
-      b.quizzesCompleted - a.quizzesCompleted ||
-      Number(b.online) - Number(a.online)
-  );
+  const activeCandidates = students.filter((s) => s.activityScore > 0 || s.online);
+  activeCandidates.sort(compareStudentsByActivity);
   const mostActiveStudent = activeCandidates[0] || null;
 
   const sortedStudents = [...students].sort(
     (a, b) =>
       Number(b.online) - Number(a.online) ||
-      b.performanceScore - a.performanceScore ||
-      b.activityScore - a.activityScore ||
-      a.name.localeCompare(b.name)
+      compareStudentsByFairRank(a, b) ||
+      compareStudentsByActivity(a, b)
   );
 
   return {
@@ -1065,6 +1054,7 @@ function computeAdminDashboardSnapshot() {
     mostActiveStudent,
     students: sortedStudents,
     generatedAt: new Date().toISOString(),
+    diagnostics: { hasError: false, source: 'sqlite', errors: [] },
   };
 }
 
@@ -1189,65 +1179,145 @@ function awardCompetitionPoints(params: {
 function buildCompetitionLeaderboard(viewerUserId: number) {
   const rows = db
     .prepare(
-      `SELECT u.id, u.name, u.grade, u.avatar_url, u.last_active_at,
-              COALESCE(SUM(e.points), 0) AS total_points,
-              COALESCE(SUM(CASE WHEN e.event_type IN ('correct_answer', 'quiz_completed') THEN e.points ELSE 0 END), 0) AS quiz_points,
-              COALESCE(SUM(CASE WHEN e.event_type = 'curriculum_activity' THEN e.points ELSE 0 END), 0) AS activity_points,
-              COALESCE((SELECT COUNT(*) FROM quiz_attempts qa WHERE qa.user_id = u.id), 0) AS quizzes_completed,
-              COALESCE((SELECT COUNT(*) FROM student_question_answers sqa WHERE sqa.user_id = u.id), 0) AS questions_answered,
-              COALESCE((SELECT SUM(CASE WHEN sqa.is_correct = 1 THEN 1 ELSE 0 END) FROM student_question_answers sqa WHERE sqa.user_id = u.id), 0) AS correct_answers
+      `SELECT u.id, u.name, u.grade, u.avatar_url, u.last_active_at, u.ai_tutor_turns,
+              COALESCE(cp.total_points, 0) AS total_points,
+              COALESCE(cp.quiz_points, 0) AS quiz_points,
+              COALESCE(cp.activity_points, 0) AS activity_points,
+              COALESCE(qa.quizzes_completed, 0) AS quizzes_completed,
+              COALESCE(qa.quiz_questions_total, 0) AS quiz_questions_total,
+              COALESCE(qa.quiz_correct_total, 0) AS quiz_correct_total,
+              COALESCE(qa.avg_score_percent, 0) AS avg_score_percent,
+              COALESCE(qa.best_score_percent, 0) AS best_score_percent,
+              qa.latest_quiz_at AS latest_quiz_at,
+              COALESCE(sqa.live_answered_count, 0) AS live_answered_count,
+              COALESCE(sqa.live_correct_count, 0) AS live_correct_count,
+              COALESCE(tm.teacher_messages_count, 0) AS teacher_messages_count,
+              tm.latest_message_at AS latest_message_at
        FROM users u
-       LEFT JOIN competition_point_events e ON e.user_id = u.id
-       WHERE u.role = 'student' AND u.is_admin = 0 AND u.password_hash != ?
-       GROUP BY u.id`
+       LEFT JOIN (
+         SELECT user_id,
+                COALESCE(SUM(points), 0) AS total_points,
+                COALESCE(SUM(CASE WHEN event_type IN ('correct_answer', 'quiz_completed') THEN points ELSE 0 END), 0) AS quiz_points,
+                COALESCE(SUM(CASE WHEN event_type = 'curriculum_activity' THEN points ELSE 0 END), 0) AS activity_points
+         FROM competition_point_events
+         GROUP BY user_id
+       ) cp ON cp.user_id = u.id
+       LEFT JOIN (
+         SELECT user_id,
+                COUNT(*) AS quizzes_completed,
+                SUM(total_questions) AS quiz_questions_total,
+                SUM(correct_count) AS quiz_correct_total,
+                ROUND(AVG(score_percent), 1) AS avg_score_percent,
+                ROUND(MAX(score_percent), 1) AS best_score_percent,
+                MAX(created_at) AS latest_quiz_at
+         FROM quiz_attempts
+         GROUP BY user_id
+       ) qa ON qa.user_id = u.id
+       LEFT JOIN (
+         SELECT user_id,
+                COUNT(*) AS live_answered_count,
+                SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) AS live_correct_count
+         FROM student_question_answers
+         GROUP BY user_id
+       ) sqa ON sqa.user_id = u.id
+       LEFT JOIN (
+         SELECT sender_id,
+                COUNT(*) AS teacher_messages_count,
+                MAX(created_at) AS latest_message_at
+         FROM teacher_messages
+         WHERE sender_role = 'student'
+         GROUP BY sender_id
+       ) tm ON tm.sender_id = u.id
+       WHERE u.role = 'student' AND u.is_admin = 0`
     )
-    .all(BOOTSTRAP_PENDING_HASH) as Array<{
+    .all() as Array<{
     id: number;
     name: string;
     grade: string;
     avatar_url: string;
     last_active_at: string;
+    ai_tutor_turns: number;
     total_points: number;
     quiz_points: number;
     activity_points: number;
     quizzes_completed: number;
-    questions_answered: number;
-    correct_answers: number;
+    quiz_questions_total: number;
+    quiz_correct_total: number;
+    avg_score_percent: number;
+    best_score_percent: number;
+    latest_quiz_at: string | null;
+    live_answered_count: number;
+    live_correct_count: number;
+    teacher_messages_count: number;
+    latest_message_at: string | null;
   }>;
 
-  const sorted = [...rows].sort(
-    (a, b) =>
-      b.total_points - a.total_points ||
-      b.correct_answers - a.correct_answers ||
-      b.quizzes_completed - a.quizzes_completed ||
-      a.name.localeCompare(b.name)
-  );
+  const computedEntries = rows.map((r) => {
+    const questionsAnswered = Math.max(Number(r.live_answered_count || 0), Number(r.quiz_questions_total || 0));
+    const correctAnswers = Math.max(Number(r.live_correct_count || 0), Number(r.quiz_correct_total || 0));
+    const totalPoints = Number(r.total_points || 0);
+    const quizPoints = Number(r.quiz_points || 0);
+    const activityPoints = Number(r.activity_points || 0);
 
-  const leaderboard = sorted.map((r, idx) => {
-    const rank = idx + 1;
-    const accuracyPercent =
-      r.questions_answered > 0
-        ? Math.round((Math.min(r.correct_answers, r.questions_answered) / r.questions_answered) * 1000) / 10
-        : 0;
-    const badge = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : null;
+    const fair = computeStudentFairMetrics({
+      correctAnswers,
+      questionsAnswered,
+      quizzesCompleted: r.quizzes_completed,
+      avgScorePercent: r.avg_score_percent,
+      bestScorePercent: r.best_score_percent,
+      activityPoints,
+      teacherMessagesCount: r.teacher_messages_count,
+      aiTutorTurns: r.ai_tutor_turns,
+    });
+
+    const lastActiveAt =
+      [r.last_active_at, r.latest_quiz_at, r.latest_message_at]
+        .filter((v): v is string => Boolean(v && v.trim()))
+        .sort()
+        .pop() || '';
+
     return {
-      rank,
       userId: r.id,
       name: r.name,
       grade: r.grade || '',
       avatar_url: r.avatar_url || '',
       online: isUserOnline(r.id),
-      totalPoints: Number(r.total_points || 0),
-      quizPoints: Number(r.quiz_points || 0),
-      activityPoints: Number(r.activity_points || 0),
-      quizzesCompleted: Number(r.quizzes_completed || 0),
-      correctAnswers: Number(r.correct_answers || 0),
-      questionsAnswered: Number(r.questions_answered || 0),
-      accuracyPercent,
-      badge,
+      totalPoints,
+      quizPoints,
+      activityPoints,
+      quizzesCompleted: fair.quizzesCompleted,
+      correctAnswers: fair.correctAnswers,
+      questionsAnswered: fair.questionsAnswered,
+      accuracyPercent: fair.accuracyPercent,
+      avgScorePercent: fair.avgScorePercent,
+      bestScorePercent: fair.bestScorePercent,
+      fairScore: fair.fairScore,
+      activityScore: fair.activityScore,
+      lastActiveAt,
       isCurrentUser: r.id === viewerUserId,
     };
   });
+
+  computedEntries.sort(compareStudentsByFairRank);
+
+  const leaderboard = computedEntries.map((entry, idx) => {
+    const rank = idx + 1;
+    const badge: 'gold' | 'silver' | 'bronze' | null =
+      rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : null;
+    return {
+      rank,
+      ...entry,
+      badge,
+    };
+  });
+
+  const topStudent =
+    leaderboard.find(
+      (e) => e.questionsAnswered > 0 || e.quizzesCompleted > 0 || e.totalPoints > 0
+    ) || null;
+  const activeCandidates = leaderboard.filter((e) => e.activityScore > 0 || e.online);
+  activeCandidates.sort(compareStudentsByActivity);
+  const mostActiveStudent = activeCandidates[0] || null;
 
   const meEntry = leaderboard.find((e) => e.userId === viewerUserId) || null;
   const recentEvents = db
@@ -1271,6 +1341,8 @@ function buildCompetitionLeaderboard(viewerUserId: number) {
   return {
     leaderboard,
     topThree: leaderboard.slice(0, 3),
+    topStudent,
+    mostActiveStudent,
     myStats: {
       rank: meEntry?.rank ?? null,
       totalPoints: meEntry ? meEntry.totalPoints : getUserCompetitionTotal(viewerUserId),
@@ -1278,13 +1350,19 @@ function buildCompetitionLeaderboard(viewerUserId: number) {
       activityPoints: meEntry?.activityPoints ?? 0,
       quizzesCompleted: meEntry?.quizzesCompleted ?? 0,
       correctAnswers: meEntry?.correctAnswers ?? 0,
+      questionsAnswered: meEntry?.questionsAnswered ?? 0,
       accuracyPercent: meEntry?.accuracyPercent ?? 0,
+      avgScorePercent: meEntry?.avgScorePercent ?? 0,
+      bestScorePercent: meEntry?.bestScorePercent ?? 0,
+      fairScore: meEntry?.fairScore ?? 0,
+      activityScore: meEntry?.activityScore ?? 0,
       badge: meEntry?.badge ?? null,
       totalStudents: leaderboard.length,
     },
     recentEvents,
     rules: COMPETITION_RULES,
     generatedAt: new Date().toISOString(),
+    diagnostics: { hasError: false, source: 'sqlite', errors: [] },
   };
 }
 
@@ -2251,12 +2329,25 @@ async function startServer() {
     broadcastToAdmins({ type: 'admin:vault_dirty', payload: { reason: 'firebase-google-login' } });
 
     const compTotal = getUserCompetitionTotal(userId);
+    const compBreakdown = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN event_type IN ('correct_answer', 'quiz_completed') THEN points ELSE 0 END), 0) AS quiz_points,
+                COALESCE(SUM(CASE WHEN event_type = 'curriculum_activity' THEN points ELSE 0 END), 0) AS activity_points
+         FROM competition_point_events WHERE user_id = ?`
+      )
+      .get(userId) as { quiz_points: number; activity_points: number } | undefined;
     const quizStatsRow = db
       .prepare(
-        `SELECT COALESCE(COUNT(*), 0) AS quizzes, COALESCE(SUM(correct_count), 0) AS correct
+        `SELECT COALESCE(COUNT(*), 0) AS quizzes,
+                COALESCE(SUM(correct_count), 0) AS correct,
+                COALESCE(SUM(total_questions), 0) AS answered,
+                ROUND(COALESCE(AVG(score_percent), 0), 1) AS avg_score,
+                ROUND(COALESCE(MAX(score_percent), 0), 1) AS best_score
          FROM quiz_attempts WHERE user_id = ?`
       )
-      .get(userId) as { quizzes: number; correct: number } | undefined;
+      .get(userId) as
+      | { quizzes: number; correct: number; answered: number; avg_score: number; best_score: number }
+      | undefined;
 
     res.json({
       user: serializeAuthUser(freshRow),
@@ -2264,8 +2355,13 @@ async function startServer() {
       accountPassport: buildAccountPassportForUser(userId),
       stats: {
         totalPoints: compTotal,
+        quizPoints: Number(compBreakdown?.quiz_points || 0),
+        activityPoints: Number(compBreakdown?.activity_points || 0),
         quizzesCompleted: Number(quizStatsRow?.quizzes || 0),
         correctAnswers: Number(quizStatsRow?.correct || 0),
+        questionsAnswered: Number(quizStatsRow?.answered || 0),
+        avgScorePercent: Number(quizStatsRow?.avg_score || 0),
+        bestScorePercent: Number(quizStatsRow?.best_score || 0),
       },
     });
   });
@@ -4177,6 +4273,12 @@ async function startServer() {
         q.id
       );
       broadcastAdminDashboard();
+      if (pointsAwarded === 0) {
+        broadcastToAllUsers({
+          type: 'leaderboard:update',
+          payload: { userId: actingUser.id, pointsAwarded: 0, totalPoints },
+        });
+      }
       checkpointDatabase();
       writeRecoverySnapshotSync('question-answered');
     }
@@ -4334,6 +4436,12 @@ async function startServer() {
         chapterNumber
       );
       broadcastAdminDashboard();
+      if (pointsAwarded === 0) {
+        broadcastToAllUsers({
+          type: 'leaderboard:update',
+          payload: { userId: user.id, pointsAwarded: 0, totalPoints },
+        });
+      }
       checkpointDatabase();
       writeRecoverySnapshotSync('quiz-submit');
     }
@@ -5211,15 +5319,7 @@ async function startServer() {
   });
 
   app.get('/api/push/vapid-public-key', (_req, res) => {
-    const publicKey = getPublicVapidKey();
-    const meta = getVapidKeyMeta();
-    res.setHeader('Cache-Control', 'no-store');
-    res.json({
-      publicKey,
-      configured: Boolean(publicKey),
-      source: meta.source,
-      checks: meta.checks,
-    });
+    res.json({ publicKey: getPublicVapidKey(), configured: true });
   });
 
   app.get('/api/push/status', requireAuth, (req: AuthenticatedRequest, res: Response) => {

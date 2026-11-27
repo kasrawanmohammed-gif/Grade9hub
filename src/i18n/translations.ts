@@ -743,6 +743,8 @@ export interface Translations {
     settingMaintenancePlaceholder: string;
     saveSettingsBtn: string;
     settingsSavedMsg: string;
+    fairScoreLabel: string;
+    syncErrorNotice: string;
   };
   community: {
     title: string;
@@ -881,6 +883,17 @@ export interface Translations {
     eventCorrectAnswer: string;
     eventQuizCompleted: string;
     eventCurriculumActivity: string;
+    fairScoreLabel: string;
+    fairScoreCol: string;
+    answeredCol: string;
+    activityCol: string;
+    sortByFairLabel: string;
+    sortByPointsLabel: string;
+    sortByActivityLabel: string;
+    fairScoringNote: string;
+    topLeaderTitle: string;
+    mostActiveClassmateTitle: string;
+    syncErrorNotice: string;
   };
   textbooks: {
     title: string;
@@ -1729,6 +1742,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       settingMaintenancePlaceholder: 'Leave blank to hide banner, or write a notice for all users...',
       saveSettingsBtn: 'Save App Settings',
       settingsSavedMsg: 'Application settings saved and applied across Grade 9 Hub.',
+      fairScoreLabel: 'Fair Mastery Score',
+      syncErrorNotice: 'Cloud sync diagnostic warning:',
     },
     community: {
       title: 'Student Community',
@@ -1867,6 +1882,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       eventCorrectAnswer: 'Correct Quiz Answer',
       eventQuizCompleted: 'Completed Quiz',
       eventCurriculumActivity: 'Curriculum Activity',
+      fairScoreLabel: 'Fair Mastery',
+      fairScoreCol: 'Fair Score',
+      answeredCol: 'Answered',
+      activityCol: 'Activity',
+      sortByFairLabel: 'Fair Ranking',
+      sortByPointsLabel: 'Total Points',
+      sortByActivityLabel: 'Most Active',
+      fairScoringNote: 'Fair Ranking normalizes mastery across different quiz lengths (such as 11, 15, 20, or 30 questions) using accuracy percentage and quiz score average so every student competes fairly.',
+      topLeaderTitle: 'Top Fair Leader',
+      mostActiveClassmateTitle: 'Most Active Classmate',
+      syncErrorNotice: 'Leaderboard sync diagnostic:',
     },
     textbooks: {
       title: 'Textbooks & Study Q&A',
@@ -2713,6 +2739,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       settingMaintenancePlaceholder: 'بە بەتاڵی جێیبهێڵە یان ئاگادارییەک بنووسە بۆ هەموو بەکارهێنەران...',
       saveSettingsBtn: 'پاشەکەوتکردنی ڕێکخستنەکان',
       settingsSavedMsg: 'ڕێکخستنەکانی بەرنامە پاشەکەوت کران و جێبەجێکران.',
+      fairScoreLabel: 'نمرەی دادپەروەر',
+      syncErrorNotice: 'ئاگاداری پشکنینی هاوکاتکردنی هەور:',
     },
     community: {
       title: 'کۆمەڵگەی قوتابیان',
@@ -2851,6 +2879,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       eventCorrectAnswer: 'وەڵامی ڕاستی پرسیار',
       eventQuizCompleted: 'تەواوکردنی تاقیکردنەوە',
       eventCurriculumActivity: 'چالاکی پڕۆگرام',
+      fairScoreLabel: 'نمرەی دادپەروەر',
+      fairScoreCol: 'دادپەروەر',
+      answeredCol: 'وەڵامدراو',
+      activityCol: 'چالاکی',
+      sortByFairLabel: 'ڕیزبەندی دادپەروەر',
+      sortByPointsLabel: 'کۆی خاڵەکان',
+      sortByActivityLabel: 'چالاکترین',
+      fairScoringNote: 'ڕیزبەندی دادپەروەر ئاستی شارەزایی قوتابیان بەشێوەیەکی هاوسەنگ دەپێوێت بۆ ژمارەی پرسیاری جیاواز (وەک ١١، ١٥، ٢٠ یان ٣٠ پرسیار) لە ڕێگەی ڕێژەی وردبینی و تێکڕای نمرەی تاقیکردنەوەکان.',
+      topLeaderTitle: 'پێشەنگی دادپەروەر',
+      mostActiveClassmateTitle: 'چالاکترین هاوپۆل',
+      syncErrorNotice: 'پشکنینی هاوکاتکردنی ڕیزبەندی:',
     },
     textbooks: {
       title: 'پەرتووک و پرسیار و وەڵامی خوێندن',
@@ -3697,6 +3736,8 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       settingMaintenancePlaceholder: 'اتركه فارغاً لإخفاء الشريط أو اكتب تنبيهاً لجميع المستخدمين...',
       saveSettingsBtn: 'حفظ إعدادات التطبيق',
       settingsSavedMsg: 'تم حفظ إعدادات التطبيق وتطبيقها فوراً.',
+      fairScoreLabel: 'النتيجة العادلة',
+      syncErrorNotice: 'تنبيه تشخيصي لمزامنة السحابة:',
     },
     community: {
       title: 'مجتمع الطلاب',
@@ -3835,6 +3876,17 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
       eventCorrectAnswer: 'إجابة صحيحة في اختبار',
       eventQuizCompleted: 'إكمال اختبار',
       eventCurriculumActivity: 'نشاط منهجي',
+      fairScoreLabel: 'النتيجة العادلة',
+      fairScoreCol: 'العادلة',
+      answeredCol: 'المجاب عنه',
+      activityCol: 'النشاط',
+      sortByFairLabel: 'الترتيب العادل',
+      sortByPointsLabel: 'مجموع النقاط',
+      sortByActivityLabel: 'الأكثر نشاطاً',
+      fairScoringNote: 'يعتمد الترتيب العادل على نسبة الدقة ومعدل نتائج الاختبارات لتقييم الطلاب بعدالة مهما اختلف عدد الأسئلة (مثل ١١ أو ١٥ أو ٢٠ أو ٣٠ سؤالاً).',
+      topLeaderTitle: 'المتصدر العادل',
+      mostActiveClassmateTitle: 'الزميل الأكثر نشاطاً',
+      syncErrorNotice: 'تشخيص مزامنة لوحة المتصدرين:',
     },
     textbooks: {
       title: 'الكتب المدرسية والأسئلة والأجوبة',

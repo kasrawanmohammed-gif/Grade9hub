@@ -228,9 +228,7 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
         body: JSON.stringify({ questionId, selectedOption: optionKey, lang: language }),
       });
       setCheckedResults((prev) => ({ ...prev, [questionId]: result }));
-      if (result.pointsAwarded && result.pointsAwarded > 0) {
-        window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
-      }
+      window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
       if (settings.soundFeedback) {
         playAnswerSound(result.isCorrect);
       }
@@ -317,9 +315,7 @@ export const GeneralQuestionsView: React.FC<GeneralQuestionsViewProps> = ({
         }),
       });
       setSubmission(data);
-      if (data.pointsAwarded && data.pointsAwarded > 0) {
-        window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
-      }
+      window.dispatchEvent(new CustomEvent(COMPETITION_UPDATED_EVENT));
     } catch (err) {
       const isNetworkOrOffline =
         (typeof navigator !== 'undefined' && !navigator.onLine) ||

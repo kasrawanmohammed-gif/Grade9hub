@@ -33,7 +33,9 @@ import {
   syncSessionBoundVault,
 } from '../lib/recoveryVault';
 import {
+  backfillMissingLeaderboardEntriesAsAdmin,
   consumePendingRedirectSignIn,
+  fetchCloudRegisteredUsersAsAdmin,
   MAIN_ADMIN_EMAIL,
   pullAllSchoolAccountsAsAdmin,
   pullCloudUserProfile,
@@ -224,16 +226,27 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
     if (data.user.email.trim().toLowerCase() === MAIN_ADMIN_EMAIL) {
       try {
-        const cloudAccounts = await pullAllSchoolAccountsAsAdmin();
+        const [cloudAccounts, cloudRegisteredUsers] = await Promise.all([
+          pullAllSchoolAccountsAsAdmin(),
+          fetchCloudRegisteredUsersAsAdmin(),
+        ]);
         const syncRes = await apiFetch<{
           localAccounts: SchoolAccountMirrorRow[];
         }>('/api/admin/cloud-sync', {
           method: 'POST',
-          body: JSON.stringify({ cloudAccounts }),
+          body: JSON.stringify({ cloudAccounts, cloudRegisteredUsers }),
         });
-        if (syncRes.localAccounts?.length) {
-          await pushSchoolAccountsAsAdmin(syncRes.localAccounts);
+        const passwordAccounts = (syncRes.localAccounts || []).filter(
+          (a) => !a.passwordHash.startsWith('!FIREBASE_GOOGLE_LINKED!')
+        );
+        if (passwordAccounts.length) {
+          await pushSchoolAccountsAsAdmin(passwordAccounts);
         }
+        await backfillMissingLeaderboardEntriesAsAdmin(
+          undefined,
+          syncRes.localAccounts || [],
+          true
+        ).catch(() => false);
       } catch {
         // non-fatal cloud mirror sync
       }
